@@ -6,8 +6,9 @@ Read [AGENTS.md](../AGENTS.md) and [PHILOSOPHY.md](PHILOSOPHY.md) before editing
 ## Prepare a clone
 
 Run `git config core.hooksPath .githooks` before the first commit. Git does not
-inherit that local setting. The unchanged hook removes attribution lines and
-session links. Save as the maintainer with
+inherit that local setting. The unchanged hook removes Claude attribution lines
+and session links. [PROMISES.md](PROMISES.md) records the coverage limit and
+pending upstream fix. Save as the maintainer with
 `git -c user.name="Guillaume Picard" commit`.
 
 ## Work and review
@@ -25,9 +26,8 @@ Use `gh pr create --base main` and choose a release label: `feature`,
 choice; it cannot judge whether the choice fits.
 
 The source workflow has jobs named `source-kit-validation` and `rehearsal`.
-The other checks are `pull-request-base` and `release-label`. Required checks
-on `main` must be configured by the maintainer after these workflows merge.
-Until then, a green local run is evidence, not a claim of merge protection.
+The other checks are `pull-request-base` and `release-label`. The `main` ruleset
+requires all four checks, so a failing required check blocks merging.
 The first release will establish `stable` and its ruleset; neither exists as
 part of this work. Do not change repository settings during source work.
 
@@ -50,8 +50,8 @@ Maintainer skills live in `.agents/maintainer-skills/`. They have no adapter or
 release entry. The writing skill retains its MIT licence. Before saving any
 prose, including error messages, commits and pull request text, load
 `.agents/maintainer-skills/writing-review/SKILL.md` and use embedded mode.
-Use British spelling and plain adult prose, with no em or en dashes. Preserve
-facts and conditions, use natural verbs, and cut unsupported claims.
+Follow the writing rule and copied-skill exception in [AGENTS.md](../AGENTS.md#writing).
+Preserve facts and conditions, use natural verbs, and cut unsupported claims.
 
 ## Checks and their limits
 

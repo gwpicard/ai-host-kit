@@ -61,7 +61,10 @@ def source_rules(work):
     mutation('README.md', lambda t: '\n'.join(s for s in t.splitlines() if not s.startswith('>')) + '\n', 'README beta notice is required')
     # A line saying beta elsewhere does not replace the warning block.
     mutation('README.md', lambda t: '\n'.join(s for s in t.splitlines() if not s.startswith('>')) + '\nBeta.\n', 'README beta notice is required')
+    # A warning hidden in an HTML comment is not visible to readers.
+    mutation('README.md', lambda t: t.replace('> **Beta', '<!--\n> **Beta').replace('> host is proven yet. Do not rely on it for a tool people depend on.', '> host is proven yet. Do not rely on it for a tool people depend on.\n-->'), 'README beta notice is required')
     mutation('README.md', lambda t: t + '\nIssue ' + chr(35) + '7\n', 'issue or pull request number')
+    mutation('README.md', lambda t: t + '\nowner/repo' + chr(35) + '7\n', 'issue or pull request number')
     mutation('README.md', lambda t: t + '\nhttps://github.com/example/tool/pull/' + '12345\n', 'issue or pull request number')
     mutation('README.md', lambda t: t + '\nCo-' + 'Authored-By: Example\n', 'attribution or session link')
     mutation('README.md', lambda t: t + '\nGenerated ' + 'by Codex\n', 'attribution or session link')
@@ -220,7 +223,7 @@ def commit_hook(work):
     saved = run(['git', 'log', '-1', '--format=%B'], cwd=repo).stdout.strip()
     assert saved == 'Check the commit hook\n\nProse about Claude Code stays.', saved
     assert run(['git', 'log', '-1', '--format=%an'], cwd=repo).stdout.strip() == 'Guillaume Picard'
-    print('A real disposable commit kept the prose and removed the attribution block and separator.')
+    print('A real disposable commit kept the prose and removed the Claude attribution block and separator.')
 
 
 def rehearsal_runner(work):

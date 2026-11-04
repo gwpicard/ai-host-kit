@@ -83,6 +83,8 @@ The current work adds no hosting behaviour and changes no real infrastructure.
 ## Writing
 
 Before saving prose, load `.agents/maintainer-skills/writing-review/SKILL.md`
-and use its embedded mode. British spelling, no em or en dashes, plain adult
-prose. Preserve facts, scope and limits. Maintainer documents may use precise
-technical language. Keep one owner per concept and link from elsewhere.
+and use its embedded mode. Use British spelling, no em or en dashes, and plain
+adult prose in text AI Host Kit maintains. The copied `writing-review` skill
+is the narrow exception: keep its licence, American spelling and dash examples
+as copied. Preserve facts, scope and limits. Maintainer documents may use
+precise technical language. Keep one owner per concept and link from elsewhere.

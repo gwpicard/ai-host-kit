@@ -4,14 +4,14 @@
 > commands, file formats and host recipes will change without notice, and no
 > host is proven yet. Do not rely on it for a tool people depend on.
 
-AI Host Kit puts a tool built with [AI Build Kit](https://github.com/gwpicard/ai-build-kit)
+AI Host Kit will put a tool built with [AI Build Kit](https://github.com/gwpicard/ai-build-kit)
 live on the infrastructure you choose, in accounts you or your organisation
-control, and looks after it there.
+control, and look after it there.
 
 AI Build Kit owns what the tool is: its code, its tests and its records. It
-writes a handover file that says what the tool needs to run. AI Host Kit reads
-that file, sets up the place where your tools run, puts each tool live, and
-keeps it recoverable: backups with a tested restore, a way back to an earlier
+writes a handover file that says what the tool needs to run. AI Host Kit will read
+that file, set up the place where your tools run, put each tool live, and
+keep it recoverable: backups with a tested restore, a way back to an earlier
 version, and checks that never change anything.
 
 ## Commands
@@ -20,7 +20,7 @@ version, and checks that never change anything.
 |---|---|
 | `/setup-hosting` | You need somewhere to run your tools, or you already have hosting you want the kit to look after |
 | `/go-live` | A tool is ready to go live for the first time |
-| `/check-live` | You want to know whether a live tool is healthy. It only reads, and never changes anything |
+| `/check-live` | You want to know whether a live tool is healthy. It will only read, and never change anything |
 | `/change-live` | Something about a live tool needs to change: undo a release, secrets, access, a restore test, a move, or retiring it |
 
 These are stubs: each reports that it is not built yet and stops. The first
@@ -39,11 +39,12 @@ Its commands use the `ai-host-kit:` prefix, such as `/ai-host-kit:check-live`.
 For Codex, Cursor, Gemini CLI and other coding agents:
 
 ```sh
-npx skills add gwpicard/ai-host-kit
+npx skills@1.7.6 add gwpicard/ai-host-kit --skill go-live check-live change-live
 ```
 
-Older AI Build Kit releases also contain `setup-hosting`. Use the Claude plugin
-route beside those releases: the shared installer would overwrite that skill.
+The shared route leaves out `/setup-hosting` because AI Build Kit still owns
+a skill of that name and the installer would replace it. This temporary limit
+ends when AI Build Kit retires its command. The Claude plugin keeps all four.
 See [compatibility](docs/COMPATIBILITY.md) for the limits and agent map.
 
 ## Credits

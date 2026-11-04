@@ -16,26 +16,34 @@ claude plugin install ai-host-kit@ai-host-kit --scope local
 
 Use `/ai-host-kit:setup-hosting`, `/ai-host-kit:go-live`,
 `/ai-host-kit:check-live` and `/ai-host-kit:change-live`. The plugin prefix keeps
-these separate from AI Build Kit's commands, including its older hosting command.
+these separate from AI Build Kit's commands, including its hosting command.
 Each generated command loads the canonical skill from its own plugin folder.
 
 ## Shared skills installer
 
 ```sh
-npx skills add gwpicard/ai-host-kit
+npx skills@1.7.6 add gwpicard/ai-host-kit --skill go-live check-live change-live
 ```
 
-The installer offers the four canonical skills. Codex, Cursor, Gemini CLI and
-Copilot read `.agents/skills/`; Claude Code can read `.claude/skills/` through
-the shared installer. The source also carries generated Cursor command files
+Installer version `1.7.6` was checked. Its `--skill` option selects skills by
+name and accepts several names after one option. The command above installs
+only `/go-live`, `/check-live` and `/change-live`. Choose your coding agents
+when prompted. Codex, Cursor, Gemini CLI and Copilot read `.agents/skills/`;
+Claude Code can read `.claude/skills/` through the shared installer. The source
+also carries generated Cursor command files
 and Gemini TOML command files for an archive copied as a whole. There is no
 separate Codex command adapter.
 
-Older AI Build Kit releases also contain `setup-hosting`. The shared installer
-uses a skill's name as its destination and cannot keep two skills of that name
-in the same project. Check its overwrite report before proceeding. Use the
-Claude plugin route alongside those releases, or wait for the Build Kit
-release that retires that skill. Do not overwrite the older skill silently.
+AI Build Kit still has `/setup-hosting`. The shared installer uses a skill's
+name as its destination, so installing AI Host Kit's skill of that name would
+replace AI Build Kit's. Leave it out until AI Build Kit retires its command;
+the shared route will then gain AI Host Kit's `/setup-hosting`. The Claude
+plugin route keeps all four commands now because its prefix avoids the clash.
+
+The pinned installer's [selection code](https://github.com/vercel-labs/skills/blob/v1.7.6/src/add.ts)
+and [destination code](https://github.com/vercel-labs/skills/blob/v1.7.6/src/installer.ts)
+define this behaviour. Do not select all skills with `--skill '*'` beside a
+Build Kit release that still has `/setup-hosting`.
 
 ## Packaged plugin folder
 
@@ -46,9 +54,18 @@ duplicate skills. No client behaviour is claimed from a metadata check alone.
 
 ## Maintainer rehearsal
 
-Use a disposable project and an isolated `CLAUDE_CONFIG_DIR` for plugin tests.
-Local marketplace paths let a branch be tested without publication. For shared
-skills, use `npx skills add <checkout> -a codex -a claude-code -s '*' -y` in a
-separate disposable project. Install AI Build Kit first and inspect both the
-command files and installer reports for overwrites. Keep logs outside the
-repository; a clash is a failed check, not a successful installation.
+Run from the maintainer source with a Build Kit checkout that still contains
+`setup-hosting` and a new output folder outside both repositories:
+
+```sh
+python3 .agents/tools/rehearse-installs.py /path/to/ai-build-kit /private/tmp/host-kit-installs
+```
+
+This needs Node.js, npm, network access and Claude Code. It copies tracked files
+to throwaway folders and isolates Claude configuration and the npm cache.
+It installs AI Build Kit first through each route, then checks that the plugin
+lists four prefixed Host Kit commands and the shared installer adds exactly
+three skills. It compares Build Kit's installed files before and after,
+including `setup-hosting`, and leaves logs in the output folder. It does not
+invoke a model or test hosting behaviour. A missing prerequisite is an
+incomplete check, never a pass.

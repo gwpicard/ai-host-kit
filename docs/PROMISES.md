@@ -22,7 +22,7 @@ the hosting promises above.
 | Adapters match canonical commands. | `build-adapters.sh --check`; `source-rules.sh` plants drift. |
 | Maintainer material stays outside the public kit. | Release allowlist and packer; `release-builder.sh` checks the assembled files and refusal cases. |
 | Attribution lines and issue references stay out of tracked files. | `validate-kit.sh`; `source-rules.sh` plants violations. |
-| The existing commit hook removes attribution lines. | `commit-hook.sh` checks an actual disposable commit. |
+| The existing commit hook removes Claude attribution lines and session links. | `commit-hook.sh` checks an actual disposable commit. Coverage for other agents is pending an upstream AI Build Kit fix, which AI Host Kit will copy. |
 | A beta version keeps its README notice. | `validate-kit.sh`; `source-rules.sh` removes the notice in a scratch copy. |
 | A pull request names a release category and targets only main. | The base and label scripts and workflows; `pull-request-checks.sh` tests accepted and refused inputs. |
 | The suite continues after failures and distinguishes incomplete checks. | `run-all.sh`; `rehearsal-runner.sh` plants passing, failing and incomplete tests. |

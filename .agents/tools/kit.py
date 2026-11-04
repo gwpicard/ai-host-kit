@@ -201,6 +201,7 @@ def build_release(args):
 
 
 def beta_notice(readme):
+    readme = re.sub(r'<!--.*?(?:-->|\Z)', '', readme, flags=re.S)
     blocks = re.findall(r'^>.*(?:\n>.*)*', readme, re.M)
     for block in blocks:
         words = ' '.join(re.sub(r'^> ?', '', block, flags=re.M).split())
@@ -240,7 +241,8 @@ def validate(args):
         attribution = re.compile(r'^\s*co-' + r'authored-by:|^\s*(?:claude|codex|gemini)-session:|'
             r'claude\.ai/code/' + r'session_|noreply@' + r'anthropic\.com|'
             r'^\W*generated (?:with|by) (?:\[)?(?:claude code|codex|chatgpt|gemini)(?:\b)', re.I | re.M)
-        references = re.compile(r'(?<![\w$}])' + chr(35) + r'\d+\b|/(?:issues|pull)/\d+\b|'
+        references = re.compile(r'\b[\w.-]+/[\w.-]+' + chr(35) + r'\d+\b|'
+            r'(?<![\w$}])' + chr(35) + r'\d+\b|/(?:issues|pull)/\d+\b|'
             r'\b(?:issue|pull request|PR)\s+(?:number\s+)?\d+\b', re.I)
         secret = re.compile(r'-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|'
             r'\bgh[pousr]_[A-Za-z0-9]{30,}\b|\bgithub_pat_[A-Za-z0-9_]{30,}\b|\bAKIA[A-Z0-9]{16}\b')
