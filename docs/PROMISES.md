@@ -26,3 +26,7 @@ the hosting promises above.
 | A beta version keeps its README notice. | `validate-kit.sh`; `source-rules.sh` removes the notice in a scratch copy. |
 | A pull request names a release category and targets only main. | The base and label scripts and workflows; `pull-request-checks.sh` tests accepted and refused inputs. |
 | The suite continues after failures and distinguishes incomplete checks. | `run-all.sh`; `rehearsal-runner.sh` plants passing, failing and incomplete tests. |
+| Invalid handover and hosting records name the field at fault. | `record_validation.py` uses the schemas in `contracts/`; `contracts.sh` checks invalid fixtures and their field paths. The handover schema is provisional pending AI Build Kit publication. |
+| An unsupported handover major version stops validation. | `record_validation.py`; `contracts.sh` checks the refusal and update message, plus optional fields in a newer minor version. |
+| A differing vendored schema fails comparison; an unavailable published copy is never a pass. | `check-handover-vendor.py` compares exact bytes and reports "could not check" with exit status `2` when the published copy is unavailable. `contracts.sh` checks matching, differing and unavailable copies. Actual upstream agreement remains unchecked. |
+| Host record gaps marked as accepted carry the person's words and date. | `host-record.schema.json`; `contracts.sh` rejects missing acceptance evidence and a `done` gap status. This checks the record, not the person's approval. |

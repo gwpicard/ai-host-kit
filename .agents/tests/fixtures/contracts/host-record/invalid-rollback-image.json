@@ -1,0 +1,47 @@
+{
+  "schema_version": "1.0",
+  "tool": "leave-approvals",
+  "recipe": "example-recipe",
+  "place": "example-place",
+  "address": "https://tool.example.invalid",
+  "health_address": "https://tool.example.invalid/api/health",
+  "deploys_on_merge": false,
+  "services": [
+    {
+      "name": "database",
+      "kind": "postgres",
+      "version": "17.0",
+      "region": "eu-example"
+    }
+  ],
+  "rollback_targets": [
+    {
+      "release": "previous-release",
+      "database_compatibility": "Compatible with the previous release."
+    }
+  ],
+  "last_backup_check": {
+    "at": "2026-11-04T10:00:00Z",
+    "result": "passed",
+    "evidence": "checks/backup.txt"
+  },
+  "last_restore_drill": {
+    "at": "2026-11-04T11:00:00Z",
+    "result": "passed",
+    "evidence": "checks/restore.txt",
+    "duration_hours": 0.5
+  },
+  "fit": "gaps",
+  "gaps": [
+    {
+      "field": "residency",
+      "reason": "The selected place does not meet the requested region.",
+      "status": "accepted",
+      "acceptance": {
+        "words": "I accept this region for the example.",
+        "by": "Example owner",
+        "at": "2026-11-04T12:00:00Z"
+      }
+    }
+  ]
+}
