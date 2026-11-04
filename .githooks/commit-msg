@@ -70,7 +70,7 @@ function footer(s) {
 }
 BEGIN {
   names = "(claude([ -](code|opus|sonnet|haiku))?|(openai[ -])?codex|cursor([ -]agent)?|gemini([ -](cli|code[ -]assist))?|(github[ -])?copilot(-swe-agent)?|gpt|o[134]|opus|sonnet|haiku|composer)"
-  version = "([ -][0-9]+([.][0-9]+)*)?([ -](pro|flash|lite|preview|mini|nano|max|codex|thinking|exp|sol|astra|terra|luna|[0-9]+))*([ ]*\\([^)]*\\))?"
+  version = "([ -][0-9]+([.][0-9]+)*[a-z]?)?([ -](opus|sonnet|haiku|pro|flash|lite|preview|mini|nano|max|codex|thinking|experimental|exp|sol|astra|terra|luna|[0-9]+))*([ ]*\\([^)]*\\))?"
 }
 { line[NR] = $0 }
 END {

@@ -254,6 +254,8 @@ real_commit "case and whitespace" "$plain" "  $(printf 'cO-%sEd-bY: GPT-5.3-Code
 real_commit "Copilot bot address" "$plain" "$trailer An Agent <$(printf '175728472+copilot-swe-agent[bot]@%s' users.noreply.github.com)>"
 real_commit "Claude bare model" "$plain" "$trailer Opus 4.6"
 real_commit "Gemini model" "$plain" "$trailer Gemini 2.5 Pro"
+real_commit "GPT model with letter suffix" "$plain" "$trailer GPT-4o-mini"
+real_commit "Claude version before family" "$plain" "$trailer Claude 3.5 Sonnet"
 
 # Human co-authors, ordinary noreply addresses and near-matching tool names
 # stay, as do documentation links and sentences mentioning attribution words.
