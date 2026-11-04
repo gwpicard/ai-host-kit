@@ -137,7 +137,8 @@
         },
         "location": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "pattern": "^(?![\\s\\S]*\\s)(?:https://[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?(?::[0-9]{1,5})?|s3://[a-z0-9][a-z0-9.-]*)(?:/[A-Za-z0-9._~/-]*)?$"
         },
         "region": {
           "type": "string",
@@ -160,7 +161,7 @@
       "items": {
         "type": "string",
         "minLength": 1,
-        "pattern": "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$"
+        "pattern": "^(?![\\s\\S]*\\s)[A-Za-z0-9._+-]+@[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?\\.[A-Za-z]{2,}$"
       },
       "minItems": 1,
       "uniqueItems": true
@@ -177,7 +178,8 @@
           },
           "host_record": {
             "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "pattern": "^(?![\\s\\S]*\\s)(?:https://[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?(?::[0-9]{1,5})?(?:/[A-Za-z0-9._~/-]*)?|(?!.*(?:^|/)\\.{1,2}(?:/|$))[A-Za-z0-9_~-][A-Za-z0-9._~/-]*)$"
           }
         },
         "required": [
@@ -192,11 +194,16 @@
       "properties": {
         "location": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "pattern": "^(?![\\s\\S]*\\s)(?:https://[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?(?::[0-9]{1,5})?|s3://[a-z0-9][a-z0-9.-]*)(?:/[A-Za-z0-9._~/-]*)?$"
         },
         "encryption": {
           "type": "string",
-          "minLength": 1
+          "enum": [
+            "AES-GCM",
+            "AES-256-GCM",
+            "ChaCha20-Poly1305"
+          ]
         },
         "key_custodian": {
           "type": "string",

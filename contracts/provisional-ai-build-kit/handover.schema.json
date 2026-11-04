@@ -175,12 +175,6 @@
               "person",
               "host"
             ]
-          },
-          "value": {
-            "not": {}
-          },
-          "secret_value": {
-            "not": {}
           }
         },
         "required": [
@@ -189,7 +183,7 @@
           "phase",
           "source"
         ],
-        "additionalProperties": true,
+        "additionalProperties": false,
         "allOf": [
           {
             "if": {

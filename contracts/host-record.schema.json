@@ -26,7 +26,7 @@
         {
           "type": "string",
           "minLength": 1,
-          "pattern": "^https://[^/@\\s]+(?:/[^\\s]*)?$"
+          "pattern": "^(?![\\s\\S]*\\s)https://[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?(?::[0-9]{1,5})?(?:/[A-Za-z0-9._~/-]*)?$"
         },
         {
           "type": "null"
@@ -38,7 +38,7 @@
         {
           "type": "string",
           "minLength": 1,
-          "pattern": "^https://[^/@\\s]+(?:/[^\\s]*)?$"
+          "pattern": "^(?![\\s\\S]*\\s)https://[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?(?::[0-9]{1,5})?(?:/[A-Za-z0-9._~/-]*)?$"
         },
         {
           "type": "null"
@@ -125,7 +125,8 @@
             },
             "evidence": {
               "type": "string",
-              "minLength": 1
+              "minLength": 1,
+              "pattern": "^(?![\\s\\S]*\\s)(?:https://[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?(?::[0-9]{1,5})?(?:/[A-Za-z0-9._~/-]*)?|(?!.*(?:^|/)\\.{1,2}(?:/|$))[A-Za-z0-9_~-][A-Za-z0-9._~/-]*)$"
             }
           },
           "required": [
@@ -159,7 +160,8 @@
             },
             "evidence": {
               "type": "string",
-              "minLength": 1
+              "minLength": 1,
+              "pattern": "^(?![\\s\\S]*\\s)(?:https://[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?(?::[0-9]{1,5})?(?:/[A-Za-z0-9._~/-]*)?|(?!.*(?:^|/)\\.{1,2}(?:/|$))[A-Za-z0-9_~-][A-Za-z0-9._~/-]*)$"
             },
             "duration_hours": {
               "type": "number",

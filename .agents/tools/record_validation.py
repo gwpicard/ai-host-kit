@@ -1,8 +1,10 @@
 """Validate record structure without reading a host or printing record values."""
 import argparse
+from collections import Counter
 from datetime import datetime
 import ipaddress
 import json
+import math
 from pathlib import Path
 import re
 import sys
@@ -115,6 +117,27 @@ def unknown_fields(value, schema, path=()):
             yield from unknown_fields(child, schema.get('items', {}), path + (index,))
 
 
+def secret_fields(value, path=()):
+    """Find obvious secret content without returning or printing the content."""
+    if isinstance(value, dict):
+        for name, child in value.items():
+            yield from secret_fields(child, path + (name,))
+    elif isinstance(value, list):
+        for index, child in enumerate(value):
+            yield from secret_fields(child, path + (index,))
+    elif isinstance(value, str):
+        if re.search(r'(?i)(?:^|[^a-z0-9])(?:key|token|sig|password)\s*[:=]', value) or re.search(r'-----BEGIN (?:[A-Z ]+ )?PRIVATE KEY-----', value):
+            yield path
+            return
+        for run in re.findall(r'[A-Za-z0-9+/_=-]{32,}', value):
+            entropy = -sum((count / len(run)) * math.log2(count / len(run))
+                           for count in Counter(run).values())
+            threshold = 3.5 if re.fullmatch(r'[0-9a-fA-F]{40,}', run) else 4.0
+            if entropy >= threshold:
+                yield path
+                return
+
+
 def validate(kind, path):
     loaded = dependencies()
     if loaded is None:
@@ -133,6 +156,9 @@ def validate(kind, path):
     for error in validator_type(schema, format_checker=formats).iter_errors(value):
         for parts, reason in error_fields(error):
             errors.add((field_path(parts), reason))
+    if kind in ('host-record', 'place-record'):
+        for parts in secret_fields(value):
+            errors.add((field_path(parts), 'contains possible secret content; use a name or reference'))
     if errors:
         for name, reason in sorted(errors):
             print(f'{name}: {reason}')

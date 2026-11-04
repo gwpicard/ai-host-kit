@@ -1,0 +1,53 @@
+{
+  "schema_version": "1.0",
+  "place": {
+    "name": "example-place",
+    "organisation": "Example organisation",
+    "kind": "server",
+    "provider": "example-provider",
+    "region": "eu-example"
+  },
+  "network": {
+    "cidrs": [
+      "192.0.2.0/24",
+      "2001:db8::/32"
+    ],
+    "private_access": "Company VPN"
+  },
+  "firewall": {
+    "default_inbound": "deny",
+    "rules": [
+      {
+        "protocol": "tcp",
+        "ports": [
+          443
+        ],
+        "sources": [
+          "0.0.0.0/0",
+          "::/0"
+        ],
+        "purpose": "Tool access"
+      }
+    ]
+  },
+  "backup_storage": {
+    "provider": "example-storage",
+    "location": "s3://user:synthetic-secret-marker@example-backups",
+    "region": "eu-example",
+    "encrypted": true
+  },
+  "alert_addresses": [
+    "ops@example.invalid"
+  ],
+  "tools": [
+    {
+      "name": "leave-approvals",
+      "host_record": "https://github.com/example/tool/blob/main/hosting/host-record.json"
+    }
+  ],
+  "encrypted_state": {
+    "location": "s3://example-state/encrypted-state",
+    "encryption": "AES-GCM",
+    "key_custodian": "Example owner"
+  }
+}

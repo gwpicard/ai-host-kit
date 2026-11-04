@@ -108,5 +108,95 @@
     "file": "place-record/invalid-state-location.json",
     "kind": "place-record",
     "field": "encrypted_state.location"
+  },
+  {
+    "file": "handover/invalid-secret-default.json",
+    "kind": "handover",
+    "field": "config[0].default",
+    "withheld": "synthetic-secret-marker"
+  },
+  {
+    "file": "handover/invalid-secret-nested-object.json",
+    "kind": "handover",
+    "field": "config[0].fallback",
+    "withheld": "synthetic-secret-marker"
+  },
+  {
+    "file": "handover/invalid-secret-nested-array.json",
+    "kind": "handover",
+    "field": "config[0].fallback",
+    "withheld": "synthetic-secret-marker"
+  },
+  {
+    "file": "handover/invalid-secret-future-field.json",
+    "kind": "handover",
+    "field": "config[0].optional_value",
+    "withheld": "synthetic-secret-marker"
+  },
+  {
+    "file": "host-record/invalid-health-token.json",
+    "kind": "host-record",
+    "field": "health_address",
+    "withheld": "synthetic-secret-marker"
+  },
+  {
+    "file": "place-record/invalid-state-signature.json",
+    "kind": "place-record",
+    "field": "encrypted_state.location",
+    "withheld": "synthetic-secret-marker"
+  },
+  {
+    "file": "place-record/invalid-encryption-key.json",
+    "kind": "place-record",
+    "field": "encrypted_state.encryption",
+    "withheld": "synthetic-secret-marker"
+  },
+  {
+    "file": "host-record/invalid-address-user-info.json",
+    "kind": "host-record",
+    "field": "address",
+    "withheld": "synthetic-secret-marker"
+  },
+  {
+    "file": "host-record/invalid-evidence-fragment.json",
+    "kind": "host-record",
+    "field": "last_backup_check.evidence",
+    "withheld": "synthetic-secret-marker"
+  },
+  {
+    "file": "place-record/invalid-backup-user-info.json",
+    "kind": "place-record",
+    "field": "backup_storage.location",
+    "withheld": "synthetic-secret-marker"
+  },
+  {
+    "file": "place-record/invalid-record-query.json",
+    "kind": "place-record",
+    "field": "tools[0].host_record",
+    "withheld": "synthetic-secret-marker"
+  },
+  {
+    "file": "host-record/invalid-text-password.json",
+    "kind": "host-record",
+    "field": "gaps[0].reason",
+    "withheld": "synthetic-secret-marker"
+  },
+  {
+    "file": "place-record/invalid-text-token.json",
+    "kind": "place-record",
+    "field": "encrypted_state.key_custodian",
+    "withheld": "synthetic-secret-marker"
+  },
+  {
+    "file": "host-record/invalid-text-entropy.json",
+    "kind": "host-record",
+    "field": "gaps[0].acceptance.words",
+    "withheld": "SyntheticAbCd0123456789EfGhIjKlMnOpQrStUvWxYz"
+  },
+  {
+    "file": "place-record/invalid-text-entropy.json",
+    "kind": "place-record",
+    "field": "network.private_access",
+    "withheld": "SyntheticAbCd0123456789EfGhIjKlMnOpQrStUvWxYz"
   }
 ]
