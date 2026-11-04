@@ -251,6 +251,36 @@ def proof_checks(m, work):
     assert m.menu(recipes) == []
 
 
+def marker_menu(m, work, text):
+    recipes = work / 'marker-recipes'
+    target = recipes / 'azure'; target.mkdir(parents=True, exist_ok=True)
+    (target / 'PROVEN.md').write_text(text)
+    output = io.StringIO()
+    with contextlib.redirect_stderr(output):
+        result = m.menu(recipes, explain=True)
+    return result, output.getvalue()
+
+
+def required_marker_checks(m, work):
+    valid = (EXPECTED / 'proof/valid.md').read_text()
+    for line in valid.splitlines()[1:]:
+        area = line.split(':')[0]
+        for details in ('No real run yet', 'synthetic-secret-marker No real run yet; checks pending'):
+            result, reason = marker_menu(m, work, valid.replace(line, area + ': passed - ' + details))
+            assert result == [], area
+            assert reason == 'azure: not yet proven; ' + area + ': no real run recorded\n', (area, reason)
+
+
+def later_marker_note_checks(m, work):
+    valid = (EXPECTED / 'proof/valid.md').read_text()
+    assert marker_menu(m, work, valid + '\n## Later section\n\nNo real run yet\n') == (['azure'], '')
+
+
+def later_marker_outcome_checks(m, work):
+    valid = (EXPECTED / 'proof/valid.md').read_text()
+    assert marker_menu(m, work, valid + '\n## Later section\n\nExtra checks: passed - No real run yet\n') == (['azure'], '')
+
+
 def number_checks(m, work):
     h = json.loads((FIXTURES / 'handover/valid.json').read_text())
     for duration, host in ((900.0, 'azure'), (300.0, 'vercel-postgres'), (301, 'azure')):
@@ -316,6 +346,8 @@ def wildcard_checks(m, work):
 
 CHECKS = {'fit':fit_checks,'questions':question_checks,'suggestions':suggestion_checks,'recipes':recipe_checks,'records':record_checks,'schemas':schema_checks,'replays':replay_checks,
           'future needs':future_need_checks, 'literal paths':path_checks, 'proof records':proof_checks,
+          'required outcome markers':required_marker_checks, 'later section marker note':later_marker_note_checks,
+          'later section marker outcome':later_marker_outcome_checks,
           'JSON numbers':number_checks, 'place before preference':place_priority_checks,
           'typed membership':membership_checks, 'wildcards':wildcard_checks}
 
@@ -348,6 +380,9 @@ def mutations(work):
         ('proof content required', 'proof records', 'scripts/host_fit.py', 'errors = proof_errors(recipe)', "errors = [] if (recipe / 'PROVEN.md').is_file() else ['missing']"),
         ('proof date and versions', 'proof records', 'scripts/host_fit.py', "errors.append('Real run: needs one valid date and named versions')", 'pass'),
         ('proof outcomes required', 'proof records', 'scripts/host_fit.py', "errors.append(area + ': needs one passed outcome with details')", 'pass'),
+        ('required outcome marker veto', 'required outcome markers', 'scripts/host_fit.py', "if any('No real run yet' in line for line in outcomes):", 'if False:'),
+        ('later marker note allowed', 'later section marker note', 'scripts/host_fit.py', "if any('No real run yet' in line for line in outcomes):", "if any('No real run yet' in line for line in lines):"),
+        ('later marker outcome allowed', 'later section marker outcome', 'scripts/host_fit.py', "if any('No real run yet' in line for line in outcomes):", "if any('No real run yet' in line for line in lines):"),
         ('JSON numeric durations', 'JSON numbers', 'scripts/host_fit.py', 'return isinstance(value, (int, float)) and not isinstance(value, bool)', 'return isinstance(value, int) and not isinstance(value, bool)'),
         ('actual place before choice', 'place before preference', 'scripts/host_fit.py', "if 'place' not in place and 'choice' in place:", "if 'choice' in place:"),
         ('membership type distinction', 'typed membership', 'scripts/host_fit.py', 'any(json_equal(actual, item) for item in expected)', 'actual in expected'),

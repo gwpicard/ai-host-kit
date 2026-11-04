@@ -32,8 +32,13 @@ Rollback: passed - <what was rolled back and checked>
 
 Replace the placeholders with the observed outcomes. The reader requires the
 exact area labels, `passed - ` and non-empty details. A missing, duplicate or
-malformed line, a failed outcome, or `No real run yet` keeps the recipe off the
-menu. The `menu` command reports the reason without echoing the record's text.
+malformed line or a failed outcome keeps the recipe off the menu. Any
+`No real run yet` marker in a required outcome line also keeps the recipe off
+the menu. The `menu` command names the affected area without echoing the
+record's text.
+
 Other headings and notes are allowed. Record `Moved from:` when the run was a
-move, and mark later sections without a run `No real run yet`. Those notes do
-not satisfy the required outcomes or receive a separate automated check.
+move. Mark a later, non-required section without a run `No real run yet`;
+this records that section as untested and leaves an otherwise proven recipe
+on the menu. Such notes do not satisfy the required outcomes or receive a
+separate automated check.

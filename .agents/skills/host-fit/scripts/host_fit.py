@@ -191,6 +191,8 @@ def proof_errors(recipe):
         outcomes = [line for line in lines if line.startswith(area + ':')]
         if len(outcomes) != 1 or not re.fullmatch(re.escape(area) + r': passed - \S[^\r\n]*', outcomes[0]):
             errors.append(area + ': needs one passed outcome with details')
+        if any('No real run yet' in line for line in outcomes):
+            errors.append(area + ': no real run recorded')
     return errors
 
 
