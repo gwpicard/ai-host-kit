@@ -1,0 +1,25 @@
+# AI Host Kit public allowlist: source|destination.
+# Only tracked files ship. Maintainer material stays outside the release.
+README.md|
+LICENSE|
+NOTICES|
+CONTRIBUTING.md|
+SECURITY.md|
+.ai-host-kit-version|
+docs/PHILOSOPHY.md|
+docs/PROMISES.md|
+docs/SOURCES.md|
+docs/COMPATIBILITY.md|
+.claude-plugin|
+.claude/commands|
+.cursor/commands|
+.gemini/commands|
+agent-plugin/plugin.json|
+.agents/skills/change-live|
+.agents/skills/check-live|
+.agents/skills/go-live|
+.agents/skills/setup-hosting|
+.agents/skills/change-live|agent-plugin/skills/change-live
+.agents/skills/check-live|agent-plugin/skills/check-live
+.agents/skills/go-live|agent-plugin/skills/go-live
+.agents/skills/setup-hosting|agent-plugin/skills/setup-hosting

@@ -1,0 +1,30 @@
+# Adapted from AI Build Kit; see docs/SOURCES.md.
+name: source checks
+on:
+  pull_request:
+permissions:
+  contents: read
+concurrency:
+  group: source-checks-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  source-kit-validation:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - name: Check generated adapters
+        run: .agents/tools/build-adapters.sh --check
+      - name: Validate the kit
+        run: .agents/tools/validate-kit.sh
+  rehearsal:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - name: Run the test suite
+        run: .agents/tests/run-all.sh

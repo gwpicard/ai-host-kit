@@ -1,0 +1,27 @@
+name: Suggest a change
+description: Describe something the beta AI Host Kit should help a person do.
+title: "[Suggestion] "
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: AI Host Kit is beta. Remove secrets, personal data and private project details before posting.
+  - type: textarea
+    id: situation
+    attributes:
+      label: When would you use this?
+      description: Describe the situation and the problem you are trying to solve.
+    validations:
+      required: true
+  - type: textarea
+    id: result
+    attributes:
+      label: What should the person see or do?
+      description: Describe the result in plain language. A technical design is not required.
+    validations:
+      required: true
+  - type: textarea
+    id: fallback
+    attributes:
+      label: What do you do today?
+      description: Leave this blank if there is no workaround.

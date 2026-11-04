@@ -1,0 +1,24 @@
+# Adapted from AI Build Kit; see docs/SOURCES.md.
+name: release label
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, labeled, unlabeled, ready_for_review]
+permissions:
+  contents: read
+concurrency:
+  group: release-label-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+jobs:
+  release-label:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - name: Require a release category
+        env:
+          LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+        run: |
+          printf '%s' "$LABELS" \
+            | python3 -c 'import json, sys; print("\n".join(json.load(sys.stdin)))' \
+            | .agents/tools/check-release-label.sh

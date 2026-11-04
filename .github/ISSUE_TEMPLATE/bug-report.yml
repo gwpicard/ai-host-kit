@@ -1,0 +1,51 @@
+name: Report a problem
+description: Report a problem with the beta AI Host Kit.
+title: "[Problem] "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: AI Host Kit is beta. Remove secrets, personal data and private project details before posting.
+  - type: input
+    id: version
+    attributes:
+      label: AI Host Kit version
+      description: See the installed plugin version or the .ai-host-kit-version file in a release archive.
+      placeholder: v0.0.1
+    validations:
+      required: true
+  - type: dropdown
+    id: installation
+    attributes:
+      label: Installation route
+      options:
+        - Claude Code plugin
+        - Shared skills installer
+        - Agent Plugins folder
+        - Manual archive copy
+    validations:
+      required: true
+  - type: input
+    id: agent
+    attributes:
+      label: Coding agent and version
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: What happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: How can someone reproduce it?
+    validations:
+      required: true

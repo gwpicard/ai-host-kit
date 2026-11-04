@@ -1,0 +1,5 @@
+# The four commands a person can ask AI Host Kit to run.
+command setup-hosting
+command go-live
+command check-live
+command change-live

@@ -1,0 +1,7 @@
+# GENERATED from .agents/skills/change-live/SKILL.md. Do not edit.
+# Run .agents/tools/build-adapters.sh to regenerate.
+description = "Change a live tool after approval, starting with rollback."
+prompt = """
+Load and follow `.agents/skills/change-live/SKILL.md`.
+Treat the following as the person's request (it may be empty): {{args}}
+"""

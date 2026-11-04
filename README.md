@@ -14,7 +14,7 @@ that file, sets up the place where your tools run, puts each tool live, and
 keeps it recoverable: backups with a tested restore, a way back to an earlier
 version, and checks that never change anything.
 
-## Planned commands
+## Commands
 
 | Command | When you reach for it |
 |---|---|
@@ -23,8 +23,28 @@ version, and checks that never change anything.
 | `/check-live` | You want to know whether a live tool is healthy. It only reads, and never changes anything |
 | `/change-live` | Something about a live tool needs to change: undo a release, secrets, access, a restore test, a move, or retiring it |
 
-None of these exist yet. The first host planned is a rented server running
-Coolify, followed by Microsoft Azure.
+These are stubs: each reports that it is not built yet and stops. The first
+host planned is a rented server running Coolify, followed by Microsoft Azure.
+
+## Install the beta
+
+From your project folder, choose one route. For Claude Code:
+
+```sh
+claude plugin marketplace add gwpicard/ai-host-kit
+claude plugin install ai-host-kit@ai-host-kit --scope local
+```
+
+Its commands use the `ai-host-kit:` prefix, such as `/ai-host-kit:check-live`.
+For Codex, Cursor, Gemini CLI and other coding agents:
+
+```sh
+npx skills add gwpicard/ai-host-kit
+```
+
+Older AI Build Kit releases also contain `setup-hosting`. Use the Claude plugin
+route beside those releases: the shared installer would overwrite that skill.
+See [compatibility](docs/COMPATIBILITY.md) for the limits and agent map.
 
 ## Credits
 
