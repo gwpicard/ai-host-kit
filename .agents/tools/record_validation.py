@@ -126,6 +126,10 @@ def secret_fields(value, path=()):
         for index, child in enumerate(value):
             yield from secret_fields(child, path + (index,))
     elif isinstance(value, str):
+        if (len(path) == 3 and path[0] == 'rollback_targets' and
+                isinstance(path[1], int) and path[2] == 'image'):
+            # The schema checks digest syntax; a digest is public image metadata.
+            value = re.sub(r'@sha256:[0-9a-f]{64}$', '', value)
         if re.search(r'(?i)(?:^|[^a-z0-9])(?:key|token|sig|password)\s*[:=]', value) or re.search(r'-----BEGIN (?:[A-Z ]+ )?PRIVATE KEY-----', value):
             yield path
             return

@@ -198,5 +198,35 @@
     "kind": "place-record",
     "field": "network.private_access",
     "withheld": "SyntheticAbCd0123456789EfGhIjKlMnOpQrStUvWxYz"
+  },
+  {
+    "file": "host-record/invalid-rollback-user-info.json",
+    "kind": "host-record",
+    "field": "rollback_targets[0].image",
+    "withheld": "https://user:synthetic-secret-marker@registry.example.invalid/tool:previous"
+  },
+  {
+    "file": "host-record/invalid-rollback-query.json",
+    "kind": "host-record",
+    "field": "rollback_targets[0].image",
+    "withheld": "registry.example.invalid/tool:previous?synthetic-secret-marker"
+  },
+  {
+    "file": "place-record/invalid-encryption-method.json",
+    "kind": "place-record",
+    "field": "encrypted_state.encryption",
+    "withheld": "AES-CBC"
+  },
+  {
+    "file": "place-record/invalid-alert-local-part.json",
+    "kind": "place-record",
+    "field": "alert_addresses[0]",
+    "withheld": "ops:synthetic-secret-marker@example.invalid"
+  },
+  {
+    "file": "host-record/invalid-text-hex-entropy.json",
+    "kind": "host-record",
+    "field": "recipe",
+    "withheld": "0123456789abcde0123456789abcde0123456789abcde0123456789abcde"
   }
 ]

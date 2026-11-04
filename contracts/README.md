@@ -77,6 +77,7 @@ References use restricted forms:
 | Fields | Allowed form |
 |---|---|
 | Host `address` and `health_address` | HTTPS URL, or `null` when not recorded. |
+| Host `rollback_targets[].image` | Registry host, optional numeric port, repository path, then `:tag` or `@sha256:` and 64 lower-case hexadecimal characters. No URL scheme. |
 | Place `backup_storage.location` and `encrypted_state.location` | HTTPS URL or `s3://bucket/path`; a bucket alone is allowed. |
 | Backup and restore `evidence`, and place `tools[].host_record` | HTTPS URL or a relative repository path without `.` or `..` segments. |
 | Place `alert_addresses` | Plain email address with an ASCII local part and domain. |
@@ -89,12 +90,26 @@ that a host exists or that a file can be read. IPv6 URL literals and signed
 URLs are not supported. `encrypted_state.encryption` accepts only `AES-GCM`,
 `AES-256-GCM` or `ChaCha20-Poly1305`, with no parameters or key material.
 
+The handover's `image.dockerfile` and `sign_in.staff.outside_refused_test`
+use relative repository paths without `.` or `..` segments. `health.path`
+and `sign_in.staff.redirect_path` start with one slash. These paths use the
+same path characters as the references above and refuse URL credentials,
+queries, fragments, percent escapes, backslashes and whitespace.
+
+The remaining declared free-text fields in all three schemas refuse
+`scheme://` tokens containing `@`, `?`, `#`, `%` or a backslash, including
+tokens within prose or commands. The same rule applies to cron text. This
+blocks these URL forms, not every possible way to conceal a credential.
+Unknown optional handover fields remain outside these field constraints.
+
 The record validator also scans every string value in host and place records
 for obvious secret content. It refuses assignments such as `key=`, `token=`,
 `sig=` and `password=` (also with a colon), private-key headers and long runs
 with high character entropy. Runs of at least 32 token characters are refused
 at four bits per character; hexadecimal runs of at least 40 characters use
-3.5 bits. These checks can reject harmless identifiers or hashes and miss
+3.5 bits. The SHA-256 digest suffix in a rollback image is public metadata
+and is excluded from this scan; the schema still checks its form. These
+checks can reject harmless identifiers or other hashes and miss
 short, disguised or low-entropy secrets. They catch obvious cases and are not
 a guarantee that a record contains no secrets. The handover's free text is
 not covered by this scan.

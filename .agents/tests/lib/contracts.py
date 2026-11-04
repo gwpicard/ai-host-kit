@@ -15,7 +15,7 @@ from checks import ROOT, run
 
 TOOLS = ROOT / '.agents/tools'
 sys.path.insert(0, str(TOOLS))
-from record_validation import dependencies, field_path, SCHEMAS
+from record_validation import dependencies, field_path, SCHEMAS, validate
 
 FIXTURES = ROOT / '.agents/tests/fixtures/contracts'
 VALIDATE = [sys.executable, TOOLS / 'record_validation.py']
@@ -51,6 +51,17 @@ def vendor_checks(work):
          'tag', '-a', 'v1.0.0', '-m', 'Schema fixture'], cwd=repo)
     pin = dict(repository=vendor.REPOSITORY, tag='v1.0.0', commit=commit,
                path='handover.schema.json', sha256=hashlib.sha256(draft.read_bytes()).hexdigest())
+    # An inherited repository override must not redirect the vendor's Git calls.
+    with patch.dict(vendor.os.environ, {'GIT_DIR': str(ROOT / '.git')}):
+        observed = vendor.git(repo, 'rev-parse', 'HEAD').decode().strip()
+    assert observed == commit, 'vendor Git environment filtering did not preserve the selected repository'
+    # Inherited configuration must not rewrite the repository being fetched.
+    with patch.dict(vendor.os.environ, {
+            'GIT_CONFIG_COUNT': '1',
+            'GIT_CONFIG_KEY_0': 'url.' + str(work / 'absent') + '.insteadOf',
+            'GIT_CONFIG_VALUE_0': str(repo)}):
+        assert vendor.confirmed_upstream(pin, _test_repository=repo) == draft.read_bytes()
+    print('Vendor Git environment filtering ignores repository and URL rewrite overrides.')
     confirmed = vendor.confirmed_upstream
     # Exercise main's status and messages, replacing only the pin reader and
     # transport. The production pin reader and CLI have no override mechanism.
@@ -186,6 +197,105 @@ def reference_checks(work):
     print('All address, storage and evidence fields refuse URL credentials, queries and fragments.')
 
 
+def string_checks(work):
+    sample = work / 'string.json'
+    def check(kind, expected):
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            status = validate(kind, sample)
+        assert status == expected, f'{kind}: expected status {expected}, got {status}: {output.getvalue()}'
+        return output.getvalue()
+
+    def strings(value, path=()):
+        if isinstance(value, dict):
+            for key, child in value.items():
+                yield from strings(child, path + (key,))
+        elif isinstance(value, list):
+            for index, child in enumerate(value):
+                yield from strings(child, path + (index,))
+        elif isinstance(value, str):
+            yield path
+
+    for kind in SCHEMAS:
+        baseline = json.loads((FIXTURES / kind / 'valid.json').read_text())
+        if kind == 'handover':
+            baseline['postgres']['extensions'] = ['pgcrypto']
+        for parts in strings(baseline):
+            for reference in ('https://user:synthetic-secret-marker@example.invalid/ref',
+                              'https://example.invalid/ref?synthetic-secret-marker',
+                              'https://example.invalid/ref#synthetic-secret-marker',
+                              'https://example.invalid/ref%3Fsynthetic-secret-marker',
+                              'https://example.invalid/ref\\synthetic-secret-marker'):
+                record = copy.deepcopy(baseline)
+                obj = record
+                for part in parts[:-1]:
+                    obj = obj[part]
+                # Preserve the five-part cron rule so only the URL rule refuses it.
+                obj[parts[-1]] = reference + (' 0 * * *' if parts[-1] == 'cron' else '')
+                sample.write_text(json.dumps(record))
+                output = check(kind, 1)
+                assert field_path(parts) + ':' in output and reference not in output
+                assert 'synthetic-secret-marker' not in output
+
+    for parts in (('health', 'path'), ('sign_in', 'staff', 'redirect_path')):
+        for reference in ('/api/health', '//user:synthetic-secret-marker@example.invalid',
+                          '/api?synthetic-secret-marker', '/api#synthetic-secret-marker',
+                          '/api%3Fsynthetic-secret-marker', '/api\\synthetic-secret-marker',
+                          '/api\n'):
+            record = json.loads((FIXTURES / 'handover/valid.json').read_text())
+            obj = record
+            for part in parts[:-1]:
+                obj = obj[part]
+            obj[parts[-1]] = reference
+            sample.write_text(json.dumps(record))
+            expected = 0 if reference == '/api/health' else 1
+            output = check('handover', expected)
+            if expected:
+                assert field_path(parts) + ':' in output and reference not in output
+
+    for kind, parts in (('handover', ('processes', 'web', 'command')),
+                        ('host-record', ('gaps', 0, 'reason')),
+                        ('place-record', ('network', 'private_access'))):
+        for suffix, expected in (('', 0), ('?synthetic-secret-marker', 1)):
+            record = json.loads((FIXTURES / kind / 'valid.json').read_text())
+            obj = record
+            for part in parts[:-1]:
+                obj = obj[part]
+            obj[parts[-1]] = 'Use https://example.invalid/ref' + suffix + ' for details.'
+            sample.write_text(json.dumps(record))
+            output = check(kind, expected)
+            if expected:
+                assert field_path(parts) + ':' in output and 'synthetic-secret-marker' not in output
+
+    digest = hashlib.sha256(b'synthetic image contents').hexdigest()
+    for reference, expected in (
+            ('registry.example.invalid/team/tool:v1.2', 0),
+            ('registry.example.invalid:5000/team/tool:previous', 0),
+            ('localhost:5000/tool@sha256:' + digest, 0),
+            ('registry.example.invalid/tool', 1),
+            ('registry.example.invalid/tool@sha256:abc', 1),
+            ('registry.example.invalid/tool:previous?synthetic-secret-marker', 1),
+            ('registry.example.invalid/tool:previous#synthetic-secret-marker', 1),
+            ('user:synthetic-secret-marker@registry.example.invalid/tool:previous', 1),
+            ('registry.example.invalid/tool:previous\n', 1)):
+        record = json.loads((FIXTURES / 'host-record/valid.json').read_text())
+        # A digest is allowed at any rollback index, but stays subject to scanning elsewhere.
+        record['rollback_targets'].append(copy.deepcopy(record['rollback_targets'][0]))
+        record['rollback_targets'][1]['image'] = reference
+        sample.write_text(json.dumps(record))
+        output = check('host-record', expected)
+        if expected:
+            assert 'rollback_targets[1].image:' in output and reference not in output
+        else:
+            assert 'valid:' in output
+    record['recipe'] = digest
+    record['rollback_targets'][1]['image'] = 'registry.example.invalid/tool@sha256:' + digest
+    sample.write_text(json.dumps(record))
+    output = check('host-record', 1)
+    assert 'recipe:' in output and digest not in output
+    print('Every declared string field refuses credential-bearing URL forms; tagged and digested images pass.')
+
+
 def main():
     loaded = dependencies()
     if loaded is None:
@@ -204,7 +314,8 @@ def main():
     actual = {str(p.relative_to(FIXTURES)) for p in FIXTURES.glob('*/invalid-*.json')}
     assert actual == {case['file'] for case in cases}, 'every invalid fixture needs an expected field'
     for case in cases:
-        result = run(VALIDATE + [case['kind'], FIXTURES / case['file']], expected=1)
+        result = run(VALIDATE + [case['kind'], FIXTURES / case['file']], expected=None)
+        assert result.returncode == 1, case['file'] + ': expected refusal; ' + result.stdout
         assert case['field'] + ':' in result.stdout, result.stdout
         assert 'valid:' not in result.stdout
         assert 'example-value-that-must-not-be-shown' not in result.stdout
@@ -247,6 +358,7 @@ def main():
         assert 'could not check:' in missing.stdout and 'valid:' not in missing.stdout
         vendor_checks(work)
         reference_checks(work)
+        string_checks(work)
     print(f'All three schemas, valid fixtures and {len(cases)} field-specific refusals passed.')
     print('Version handling, withheld values and match, drift and unavailable vendor outcomes passed.')
     return 0

@@ -19,11 +19,13 @@
         },
         "owner": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "pattern": "^(?![\\s\\S]*[A-Za-z][A-Za-z0-9+.-]*://[^\\s]*[@?#%\\\\])[\\s\\S]*$"
         },
         "successor": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "pattern": "^(?![\\s\\S]*[A-Za-z][A-Za-z0-9+.-]*://[^\\s]*[@?#%\\\\])[\\s\\S]*$"
         }
       },
       "required": [
@@ -38,7 +40,7 @@
         "dockerfile": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[^\\s\\\\]+$"
+          "pattern": "^(?![\\s\\S]*\\s)(?!.*(?:^|/)\\.{1,2}(?:/|$))[A-Za-z0-9_~-][A-Za-z0-9._~/-]*$"
         }
       },
       "required": [
@@ -54,7 +56,8 @@
           "properties": {
             "command": {
               "type": "string",
-              "minLength": 1
+              "minLength": 1,
+              "pattern": "^(?![\\s\\S]*[A-Za-z][A-Za-z0-9+.-]*://[^\\s]*[@?#%\\\\])[\\s\\S]*$"
             },
             "port": {
               "type": "integer",
@@ -75,7 +78,8 @@
               "properties": {
                 "command": {
                   "type": "string",
-                  "minLength": 1
+                  "minLength": 1,
+                  "pattern": "^(?![\\s\\S]*[A-Za-z][A-Za-z0-9+.-]*://[^\\s]*[@?#%\\\\])[\\s\\S]*$"
                 }
               },
               "required": [
@@ -93,7 +97,8 @@
           "properties": {
             "command": {
               "type": "string",
-              "minLength": 1
+              "minLength": 1,
+              "pattern": "^(?![\\s\\S]*[A-Za-z][A-Za-z0-9+.-]*://[^\\s]*[@?#%\\\\])[\\s\\S]*$"
             },
             "when": {
               "const": "before-release"
@@ -118,7 +123,7 @@
         "path": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^/[^\\s?#]*$"
+          "pattern": "^/(?!/)(?![\\s\\S]*\\s)[A-Za-z0-9._~/-]*$"
         },
         "checks": {
           "type": "array",
@@ -219,7 +224,8 @@
           "type": "array",
           "items": {
             "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "pattern": "^(?![\\s\\S]*[A-Za-z][A-Za-z0-9+.-]*://[^\\s]*[@?#%\\\\])[\\s\\S]*$"
           },
           "uniqueItems": true
         },
@@ -319,7 +325,8 @@
       "properties": {
         "library": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "pattern": "^(?![\\s\\S]*[A-Za-z][A-Za-z0-9+.-]*://[^\\s]*[@?#%\\\\])[\\s\\S]*$"
         },
         "runner": {
           "type": "string",
@@ -346,7 +353,7 @@
               "cron": {
                 "type": "string",
                 "minLength": 1,
-                "pattern": "^\\S+(?:[ \\t]+\\S+){4}$"
+                "pattern": "^(?![\\s\\S]*[A-Za-z][A-Za-z0-9+.-]*://[^\\s]*[@?#%\\\\])\\S+(?:[ \\t]+\\S+){4}$"
               }
             },
             "required": [
@@ -381,17 +388,18 @@
             },
             "directory": {
               "type": "string",
-              "minLength": 1
+              "minLength": 1,
+              "pattern": "^(?![\\s\\S]*[A-Za-z][A-Za-z0-9+.-]*://[^\\s]*[@?#%\\\\])[\\s\\S]*$"
             },
             "outside_refused_test": {
               "type": "string",
               "minLength": 1,
-              "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[^\\s\\\\]+$"
+              "pattern": "^(?![\\s\\S]*\\s)(?!.*(?:^|/)\\.{1,2}(?:/|$))[A-Za-z0-9_~-][A-Za-z0-9._~/-]*$"
             },
             "redirect_path": {
               "type": "string",
               "minLength": 1,
-              "pattern": "^/[^\\s?#]*$"
+              "pattern": "^/(?!/)(?![\\s\\S]*\\s)[A-Za-z0-9._~/-]*$"
             }
           },
           "required": [
@@ -488,7 +496,8 @@
       "type": "array",
       "items": {
         "type": "string",
-        "minLength": 1
+        "minLength": 1,
+        "pattern": "^(?![\\s\\S]*[A-Za-z][A-Za-z0-9+.-]*://[^\\s]*[@?#%\\\\])[\\s\\S]*$"
       },
       "uniqueItems": true
     },
