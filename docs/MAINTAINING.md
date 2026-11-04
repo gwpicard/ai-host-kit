@@ -6,10 +6,28 @@ Read [AGENTS.md](../AGENTS.md) and [PHILOSOPHY.md](PHILOSOPHY.md) before editing
 ## Prepare a clone
 
 Run `git config core.hooksPath .githooks` before the first commit. Git does not
-inherit that local setting. The unchanged hook removes Claude attribution lines
-and session links. [PROMISES.md](PROMISES.md) records the coverage limit and
-pending upstream fix. Save as the maintainer with
-`git -c user.name="Guillaume Picard" commit`.
+inherit that local setting. Save as the maintainer with
+`git -c user.name="Guillaume Picard" commit`. The hook recognises Claude Code,
+Codex, Cursor, Gemini CLI and GitHub Copilot attribution in these forms:
+
+- Co-author trailers whose name matches a recognised agent or model family,
+  or whose address matches a recognised agent address.
+- Agent session trailers, including session-id and session-url keys.
+- Whole-line generated-with, generated-by and made-with footers, with plain
+  or Markdown-linked agent names, an optional leading symbol and final full stop.
+- Standalone agent addresses and bylines ending in an agent address.
+- Lines containing recognised Claude Code, Codex or ChatGPT, Cursor, Gemini
+  or Copilot session and sharing URLs, even when surrounded by prose.
+
+Matching ignores case. The hook lists the names, addresses and URL paths it
+recognises, with sources for the documented attribution formats. It also removes
+a separator above a removed block, trims trailing blank lines and collapses
+consecutive blank lines. Ordinary sentences mentioning an agent, human co-author
+trailers and sign-offs stay. New formats need new patterns and tests.
+
+The hook changes message text only. It does not change Git author or committer
+metadata, scrub pull requests or rewrite history. It runs only when configured
+and can be bypassed with Git's `--no-verify` option.
 
 ## Work and review
 
