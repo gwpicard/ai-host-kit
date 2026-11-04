@@ -1,0 +1,232 @@
+[
+  {
+    "file": "handover/invalid-port.json",
+    "kind": "handover",
+    "field": "processes.web.port"
+  },
+  {
+    "file": "handover/invalid-missing-owner.json",
+    "kind": "handover",
+    "field": "tool.owner"
+  },
+  {
+    "file": "handover/invalid-app-role.json",
+    "kind": "handover",
+    "field": "postgres.roles.app"
+  },
+  {
+    "file": "handover/invalid-secret-value.json",
+    "kind": "handover",
+    "field": "config[0].value"
+  },
+  {
+    "file": "handover/invalid-build-secret.json",
+    "kind": "handover",
+    "field": "config[0].phase"
+  },
+  {
+    "file": "handover/invalid-recovery.json",
+    "kind": "handover",
+    "field": "recovery.max_restore_hours"
+  },
+  {
+    "file": "handover/invalid-worker.json",
+    "kind": "handover",
+    "field": "processes.worker"
+  },
+  {
+    "file": "handover/invalid-sign-in.json",
+    "kind": "handover",
+    "field": "sign_in.staff.provider"
+  },
+  {
+    "file": "handover/invalid-public-bucket.json",
+    "kind": "handover",
+    "field": "files.buckets[0].private"
+  },
+  {
+    "file": "handover/invalid-major.json",
+    "kind": "handover",
+    "field": "schema_version"
+  },
+  {
+    "file": "handover/invalid-version-type.json",
+    "kind": "handover",
+    "field": "schema_version"
+  },
+  {
+    "file": "host-record/invalid-merge-setting.json",
+    "kind": "host-record",
+    "field": "deploys_on_merge"
+  },
+  {
+    "file": "host-record/invalid-date.json",
+    "kind": "host-record",
+    "field": "last_backup_check.at"
+  },
+  {
+    "file": "host-record/invalid-drill-duration.json",
+    "kind": "host-record",
+    "field": "last_restore_drill.duration_hours"
+  },
+  {
+    "file": "host-record/invalid-acceptance.json",
+    "kind": "host-record",
+    "field": "gaps[0].acceptance"
+  },
+  {
+    "file": "host-record/invalid-gap-done.json",
+    "kind": "host-record",
+    "field": "gaps[0].status"
+  },
+  {
+    "file": "host-record/invalid-rollback-image.json",
+    "kind": "host-record",
+    "field": "rollback_targets[0].image"
+  },
+  {
+    "file": "place-record/invalid-key.json",
+    "kind": "place-record",
+    "field": "encrypted_state.key"
+  },
+  {
+    "file": "place-record/invalid-firewall-port.json",
+    "kind": "place-record",
+    "field": "firewall.rules[0].ports[0]"
+  },
+  {
+    "file": "place-record/invalid-network.json",
+    "kind": "place-record",
+    "field": "network.cidrs[0]"
+  },
+  {
+    "file": "place-record/invalid-alert.json",
+    "kind": "place-record",
+    "field": "alert_addresses[0]"
+  },
+  {
+    "file": "place-record/invalid-state-location.json",
+    "kind": "place-record",
+    "field": "encrypted_state.location"
+  },
+  {
+    "file": "handover/invalid-secret-default.json",
+    "kind": "handover",
+    "field": "config[0].default",
+    "withheld": "synthetic-secret-marker"
+  },
+  {
+    "file": "handover/invalid-secret-nested-object.json",
+    "kind": "handover",
+    "field": "config[0].fallback",
+    "withheld": "synthetic-secret-marker"
+  },
+  {
+    "file": "handover/invalid-secret-nested-array.json",
+    "kind": "handover",
+    "field": "config[0].fallback",
+    "withheld": "synthetic-secret-marker"
+  },
+  {
+    "file": "handover/invalid-secret-future-field.json",
+    "kind": "handover",
+    "field": "config[0].optional_value",
+    "withheld": "synthetic-secret-marker"
+  },
+  {
+    "file": "host-record/invalid-health-token.json",
+    "kind": "host-record",
+    "field": "health_address",
+    "withheld": "synthetic-secret-marker"
+  },
+  {
+    "file": "place-record/invalid-state-signature.json",
+    "kind": "place-record",
+    "field": "encrypted_state.location",
+    "withheld": "synthetic-secret-marker"
+  },
+  {
+    "file": "place-record/invalid-encryption-key.json",
+    "kind": "place-record",
+    "field": "encrypted_state.encryption",
+    "withheld": "synthetic-secret-marker"
+  },
+  {
+    "file": "host-record/invalid-address-user-info.json",
+    "kind": "host-record",
+    "field": "address",
+    "withheld": "synthetic-secret-marker"
+  },
+  {
+    "file": "host-record/invalid-evidence-fragment.json",
+    "kind": "host-record",
+    "field": "last_backup_check.evidence",
+    "withheld": "synthetic-secret-marker"
+  },
+  {
+    "file": "place-record/invalid-backup-user-info.json",
+    "kind": "place-record",
+    "field": "backup_storage.location",
+    "withheld": "synthetic-secret-marker"
+  },
+  {
+    "file": "place-record/invalid-record-query.json",
+    "kind": "place-record",
+    "field": "tools[0].host_record",
+    "withheld": "synthetic-secret-marker"
+  },
+  {
+    "file": "host-record/invalid-text-password.json",
+    "kind": "host-record",
+    "field": "gaps[0].reason",
+    "withheld": "synthetic-secret-marker"
+  },
+  {
+    "file": "place-record/invalid-text-token.json",
+    "kind": "place-record",
+    "field": "encrypted_state.key_custodian",
+    "withheld": "synthetic-secret-marker"
+  },
+  {
+    "file": "host-record/invalid-text-entropy.json",
+    "kind": "host-record",
+    "field": "gaps[0].acceptance.words",
+    "withheld": "SyntheticAbCd0123456789EfGhIjKlMnOpQrStUvWxYz"
+  },
+  {
+    "file": "place-record/invalid-text-entropy.json",
+    "kind": "place-record",
+    "field": "network.private_access",
+    "withheld": "SyntheticAbCd0123456789EfGhIjKlMnOpQrStUvWxYz"
+  },
+  {
+    "file": "host-record/invalid-rollback-user-info.json",
+    "kind": "host-record",
+    "field": "rollback_targets[0].image",
+    "withheld": "https://user:synthetic-secret-marker@registry.example.invalid/tool:previous"
+  },
+  {
+    "file": "host-record/invalid-rollback-query.json",
+    "kind": "host-record",
+    "field": "rollback_targets[0].image",
+    "withheld": "registry.example.invalid/tool:previous?synthetic-secret-marker"
+  },
+  {
+    "file": "place-record/invalid-encryption-method.json",
+    "kind": "place-record",
+    "field": "encrypted_state.encryption",
+    "withheld": "AES-CBC"
+  },
+  {
+    "file": "place-record/invalid-alert-local-part.json",
+    "kind": "place-record",
+    "field": "alert_addresses[0]",
+    "withheld": "ops:synthetic-secret-marker@example.invalid"
+  },
+  {
+    "file": "host-record/invalid-text-hex-entropy.json",
+    "kind": "host-record",
+    "field": "recipe",
+    "withheld": "0123456789abcde0123456789abcde0123456789abcde0123456789abcde"
+  }
+]

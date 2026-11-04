@@ -56,6 +56,19 @@ Preserve facts and conditions, use natural verbs, and cut unsupported claims.
 ## Checks and their limits
 
 The checks require Git, a POSIX shell, Python 3 and Ruby for YAML parsing.
+The contract tests also use pinned Python packages. Prepare an environment
+outside the repository and activate it before running the suite or rehearsal:
+
+```sh
+python3 -m venv /private/tmp/ai-host-kit-checks
+. /private/tmp/ai-host-kit-checks/bin/activate
+python3 -m pip install -r .agents/tools/schema-requirements.txt
+```
+
+On systems without `/private/tmp`, choose another temporary folder. CI installs
+the same requirements. [The contract guide](../contracts/README.md) describes
+the provisional handover, Host Kit records and the separate vendoring check.
+
 The validator checks adapter drift, command consistency, configuration syntax,
 release boundaries, attribution, issue references and the beta notice. It
 rejects em and en dashes in shipped prose. It reads Git's tracked file list;

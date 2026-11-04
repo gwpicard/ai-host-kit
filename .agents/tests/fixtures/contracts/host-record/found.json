@@ -1,0 +1,28 @@
+{
+  "schema_version": "1.0",
+  "tool": "leave-approvals",
+  "recipe": "example-recipe",
+  "place": "example-place",
+  "address": null,
+  "health_address": null,
+  "deploys_on_merge": false,
+  "services": [
+    {
+      "name": "database",
+      "kind": "postgres",
+      "version": "17.0",
+      "region": "eu-example"
+    }
+  ],
+  "rollback_targets": [],
+  "last_backup_check": null,
+  "last_restore_drill": null,
+  "fit": "unassessed",
+  "gaps": [
+    {
+      "field": "last_restore_drill",
+      "reason": "No restore evidence was found.",
+      "status": "open"
+    }
+  ]
+}

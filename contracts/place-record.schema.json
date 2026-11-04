@@ -1,0 +1,241 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AI Host Kit place record v1",
+  "description": "Owned by AI Host Kit. Kept in the organisation's private place repository. Records the encrypted state location, never its key. Records are declarations, not proof of network rules, encryption or recovery.",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "place": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"
+        },
+        "organisation": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^(?![\\s\\S]*[A-Za-z][A-Za-z0-9+.-]*://[^\\s]*[@?#%\\\\])[\\s\\S]*$"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "server",
+            "cloud",
+            "existing"
+          ]
+        },
+        "provider": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^(?![\\s\\S]*[A-Za-z][A-Za-z0-9+.-]*://[^\\s]*[@?#%\\\\])[\\s\\S]*$"
+        },
+        "region": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^(?![\\s\\S]*[A-Za-z][A-Za-z0-9+.-]*://[^\\s]*[@?#%\\\\])[\\s\\S]*$"
+        }
+      },
+      "required": [
+        "name",
+        "organisation",
+        "kind",
+        "provider",
+        "region"
+      ],
+      "additionalProperties": false
+    },
+    "network": {
+      "type": "object",
+      "properties": {
+        "cidrs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "format": "cidr"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "private_access": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^(?![\\s\\S]*[A-Za-z][A-Za-z0-9+.-]*://[^\\s]*[@?#%\\\\])[\\s\\S]*$"
+        }
+      },
+      "required": [
+        "cidrs",
+        "private_access"
+      ],
+      "additionalProperties": false
+    },
+    "firewall": {
+      "type": "object",
+      "properties": {
+        "default_inbound": {
+          "const": "deny"
+        },
+        "rules": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "protocol": {
+                "type": "string",
+                "enum": [
+                  "tcp",
+                  "udp"
+                ]
+              },
+              "ports": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 65535
+                },
+                "minItems": 1,
+                "uniqueItems": true
+              },
+              "sources": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "format": "cidr"
+                },
+                "minItems": 1,
+                "uniqueItems": true
+              },
+              "purpose": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^(?![\\s\\S]*[A-Za-z][A-Za-z0-9+.-]*://[^\\s]*[@?#%\\\\])[\\s\\S]*$"
+              }
+            },
+            "required": [
+              "protocol",
+              "ports",
+              "sources",
+              "purpose"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "default_inbound",
+        "rules"
+      ],
+      "additionalProperties": false
+    },
+    "backup_storage": {
+      "type": "object",
+      "properties": {
+        "provider": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^(?![\\s\\S]*[A-Za-z][A-Za-z0-9+.-]*://[^\\s]*[@?#%\\\\])[\\s\\S]*$"
+        },
+        "location": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^(?![\\s\\S]*\\s)(?:https://[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?(?::[0-9]{1,5})?|s3://[a-z0-9][a-z0-9.-]*)(?:/[A-Za-z0-9._~/-]*)?$"
+        },
+        "region": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^(?![\\s\\S]*[A-Za-z][A-Za-z0-9+.-]*://[^\\s]*[@?#%\\\\])[\\s\\S]*$"
+        },
+        "encrypted": {
+          "const": true
+        }
+      },
+      "required": [
+        "provider",
+        "location",
+        "region",
+        "encrypted"
+      ],
+      "additionalProperties": false
+    },
+    "alert_addresses": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "pattern": "^(?![\\s\\S]*\\s)[A-Za-z0-9._+-]+@[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?\\.[A-Za-z]{2,}$"
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "tools": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"
+          },
+          "host_record": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^(?![\\s\\S]*\\s)(?:https://[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?(?::[0-9]{1,5})?(?:/[A-Za-z0-9._~/-]*)?|(?!.*(?:^|/)\\.{1,2}(?:/|$))[A-Za-z0-9_~-][A-Za-z0-9._~/-]*)$"
+          }
+        },
+        "required": [
+          "name",
+          "host_record"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "encrypted_state": {
+      "type": "object",
+      "properties": {
+        "location": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^(?![\\s\\S]*\\s)(?:https://[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?(?::[0-9]{1,5})?|s3://[a-z0-9][a-z0-9.-]*)(?:/[A-Za-z0-9._~/-]*)?$"
+        },
+        "encryption": {
+          "type": "string",
+          "enum": [
+            "AES-GCM",
+            "AES-256-GCM",
+            "ChaCha20-Poly1305"
+          ]
+        },
+        "key_custodian": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The person who keeps the key. Never put the key in this record.",
+          "pattern": "^(?![\\s\\S]*[A-Za-z][A-Za-z0-9+.-]*://[^\\s]*[@?#%\\\\])[\\s\\S]*$"
+        }
+      },
+      "required": [
+        "location",
+        "encryption",
+        "key_custodian"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "schema_version",
+    "place",
+    "network",
+    "firewall",
+    "backup_storage",
+    "alert_addresses",
+    "tools",
+    "encrypted_state"
+  ],
+  "additionalProperties": false
+}

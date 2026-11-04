@@ -1,0 +1,78 @@
+{
+  "schema_version": "1.0",
+  "tool": {
+    "name": "leave-approvals",
+    "owner": "Example owner",
+    "successor": "Example successor"
+  },
+  "image": {
+    "dockerfile": "Dockerfile"
+  },
+  "processes": {
+    "web": {
+      "command": "web",
+      "port": 3000
+    },
+    "worker": null,
+    "migrate": {
+      "command": "migrate",
+      "when": "before-release"
+    }
+  },
+  "health": {
+    "path": "/api/health",
+    "checks": [
+      "database"
+    ],
+    "commit_env": "SOURCE_COMMIT"
+  },
+  "config": [
+    {
+      "name": "DATABASE_URL",
+      "kind": "secret",
+      "phase": "runtime",
+      "source": "host"
+    },
+    {
+      "name": "AUTH_SECRET",
+      "kind": "secret",
+      "phase": "runtime",
+      "source": "generated"
+    }
+  ],
+  "postgres": {
+    "min_major": 17,
+    "extensions": [],
+    "roles": {
+      "migrate": "owner",
+      "app": "no-owner-no-bypassrls"
+    }
+  },
+  "sign_in": {
+    "staff": {
+      "provider": "oidc",
+      "directory": "single-tenant",
+      "outside_refused_test": "e2e/outside-account.spec.ts",
+      "redirect_path": "/auth/callback"
+    },
+    "outsiders": "none"
+  },
+  "access": "private",
+  "residency": "eu",
+  "data_risk": [
+    "personal"
+  ],
+  "recovery": {
+    "max_data_loss_hours": 24,
+    "max_restore_hours": 8
+  },
+  "limits": {
+    "longest_request_seconds": 30,
+    "memory_mb": 512,
+    "outbound_internet": true
+  },
+  "previews": {
+    "wanted": false,
+    "data": "separate-database"
+  }
+}

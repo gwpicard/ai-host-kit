@@ -26,5 +26,10 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           persist-credentials: false
+      - name: Install contract check dependencies
+        run: |
+          python3 -m venv "$RUNNER_TEMP/contract-checks"
+          "$RUNNER_TEMP/contract-checks/bin/python" -m pip install -r .agents/tools/schema-requirements.txt
+          echo "$RUNNER_TEMP/contract-checks/bin" >> "$GITHUB_PATH"
       - name: Run the test suite
         run: .agents/tests/run-all.sh
