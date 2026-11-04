@@ -14,6 +14,8 @@ COMMANDS = {'setup-hosting', 'go-live', 'check-live', 'change-live'}
 
 def run(args, cwd=ROOT, expected=0, env=None, input=None):
     merged = dict(os.environ, PYTHONDONTWRITEBYTECODE='1')
+    # Disposable runners must not append their planted failures to the real job summary.
+    merged.pop('GITHUB_STEP_SUMMARY', None)
     if env:
         merged.update(env)
     result = subprocess.run([str(x) for x in args], cwd=cwd, env=merged, input=input,
