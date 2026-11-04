@@ -1,0 +1,53 @@
+[
+  {
+    "file": "valid.md",
+    "menu": [
+      "azure"
+    ],
+    "reasons": []
+  },
+  {
+    "file": "empty.md",
+    "menu": [],
+    "reasons": [
+      "Real run:",
+      "Provision:",
+      "Rollback:"
+    ]
+  },
+  {
+    "file": "malformed.md",
+    "menu": [],
+    "reasons": [
+      "Real run:"
+    ]
+  },
+  {
+    "file": "incomplete.md",
+    "menu": [],
+    "reasons": [
+      "Rollback:"
+    ]
+  },
+  {
+    "file": "invalid-date.md",
+    "menu": [],
+    "reasons": [
+      "Real run:"
+    ]
+  },
+  {
+    "file": "missing-versions.md",
+    "menu": [],
+    "reasons": [
+      "Real run:"
+    ]
+  },
+  {
+    "file": "malformed-versions.md",
+    "menu": [],
+    "reasons": [
+      "Real run:"
+    ]
+  }
+]

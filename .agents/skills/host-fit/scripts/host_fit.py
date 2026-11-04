@@ -1,6 +1,7 @@
 """Local host choice. Reads declarations; never contacts a provider."""
 import argparse
 import contextlib
+from datetime import date
 import io
 import json
 from pathlib import Path
@@ -62,39 +63,77 @@ def handover(path, questions_only=False):
 
 
 def need_values(value, path=()):
-    if isinstance(value, dict):
+    if path in (('schema_version',), ('tool', 'name'), ('tool', 'owner'), ('tool', 'successor')):
+        return
+    if path == ('processes', 'worker') and value is None:
+        return
+    if isinstance(value, dict) and value:
         for key, child in value.items():
-            if not path and key in ('schema_version', 'tool'):
-                continue
             yield from need_values(child, path + (key,))
-    elif isinstance(value, list) and value and isinstance(value[0], dict):
+    elif isinstance(value, list) and value:
+        if len({'number' if json_number(child) else type(child).__name__ for child in value}) > 1:
+            yield path, value
         for index, child in enumerate(value):
             yield from need_values(child, path + (index,))
-    elif value is not None:
+    else:
         yield path, value
 
 
 def capability_path(path):
-    return '.'.join('*' if isinstance(p, int) else p for p in path)
+    return '.'.join('*' if isinstance(p, int) else p.replace('\\', '\\\\').replace('.', '\\.').replace('*', '\\*') for p in path)
+
+
+def need_path(path):
+    parts = []
+    for part in path:
+        if isinstance(part, int):
+            parts.append(f'[{part}]')
+        else:
+            safe = rv.field_path((part,))
+            parts.append('[' + json.dumps(safe) + ']' if '.' in safe or safe == '*' else ('.' if parts else '') + safe)
+    return ''.join(parts)
 
 
 def lookup(value, path):
-    for key in path.split('.'):
-        if not isinstance(value, dict) or key not in value:
-            return None
-        value = value[key]
-    return value
+    if not path:
+        return [value]
+    key, *rest = path
+    if key == '*':
+        if not isinstance(value, list) or not value:
+            return [None]
+        return [item for child in value for item in lookup(child, rest)]
+    if not isinstance(value, dict) or key not in value:
+        return [None]
+    return lookup(value[key], rest)
+
+
+def json_number(value):
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def json_equal(actual, expected):
+    if json_number(actual) and json_number(expected):
+        return actual == expected
+    if isinstance(actual, list) and isinstance(expected, list):
+        return len(actual) == len(expected) and all(json_equal(a, e) for a, e in zip(actual, expected))
+    return type(actual) is type(expected) and actual == expected
 
 
 def condition_result(condition, h):
-    actual = lookup(h, condition['field'])
+    results = [compare_condition(condition, actual) for actual in lookup(h, condition['field'].split('.'))]
+    if 'not satisfied' in results:
+        return 'not satisfied'
+    return 'unknown' if 'unknown' in results else 'satisfied'
+
+
+def compare_condition(condition, actual):
     if actual is None:
         return 'unknown'
     expected, op = condition['value'], condition['operator']
     if op == 'eq':
-        result = type(actual) is type(expected) and actual == expected
+        result = json_equal(actual, expected)
     elif op == 'in':
-        result = isinstance(expected, list) and actual in expected
+        result = isinstance(expected, list) and any(json_equal(actual, item) for item in expected)
     elif isinstance(actual, (int, float)) and not isinstance(actual, bool) and isinstance(expected, (int, float)) and not isinstance(expected, bool):
         result = actual <= expected if op == 'lte' else actual >= expected
     else:
@@ -108,6 +147,9 @@ def fit(h, recipe):
     for path, value in need_values(h):
         field = capability_path(path)
         selectors = caps.get(field, {})
+        # Scalar arrays declared as a whole still apply to each scalar item.
+        if isinstance(path[-1], int) and not isinstance(value, (dict, list)):
+            selectors = caps.get(field, caps.get(capability_path(path[:-1]), {}))
         selector = str(value).lower() if isinstance(value, bool) else str(value)
         entry = selectors.get(selector, selectors.get('*', {}))
         status = entry.get('status', 'unknown')
@@ -117,15 +159,53 @@ def fit(h, recipe):
         elif status == 'met-if':
             c = entry['condition']
             detail = f"{c['field']} {c['operator']} {json.dumps(c['value'])}; {condition_result(c, h)}"
-        line = rv.field_path(path) + ': ' + ('met if' if status == 'met-if' else status)
+        line = need_path(path) + ': ' + ('met if' if status == 'met-if' else status)
         if detail:
             line += ' - ' + detail
         rows.append({'field': field, 'status': status, 'line': line})
     return rows
 
 
-def menu(recipes=RECIPES):
-    return sorted(p.name for p in recipes.iterdir() if p.is_dir() and (p / 'PROVEN.md').is_file())
+PROOF_AREAS = ('Provision', 'Deploy', 'Company sign-in', 'Files', 'Jobs',
+               'Backup and restore', 'Previews', 'Rollback')
+
+
+def proof_errors(recipe):
+    # The maintained format is ../proof-format.md. Never echo proof contents.
+    try:
+        lines = (recipe / 'PROVEN.md').read_text().splitlines()
+    except (OSError, UnicodeError):
+        return ['PROVEN.md is missing or unreadable']
+    runs = [line for line in lines if line.startswith('Real run:')]
+    version = r'[A-Za-z][A-Za-z0-9_.-]*=v?[0-9][A-Za-z0-9_.+-]*'
+    pattern = r'Real run: ([0-9]{4}-[0-9]{2}-[0-9]{2}); versions: ' + version + r'(?:, ' + version + r')*'
+    match = re.fullmatch(pattern, runs[0]) if len(runs) == 1 else None
+    errors = []
+    try:
+        if match is None:
+            raise ValueError
+        date.fromisoformat(match[1])
+    except ValueError:
+        errors.append('Real run: needs one valid date and named versions')
+    for area in PROOF_AREAS:
+        outcomes = [line for line in lines if line.startswith(area + ':')]
+        if len(outcomes) != 1 or not re.fullmatch(re.escape(area) + r': passed - \S[^\r\n]*', outcomes[0]):
+            errors.append(area + ': needs one passed outcome with details')
+    return errors
+
+
+def menu(recipes=RECIPES, explain=False):
+    proven = []
+    for recipe in sorted(recipes.iterdir()):
+        if not recipe.is_dir():
+            continue
+        errors = proof_errors(recipe)
+        if errors:
+            if explain and (recipe / 'PROVEN.md').exists():
+                print(recipe.name + ': not yet proven; ' + '; '.join(errors), file=sys.stderr)
+        else:
+            proven.append(recipe.name)
+    return proven
 
 
 def answers_for(place, answers):
@@ -141,7 +221,7 @@ def answers_for(place, answers):
 def questions(h, place=None, answers=None):
     a = answers_for(place, answers or {})
     needed = [q for q in QUESTIONS if q not in a]
-    if isinstance(h.get('jobs', {}).get('longest_job_seconds'), int):
+    if json_number(h.get('jobs', {}).get('longest_job_seconds')):
         needed = [q for q in needed if q != 'long_work']
     return [{'id': q, 'question': QUESTIONS[q]} for q in needed]
 
@@ -149,7 +229,7 @@ def questions(h, place=None, answers=None):
 def existing_host(place):
     if not place:
         return None
-    if 'choice' in place:
+    if 'place' not in place and 'choice' in place:
         return place['choice']['host']
     provider = place.get('place', {}).get('provider', '').lower()
     return {'hetzner': 'coolify-hetzner', 'coolify': 'coolify-hetzner', 'vercel': 'vercel-postgres', 'azure': 'azure', 'microsoft azure': 'azure'}.get(provider, 'existing')
@@ -161,7 +241,7 @@ def suggest(h, a, place=None):
     if missing:
         raise ValueError('answers: still needed: ' + ', '.join(q['id'] for q in missing))
     duration = h.get('jobs', {}).get('longest_job_seconds')
-    long_work = duration > 300 if isinstance(duration, int) else a['long_work']
+    long_work = duration > 300 if json_number(duration) else a['long_work']
     cloud = a['cloud']
     host = 'azure' if cloud == 'azure' else ('coolify-hetzner' if a['care'] == 'server' else ('azure' if long_work else 'vercel-postgres'))
     alternatives = ['coolify-hetzner'] if host == 'azure' and cloud != 'azure' else []
@@ -172,6 +252,8 @@ def suggest(h, a, place=None):
             alternatives.insert(0, host)
         host = previous
         lines.append('Suggested first because this organisation already has a recorded place.' if 'place' in place else 'Suggested first because this organisation already has a recorded host choice.')
+        if 'place' in place and 'choice' in place:
+            lines.append('Saved host preference: ' + place['choice']['host'] + '.')
     proven_hosts = menu()
     wish = cloud if cloud in ('aws', 'google-cloud') else None
     # A nearest proven option is preferred for an unsupported cloud wish.
@@ -255,7 +337,7 @@ def main():
     args = parser.parse_args()
     try:
         if args.action == 'menu':
-            result = menu()
+            result = menu(explain=True)
         elif args.action == 'check-recipes':
             result = check_recipes()
         else:

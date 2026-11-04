@@ -126,7 +126,7 @@ def recipe_checks(m, work):
     if recipes.exists():shutil.rmtree(recipes)
     shutil.copytree(m.RECIPES, recipes)
     target = recipes / 'azure'
-    (target / 'PROVEN.md').write_text('Synthetic recorded run for menu presence testing only.\n')
+    (target / 'PROVEN.md').write_bytes((EXPECTED / 'proof/valid.md').read_bytes())
     assert m.menu(recipes) == ['azure']
     (target / 'PROVEN.md').unlink()
     original = (target / 'recipe.md').read_text()
@@ -193,7 +193,131 @@ def replay_checks(m, work):
     else:raise AssertionError('empty replay turns passed')
 
 
-CHECKS = {'fit':fit_checks,'questions':question_checks,'suggestions':suggestion_checks,'recipes':recipe_checks,'records':record_checks,'schemas':schema_checks,'replays':replay_checks}
+def future_need_checks(m, work):
+    h = m.handover(EXPECTED / 'future-needs.json')
+    expected = [
+        'tool.runtime_requirements.gpu: unknown',
+        'accelerator: unknown',
+        'encryption_policy: unknown',
+        'future_resources: unknown',
+        'future_resources[0]: unknown',
+        'future_resources[1].dedicated_gpu: unknown',
+    ]
+    for host in m.HOSTS:
+        lines = [row['line'] for row in m.fit(h, m.RECIPES / host)]
+        assert [line for line in lines if line.startswith(('tool.', 'accelerator:', 'encryption_policy:', 'future_resources'))] == expected
+    h['future_resources'] = [False, {}, [], [None, {'gpu': True}], 'synthetic-secret-marker']
+    m.checked('handover', h)
+    lines = [row['line'] for row in m.fit(h, None) if row['line'].startswith('future_resources')]
+    assert lines == [f'future_resources{suffix}: unknown' for suffix in ('', '[0]', '[1]', '[2]', '[3]', '[3][0]', '[3][1].gpu', '[4]')]
+    assert 'synthetic-secret-marker' not in json.dumps(m.fit(h, None))
+
+
+def path_checks(m, work):
+    h = json.loads((FIXTURES / 'handover/valid.json').read_text())
+    h['limits.memory_mb'] = 99999
+    m.checked('handover', h)
+    recipe = work / 'paths'; recipe.mkdir(exist_ok=True)
+    (recipe / 'capabilities.json').write_text(json.dumps({'limits.memory_mb': {'*': {'status': 'met'}}}))
+    rows = m.fit(h, recipe)
+    assert next(row for row in rows if row['line'] == 'limits.memory_mb: met')['field'] == 'limits.memory_mb'
+    dotted = next(row for row in rows if row['line'].startswith('["limits.memory_mb"]:'))
+    assert dotted == {'field': 'limits\\.memory_mb', 'status': 'unknown', 'line': '["limits.memory_mb"]: unknown'}
+    assert len({row['field'] for row in rows if 'memory_mb' in row['field']}) == 2
+
+
+def proof_checks(m, work):
+    recipes = work / 'proof-recipes'
+    target = recipes / 'azure'; target.mkdir(parents=True, exist_ok=True)
+    proof = target / 'PROVEN.md'
+    for case in json.loads((EXPECTED / 'proof/cases.json').read_text()):
+        proof.write_bytes((EXPECTED / 'proof' / case['file']).read_bytes())
+        output = io.StringIO()
+        with contextlib.redirect_stderr(output):
+            result = m.menu(recipes, explain=True)
+        assert result == case['menu'], case['file']
+        assert all(reason in output.getvalue() for reason in case['reasons']), case['file']
+        assert 'synthetic-secret-marker' not in output.getvalue()
+    valid = (EXPECTED / 'proof/valid.md').read_text()
+    # Every required outcome independently gates the menu, including duplicates.
+    for line in valid.splitlines()[1:]:
+        for replacement in ('', line.replace('passed', 'failed'), line.replace('passed - Synthetic outcome checked.', 'No real run yet'), line.split(' - ')[0] + ' - ', line + '\n' + line):
+            proof.write_text(valid.replace(line, replacement))
+            assert m.menu(recipes) == [], line
+            assert line.split(':')[0] + ': needs one passed outcome with details' in m.proof_errors(target)
+    proof.write_text(valid + valid.splitlines()[0] + '\n')
+    assert m.menu(recipes) == []
+    proof.unlink()
+    assert m.menu(recipes) == []
+
+
+def number_checks(m, work):
+    h = json.loads((FIXTURES / 'handover/valid.json').read_text())
+    for duration, host in ((900.0, 'azure'), (300.0, 'vercel-postgres'), (301, 'azure')):
+        h['jobs']['longest_job_seconds'] = duration
+        path = work / 'duration.json'; path.write_text(json.dumps(h))
+        valid = m.handover(path)
+        assert [q['id'] for q in m.questions(valid)] == ['cloud', 'care'], duration
+        for answer in ({}, {'long_work': False}, {'long_work': True}):
+            assert m.suggest(valid, dict(answer, cloud='none', care='managed'))['host'] == host, duration
+
+
+def place_priority_checks(m, work):
+    h = json.loads((FIXTURES / 'handover/valid.json').read_text())
+    place = json.loads((FIXTURES / 'place-record/valid.json').read_text())
+    place['place']['provider'] = 'Hetzner'
+    output = work / 'place.json'
+    # This conflict must work through the normal writer as well as direct input.
+    m.record(h, {'cloud': 'none', 'care': 'managed'}, place, 'vercel-postgres', [], output)
+    saved = m.read('place-record', output)
+    result = m.suggest(h, {}, saved)
+    assert result['host'] == 'coolify-hetzner'
+    assert 'Saved host preference: vercel-postgres.' in result['lines']
+    assert result['lines'][0] == 'Suggested first because this organisation already has a recorded place.'
+    assert all(saved[k] == v for k, v in place.items())
+    assert m.suggest(h, {}, {'schema_version': '1.0', 'choice': saved['choice']})['host'] == 'vercel-postgres'
+
+
+def membership_checks(m, work):
+    h = json.loads((FIXTURES / 'handover/valid.json').read_text())
+    recipe = work / 'membership'; recipe.mkdir(exist_ok=True)
+    for field, expected, outcome in (
+        ('limits.outbound_internet', [1], 'not satisfied'),
+        ('limits.outbound_internet', [True], 'satisfied'),
+        ('limits.memory_mb', [True], 'not satisfied'),
+        ('limits.memory_mb', [1.0], 'satisfied'),
+    ):
+        h['limits']['memory_mb'] = 1
+        m.checked('handover', h)
+        condition = {'field': field, 'operator': 'in', 'value': expected}
+        (recipe / 'capabilities.json').write_text(json.dumps({'jobs.runner': {'*': {'status': 'met-if', 'condition': condition}}}))
+        line = next(row['line'] for row in m.fit(h, recipe) if row['field'] == 'jobs.runner')
+        assert line.endswith('; ' + outcome), (field, expected, line)
+    for actual, expected, outcome in ((True, 1, 'not satisfied'), (1, True, 'not satisfied'), (1.0, 1, 'satisfied')):
+        assert m.condition_result({'field': 'value', 'operator': 'eq', 'value': expected}, {'value': actual}) == outcome
+
+
+def wildcard_checks(m, work):
+    h = json.loads((FIXTURES / 'handover/valid.json').read_text())
+    recipe = work / 'wildcard'; recipe.mkdir(exist_ok=True)
+    condition = {'field': 'files.buckets.*.private', 'operator': 'eq', 'value': True}
+    (recipe / 'capabilities.json').write_text(json.dumps({'files.buckets.*.link_minutes': {'*': {'status': 'met-if', 'condition': condition}}}))
+    line = next(row['line'] for row in m.fit(h, recipe) if row['field'] == 'files.buckets.*.link_minutes')
+    assert line == 'files.buckets[0].link_minutes: met if - files.buckets.*.private eq true; satisfied'
+    for items, outcome in (([{'private': True}, {'private': True}], 'satisfied'),
+                           ([{'private': True}, {'private': False}], 'not satisfied'),
+                           ([{'private': False}, {'private': True}], 'not satisfied'),
+                           ([], 'unknown'), ([{'private': True}, {}], 'unknown'),
+                           ([{'private': True}, None], 'unknown'),
+                           ([{}, {'private': False}], 'not satisfied')):
+        h['files']['buckets'] = items
+        assert m.condition_result(condition, h) == outcome, items
+
+
+CHECKS = {'fit':fit_checks,'questions':question_checks,'suggestions':suggestion_checks,'recipes':recipe_checks,'records':record_checks,'schemas':schema_checks,'replays':replay_checks,
+          'future needs':future_need_checks, 'literal paths':path_checks, 'proof records':proof_checks,
+          'JSON numbers':number_checks, 'place before preference':place_priority_checks,
+          'typed membership':membership_checks, 'wildcards':wildcard_checks}
 
 
 def mutations(work):
@@ -203,18 +327,32 @@ def mutations(work):
         ('residency line', 'fit', 'scripts/host_fit.py', "rows.append({'field': field, 'status': status, 'line': line})", "\n        if field != 'residency': rows.append({'field': field, 'status': status, 'line': line})"),
         ('unknown needs visible', 'fit', 'scripts/host_fit.py', "rows.append({'field': field, 'status': status, 'line': line})", "\n        if status != 'unknown': rows.append({'field': field, 'status': status, 'line': line})"),
         ('condition evaluation', 'fit', 'scripts/host_fit.py', "return 'satisfied' if result else 'not satisfied'", "return 'satisfied'"),
-        ('record values withheld', 'fit', 'scripts/host_fit.py', "line = rv.field_path(path) + ': ' + ('met if' if status == 'met-if' else status)", "line = rv.field_path(path) + ': ' + str(value) + ' ' + status"),
+        ('record values withheld', 'fit', 'scripts/host_fit.py', "line = need_path(path) + ': ' + ('met if' if status == 'met-if' else status)", "line = need_path(path) + ': ' + str(value) + ' ' + status"),
         ('known duration skip', 'questions', 'scripts/host_fit.py', "needed = [q for q in needed if q != 'long_work']", 'needed = needed'),
         ('suggestion routing', 'suggestions', 'scripts/host_fit.py', "host = 'azure' if cloud == 'azure'", "host = 'vercel-postgres' if cloud == 'azure'"),
         ('wish recorded', 'suggestions', 'scripts/host_fit.py', "wish = cloud if cloud in ('aws', 'google-cloud') else None", 'wish = None'),
         ('existing place priority', 'suggestions', 'scripts/host_fit.py', 'previous = existing_host(place)', 'previous = None'),
-        ('menu proof gate', 'recipes', 'scripts/host_fit.py', " and (p / 'PROVEN.md').is_file()", ''),
+        ('menu proof gate', 'recipes', 'scripts/host_fit.py', 'errors = proof_errors(recipe)', 'errors = []'),
         ('section to capability', 'recipes', 'scripts/host_fit.py', "raise ValueError('recipe section has no capability entry')", 'pass'),
         ('capability to section', 'recipes', 'scripts/host_fit.py', "raise ValueError('capability entry has no unique recipe section')", 'pass'),
         ('acceptance warning suppression', 'records', 'scripts/host_fit.py', " and row['field'] not in accepted", ''),
         ('acceptance retention', 'records', 'scripts/host_fit.py', "accepted = list(old.get('accepted_shortfalls', [])) if old.get('host') == host else []", 'accepted = []'),
         ('record validation', 'schemas', 'resources/record_validation.py', 'for error in validator_type(schema, format_checker=formats).iter_errors(value):', 'for error in []:'),
         ('secret text scan', 'records', 'resources/record_validation.py', 'for parts in secret_fields(value):', 'for parts in []:'),
+        ('future null needs', 'future needs', 'scripts/host_fit.py', 'else:\n        yield path, value', 'elif value is not None:\n        yield path, value'),
+        ('future empty objects', 'future needs', 'scripts/host_fit.py', 'isinstance(value, dict) and value:', 'isinstance(value, dict):'),
+        ('mixed array traversal', 'future needs', 'scripts/host_fit.py', 'isinstance(value, list) and value:', 'isinstance(value, list) and value and isinstance(value[0], dict):'),
+        ('mixed array container', 'future needs', 'scripts/host_fit.py', "if len({'number' if json_number(child) else type(child).__name__ for child in value}) > 1:", 'if False:'),
+        ('unknown tool needs', 'future needs', 'scripts/host_fit.py', "if path in (('schema_version',)", "if path in (('tool',), ('schema_version',)"),
+        ('literal dot distinction', 'literal paths', 'scripts/host_fit.py', "else p.replace('\\\\', '\\\\\\\\').replace('.', '\\\\.').replace('*', '\\\\*')", 'else p'),
+        ('proof content required', 'proof records', 'scripts/host_fit.py', 'errors = proof_errors(recipe)', "errors = [] if (recipe / 'PROVEN.md').is_file() else ['missing']"),
+        ('proof date and versions', 'proof records', 'scripts/host_fit.py', "errors.append('Real run: needs one valid date and named versions')", 'pass'),
+        ('proof outcomes required', 'proof records', 'scripts/host_fit.py', "errors.append(area + ': needs one passed outcome with details')", 'pass'),
+        ('JSON numeric durations', 'JSON numbers', 'scripts/host_fit.py', 'return isinstance(value, (int, float)) and not isinstance(value, bool)', 'return isinstance(value, int) and not isinstance(value, bool)'),
+        ('actual place before choice', 'place before preference', 'scripts/host_fit.py', "if 'place' not in place and 'choice' in place:", "if 'choice' in place:"),
+        ('membership type distinction', 'typed membership', 'scripts/host_fit.py', 'any(json_equal(actual, item) for item in expected)', 'actual in expected'),
+        ('wildcard resolution', 'wildcards', 'scripts/host_fit.py', 'return [item for child in value for item in lookup(child, rest)]', 'return [None]'),
+        ('all wildcard items', 'wildcards', 'scripts/host_fit.py', 'for child in value for item in lookup(child, rest)', 'for child in value[:1] for item in lookup(child, rest)'),
     ]
     for index,(label,check,file,before,after) in enumerate(mutations):
         folder=work/str(index);shutil.copytree(SKILL,folder)
@@ -224,6 +362,9 @@ def mutations(work):
         try:CHECKS[check](load(folder),scratch)
         except (AssertionError,ValueError):print('Mutation caught: '+label)
         else:raise AssertionError('mutation survived: '+label)
+        finally:path.write_text(source)
+        CHECKS[check](load(folder),scratch)
+        print('Restored check passed: '+label)
     # Remove individual schema protections, leaving the rest of validation intact.
     schema_mutations = [
         ('capability status', 'capabilities.schema.json', lambda s: s['$defs']['entry']['oneOf'][0]['properties']['status'].pop('const')),

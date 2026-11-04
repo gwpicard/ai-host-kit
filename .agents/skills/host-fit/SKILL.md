@@ -21,7 +21,8 @@ extra lines and alternatives. No preference follows the managed route. Call
 `fit --handover FILE --recipe HOST` for every recipe, including the chosen
 host. An unlisted existing provider uses `--recipe existing` and reports
 unknown fit without inventing a recipe. Show every returned line, including unknowns and unsatisfied conditions.
-`menu` lists only recipes with `PROVEN.md`; today it is empty. Suggestions
+`menu` lists only recipes whose `PROVEN.md` meets the [recorded-run format](proof-format.md)
+and reports malformed or incomplete records; today it is empty. Suggestions
 from stubs must always be described as not yet proven.
 
 For the chosen host call `warnings` with the handover, recipe and existing
