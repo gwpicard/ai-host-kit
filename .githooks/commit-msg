@@ -1,23 +1,27 @@
 #!/usr/bin/env sh
 # commit-msg: take the AI attribution lines back out of a commit message.
 #
-# A coding agent appends two kinds of line to a message it writes: a co-author
-# trailer naming the model, and a link back to the session that produced the
-# work. The link is the one that matters. It is a personal address on the
-# agent vendor's site, it is readable by anyone once this repository is public,
-# and nothing in a commit message needs it.
+# Remove recognised agent co-author and session trailers, standalone generated
+# footers, and agent noreply bylines. Ordinary prose mentioning an agent stays.
+# Agent settings can suppress some attribution at source; this hook also
+# protects clones without those settings. It changes message text only, not
+# Git author or committer metadata, and Git can bypass it with --no-verify.
 #
-# Every supported agent has a setting that turns both off, and those settings
-# are the first line of defence. They are not the last one. A setting lives
-# outside the repository, so it protects the machine it was set on and no
-# other, and a session can be told to override it. This hook is inside the
-# repository, applies to every commit whoever makes it, and cannot be argued
-# with.
-#
-# It removes the attribution lines and leaves everything else alone, including
-# prose about Claude, Cursor or Gemini. The kit is built with those tools and
-# describes them constantly, so a hook that struck out the word would make the
-# repository unable to talk about its own subject.
+# Formats checked against upstream documentation and source:
+# Claude: model co-author, generated footer and session trailer:
+# https://code.claude.com/docs/en/settings-reference#attribution
+# Codex: opt-in co-author default in the documented git-commit feature:
+# https://github.com/openai/codex/blob/129401df43647cc94a2be590d04629dbd3619a9a/docs/config.md#commit-attribution
+# Cursor: Made with footer; its support team also documents Made-with trailers:
+# https://cursor.com/docs/cli/reference/configuration
+# https://forum.cursor.com/t/fix-auto-commit-ammend-of-cursor-to-match-linux-kernel-recommendations/158177
+# Copilot: optional co-author (off by default); source supplies the identity:
+# https://code.visualstudio.com/docs/sourcecontrol/staging-commits#ai-co-author-attribution
+# https://github.com/microsoft/vscode/blob/main/extensions/git/src/repository.ts
+# Gemini CLI: current commit instructions prescribe no fixed attribution:
+# https://github.com/google-gemini/gemini-cli/blob/main/packages/core/src/prompts/snippets.ts
+# Its name, generated footers and session keys are defensive coverage, as are
+# those forms for agents whose documentation only specifies a co-author.
 #
 # Git runs a hook from the folder named by core.hooksPath, which is a local
 # setting and is not carried by a clone. docs/MAINTAINING.md gives the one
@@ -30,20 +34,63 @@ set -eu
 msg=$1
 
 awk '
+function trim(s) {
+  sub(/^[ \t]+/, "", s)
+  sub(/[ \t]+$/, "", s)
+  return s
+}
+function agent(s) {
+  return s ~ ("^" names version "(\\[bot\\])?$")
+}
+function agent_address(s) {
+  return s ~ /^(noreply@(anthropic|openai|cursor|google|github)\.com|cursoragent@cursor\.com|copilot@github\.com)$/ || \
+    s ~ /^([0-9]+\+)?(claude|codex|cursor(-agent)?|gemini(-cli|-code-assist)?|copilot(-swe-agent)?)(\[bot\])?@users\.noreply\.github\.com$/
+}
+function byline(s,    email) {
+  s = trim(s)
+  if (s ~ /<[^<>]+>$/) {
+    email = s
+    sub(/^.*</, "", email)
+    sub(/>$/, "", email)
+    if (agent_address(email)) return 1
+    sub(/[ \t]*<[^<>]+>$/, "", s)
+  }
+  return agent(s) || agent_address(s)
+}
+function footer(s) {
+  # A linked name is still a footer only when it occupies the whole line.
+  sub(/^[^[:alnum:]]*generated (with|by)[ \t]+/, "", s)
+  sub(/^[^[:alnum:]]*made[ -]with:?[ \t]+/, "", s)
+  sub(/[ \t.]+$/, "", s)
+  if (s ~ /^\[[^]]+\]\(https?:\/\/[^ )]+\)$/) {
+    sub(/\]\(.*$/, "", s)
+    sub(/^\[/, "", s)
+  }
+  return agent(s)
+}
+BEGIN {
+  names = "(claude([ -](code|opus|sonnet|haiku))?|(openai[ -])?codex|cursor([ -]agent)?|gemini([ -](cli|code[ -]assist))?|(github[ -])?copilot(-swe-agent)?|gpt|o[134]|opus|sonnet|haiku|composer)"
+  version = "([ -][0-9]+([.][0-9]+)*)?([ -](pro|flash|lite|preview|mini|nano|max|codex|thinking|exp|sol|astra|terra|luna|[0-9]+))*([ ]*\\([^)]*\\))?"
+}
 { line[NR] = $0 }
 END {
   for (i = 1; i <= NR; i++) {
-    low = tolower(line[i])
+    low = trim(tolower(line[i]))
     gone[i] = 0
-    if (low ~ /^[ \t]*co-authored-by:[ \t]*claude/) gone[i] = 1
-    if (low ~ /^[ \t]*claude-session:/) gone[i] = 1
-    if (low ~ /generated (with|by) \[claude code\]/) gone[i] = 1
-    # The same footer without its link. It must be the whole line, give or
-    # take a leading emoji and a closing full stop, so a sentence that says
-    # something was generated with Claude Code stays.
-    if (low ~ /^[^a-z0-9]*generated (with|by) claude code[ \t.]*$/) gone[i] = 1
-    if (index(low, "claude.ai/code/session_")) gone[i] = 1
-    if (index(low, "noreply@anthropic.com")) gone[i] = 1
+    if (low ~ /^co-authored-by:[ \t]*/) {
+      name = low
+      sub(/^co-authored-by:[ \t]*/, "", name)
+      if (byline(name)) gone[i] = 1
+    }
+    if (low ~ ("^" names "-session(-id|-url)?:")) gone[i] = 1
+    if (low ~ /^[^[:alnum:]]*(generated (with|by)|made[ -]with:?) / && footer(low)) gone[i] = 1
+    if (agent_address(low) || (low ~ /<[^<>]+>$/ && byline(low))) gone[i] = 1
+    # Session addresses are private references even when embedded in prose.
+    if (low ~ /https?:\/\/claude\.ai\/code\/session_/) gone[i] = 1
+    if (low ~ /https?:\/\/(chatgpt\.com|chat\.openai\.com)\/(codex\/(tasks?\/|task_)|s\/|share\/)/) gone[i] = 1
+    if (low ~ /https?:\/\/(www\.)?cursor\.com\/(agents|background-agent)\//) gone[i] = 1
+    if (low ~ /https?:\/\/gemini\.google\.com\/share\//) gone[i] = 1
+    if (low ~ /https?:\/\/github\.com\/copilot\/(tasks|agents)\//) gone[i] = 1
   }
 
   # Removing a trailer block strands the row of dashes a squash merge writes

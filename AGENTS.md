@@ -63,7 +63,10 @@ Commits and pull request text carry only the maintainer's identity. Do not add
 co-author trailers, generated-by footers or session links to files, commits,
 issues or pull requests. Legal notices and source credits remain intact.
 Commit with `git -c user.name="Guillaume Picard" commit`. Keep
-`core.hooksPath` set to `.githooks`; the existing commit hook stays unchanged.
+`core.hooksPath` set to `.githooks`. The hook removes recognised agent trailers,
+standalone footers, address bylines and session links while preserving ordinary
+prose and human co-author trailers. [MAINTAINING.md](docs/MAINTAINING.md#prepare-a-clone)
+defines its coverage and limits.
 
 ## Secrets and external changes
 
