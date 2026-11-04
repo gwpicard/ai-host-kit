@@ -1,0 +1,93 @@
+#!/usr/bin/env sh
+# commit-msg: take the AI attribution lines back out of a commit message.
+#
+# A coding agent appends two kinds of line to a message it writes: a co-author
+# trailer naming the model, and a link back to the session that produced the
+# work. The link is the one that matters. It is a personal address on the
+# agent vendor's site, it is readable by anyone once this repository is public,
+# and nothing in a commit message needs it.
+#
+# Every supported agent has a setting that turns both off, and those settings
+# are the first line of defence. They are not the last one. A setting lives
+# outside the repository, so it protects the machine it was set on and no
+# other, and a session can be told to override it. This hook is inside the
+# repository, applies to every commit whoever makes it, and cannot be argued
+# with.
+#
+# It removes the attribution lines and leaves everything else alone, including
+# prose about Claude, Cursor or Gemini. The kit is built with those tools and
+# describes them constantly, so a hook that struck out the word would make the
+# repository unable to talk about its own subject.
+#
+# Git runs a hook from the folder named by core.hooksPath, which is a local
+# setting and is not carried by a clone. docs/MAINTAINING.md gives the one
+# command that points a fresh clone here.
+#
+# awk rather than python3, because a hook that cannot run is a hook that lets
+# the line through, and awk is present wherever git is.
+set -eu
+
+msg=$1
+
+awk '
+{ line[NR] = $0 }
+END {
+  for (i = 1; i <= NR; i++) {
+    low = tolower(line[i])
+    gone[i] = 0
+    if (low ~ /^[ \t]*co-authored-by:[ \t]*claude/) gone[i] = 1
+    if (low ~ /^[ \t]*claude-session:/) gone[i] = 1
+    if (low ~ /generated (with|by) \[claude code\]/) gone[i] = 1
+    # The same footer without its link. It must be the whole line, give or
+    # take a leading emoji and a closing full stop, so a sentence that says
+    # something was generated with Claude Code stays.
+    if (low ~ /^[^a-z0-9]*generated (with|by) claude code[ \t.]*$/) gone[i] = 1
+    if (index(low, "claude.ai/code/session_")) gone[i] = 1
+    if (index(low, "noreply@anthropic.com")) gone[i] = 1
+  }
+
+  # Removing a trailer block strands the row of dashes a squash merge writes
+  # above it. A row goes when the next line with anything on it is one this
+  # hook removed. That holds whether the removed trailer was the last line or
+  # had another trailer, such as Signed-off-by, below it. A row of dashes with
+  # something kept beneath it stays.
+  for (i = 1; i <= NR; i++) {
+    row = line[i]
+    gsub(/[ \t]/, "", row)
+    if (gone[i] || row !~ /^(-{3,}|_{3,}|\*{3,})$/) continue
+    for (j = i + 1; j <= NR; j++) {
+      next_line = line[j]
+      gsub(/[ \t]/, "", next_line)
+      if (next_line != "") break
+    }
+    if (j <= NR && gone[j]) gone[i] = 1
+  }
+
+  kept = 0
+  for (i = 1; i <= NR; i++) if (!gone[i]) out[++kept] = line[i]
+
+  # The blank lines that separated a removed block go too, or every rewritten
+  # message ends on empty lines with nothing after them.
+  while (kept > 0) {
+    tail = out[kept]
+    gsub(/[ \t]/, "", tail)
+    if (tail != "") break
+    kept--
+  }
+
+  blank = 0
+  for (i = 1; i <= kept; i++) {
+    body = out[i]
+    gsub(/[ \t]/, "", body)
+    if (body == "") {
+      blank++
+      if (blank > 1) continue
+    } else {
+      blank = 0
+    }
+    print out[i]
+  }
+}
+' "$msg" > "$msg.scrubbed"
+
+mv "$msg.scrubbed" "$msg"
