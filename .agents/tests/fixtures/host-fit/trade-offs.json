@@ -1,0 +1,7 @@
+{
+  "azure-required": "Stays inside your company's Microsoft account and sign-in; someone with admin rights in your directory must approve the app once.",
+  "azure": "Runs long work without a server to keep; needs an Azure subscription; a Microsoft 365 firm already has the directory it would sign in with.",
+  "coolify-hetzner": "One server runs all your tools and long work; you approve its updates and its backups are yours to keep.",
+  "vercel-postgres": "No server to update, and previews and rollback are built in; background work must finish within the function time limit.",
+  "wish": "The kit will say plainly that nothing is guaranteed on an unproven host."
+}

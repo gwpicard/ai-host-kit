@@ -1,0 +1,21 @@
+{
+  "jobs.runner": {
+    "host-tick": {
+      "status": "met-if",
+      "condition": {
+        "field": "jobs.longest_job_seconds",
+        "operator": "lte",
+        "value": 300
+      }
+    },
+    "worker": {
+      "status": "met"
+    }
+  },
+  "residency": {
+    "uk": {
+      "status": "cannot",
+      "reason": "No UK location."
+    }
+  }
+}

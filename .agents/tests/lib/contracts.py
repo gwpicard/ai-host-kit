@@ -307,6 +307,7 @@ def main():
         run(VALIDATE + [kind, FIXTURES / kind / 'valid.json'])
     run(VALIDATE + ['handover', FIXTURES / 'handover/minimal.json'])
     run(VALIDATE + ['host-record', FIXTURES / 'host-record/found.json'])
+    run(VALIDATE + ['place-record', FIXTURES / 'place-record/choice.json'])
     future = run(VALIDATE + ['handover', FIXTURES / 'handover/future-minor.json'])
     for field in ('optional_note', 'limits.optional_limit'):
         assert field + ': unknown optional field; ignored' in future.stdout, future.stdout
@@ -359,7 +360,7 @@ def main():
         vendor_checks(work)
         reference_checks(work)
         string_checks(work)
-    print(f'All three schemas, valid fixtures and {len(cases)} field-specific refusals passed.')
+    print(f'All schemas, valid fixtures and {len(cases)} field-specific refusals passed.')
     print('Version handling, withheld values and match, drift and unavailable vendor outcomes passed.')
     return 0
 

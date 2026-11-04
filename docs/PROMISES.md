@@ -1,6 +1,6 @@
 # Hosting promises and their mechanisms
 
-AI Host Kit is beta. All four commands are stubs. The hosting promises below
+AI Host Kit is beta. Only the local host choice is built. The hosting promises below
 have no mechanism yet and are not guarantees. Add a mechanism and a test that
 fails when it is removed before changing a row from "none yet".
 
@@ -33,3 +33,13 @@ the hosting promises above.
 | Declared reference fields reject URL user information, queries and fragments. | `contracts.sh` checks host `address`, `health_address`, `rollback_targets[].image`, `last_backup_check.evidence` and `last_restore_drill.evidence`; place `backup_storage.location`, `encrypted_state.location` and `tools[].host_record`; and handover `image.dockerfile`, `health.path`, `sign_in.staff.outside_refused_test` and `sign_in.staff.redirect_path`. The schemas define their restricted forms. |
 | Declared free-text fields reject specific URL forms; host and place strings reject obvious secret text. | Schema patterns reject `scheme://` tokens containing `@`, `?`, `#`, `%` or a backslash. `record_validation.py` scans host and place strings for assignments, key headers and high-entropy runs, excluding rollback image digest suffixes. `contracts.sh` checks declared string fields and withheld values, plus independent encryption-method, email and hexadecimal-entropy refusals. Unknown optional handover fields are outside the URL constraints. These checks can miss secrets and reject harmless text; they are not a guarantee. |
 | Host record gaps marked as accepted carry the person's words and date. | `host-record.schema.json`; `contracts.sh` rejects missing acceptance evidence and a `done` gap status. This checks the record, not the person's approval. |
+
+| Local choice promise | Mechanism and evidence |
+|---|---|
+| Every declared hosting need has a fit line, including residency and unknowns. | `host_fit.py`; `host-fit.sh` compares fixed lines for each valid handover fixture and each stub, refuses invalid inputs, and removes residency and unknown lines in throwaway copies to prove detection. It checks conditional results and withheld handover values. |
+| A supplied job duration removes the long-work question. | `host_fit.py questions`; `host-fit.sh` removes the skip and detects the repeated question in the returned list. This does not prove what a model asks. |
+| Suggestions follow the local answer table, preserve cloud wishes and prefer an existing place. | `host_fit.py suggest`; `host-fit.sh` compares host, trade-off and proof status and removes routing, wish and existing-place protections in copies. Conversation replay results remain pending. |
+| Stub recipes stay off the proven menu and sections agree with capability entries. | `PROVEN.md` presence and `check-recipes`; `host-fit.sh` removes the menu gate and both section checks, and detects each change. |
+| Local choice records preserve accepted shortfalls and suppress their subsequent warning for the same host. | `host_fit.py record` and `warnings`; `host-fit.sh` checks exact words and dates, preserved place details, and no warning after acceptance. Mutations remove retention and warning suppression. This does not establish a person's consent or prove conversation behaviour. |
+| Capability entries and choice acceptance reject invalid declarations by field. | The schemas and shared reader; `contracts.sh` checks invalid fixtures, including URL and secret text. `host-fit.sh` removes condition, reason, date, words, accepted status, proof and text protections in disposable copies and detects the removals. |
+| Replay dry mode assembles runnable local projects without calling a model. | `replay-host-choice.py --dry`; each scripted case validates, resolves its bundled dependencies and runs local choice checks. `host-fit.sh` checks malformed turns and removes that protection in a copy. A model run and maintainer judgement are still required for replay evidence. |

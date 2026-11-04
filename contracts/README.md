@@ -1,8 +1,8 @@
 # Handover and hosting records
 
-These are source contracts, outside the release while the hosting commands are
-stubs. They validate declarations without contacting a host, running a command,
-checking code or changing another repository.
+These contracts validate declarations without contacting a host, checking code
+or changing another repository. The host-fit skill bundles the schemas and
+reader for its local choice step. The canonical copies live here.
 
 ## Ownership and files
 
@@ -96,7 +96,8 @@ and `sign_in.staff.redirect_path` start with one slash. These paths use the
 same path characters as the references above and refuse URL credentials,
 queries, fragments, percent escapes, backslashes and whitespace.
 
-The remaining declared free-text fields in all three schemas refuse
+The remaining declared free-text fields in the handover and hosting record
+schemas refuse
 `scheme://` tokens containing `@`, `?`, `#`, `%` or a backslash, including
 tokens within prose or commands. The same rule applies to cron text. This
 blocks these URL forms, not every possible way to conceal a credential.
@@ -151,3 +152,59 @@ Python transport override. No CLI option, pin field or environment variable
 enables that override. Matching local fixtures test byte comparison only;
 they cannot establish publication. The test suite uses no network. Actual
 agreement with AI Build Kit remains unchecked until the pin is filled.
+
+## Recipe capabilities and local choice
+
+The [capabilities schema](capabilities.schema.json) maps host-affectable handover
+field paths to selectors. Array item paths use `*`, such as
+`config.*.phase`. Enumerated needs can select a particular value; `*` covers
+any value. An absent field or selector means unknown. Unknown is never inferred
+as met. The fit report lists each declared leaf need separately, including
+array indices, residency and unknown optional fields, without printing handover
+values. Tool identity and the schema version are metadata, not hosting needs.
+An absent optional need and a null worker do not create requirements.
+
+Each entry is `met`, `cannot` with a reason, or `met-if` with a condition object.
+Conditions name a field, an operator (`eq`, `in`, `lte`, `gte`) and a value.
+An optional `check` names a relative script path; it is a reference, not a
+command to execute. The reader interprets conditions as data. It reports the condition and whether it is
+satisfied, not satisfied or unknown; it never executes an expression. A false
+condition remains visible as not satisfied. Declaration validation does not
+establish that a host fulfils the claim.
+
+The stub recipe's section names own their capability entries through a
+`Capabilities:` line. The local check rejects missing entries in either
+direction, duplicates and entries assigned to the wrong section. Only the
+rented server's UK limitation is declared today, from the supplied checked
+planning facts. All other capability claims await verification. Recipe headers
+record this limit. `PROVEN.md` presence controls the menu; no stub has that file.
+
+The place record may contain only `schema_version` and `choice` before a place
+exists. It cannot contain a partial infrastructure record. A complete existing
+record may also carry `choice`. This preserves the original infrastructure
+requirements. Choice records include the host, proof status at selection, answers,
+an optional AWS or Google Cloud wish, and accepted shortfalls. An unlisted
+existing provider uses host `existing`; the existing place details stay intact
+and its capabilities are unknown. No provider folder is created for a wish.
+
+An acceptance names the need, has status `accepted`, and carries a date and
+the person's words. Its text has the same URL and obvious-secret protections
+as the other place strings. Validation happens before the local writer changes
+a file. The writer preserves infrastructure details and same-host acceptance.
+This checks stored declarations, not whether a person actually approved them.
+A new choice of host starts a new acceptance list.
+
+The suggestion table uses more than 300 seconds to interpret long work when
+the handover supplies a duration. This is a local choice convention, not a
+verified provider limit. No preference follows the managed route. AWS and
+Google Cloud wishes use the same nearest-host routing and prefer a proven
+candidate if one exists. Today every candidate is not yet proven. Residency
+is always read from the handover. The interview can ask about a missing or
+null job duration, but a fit report still requires a valid handover; the
+provisional schema itself is unchanged.
+
+```sh
+python3 .agents/tools/record_validation.py capabilities path/to/capabilities.json
+python3 .agents/skills/host-fit/scripts/host_fit.py questions --handover hosting/handover.json
+python3 .agents/skills/host-fit/scripts/host_fit.py menu
+```

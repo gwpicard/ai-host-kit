@@ -1,0 +1,294 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AI Host Kit host record v1",
+  "description": "Owned by AI Host Kit. Describes one tool and changes through a pull request the person merges. Null checks and empty rollback targets mean evidence is missing, including for an adopted tool. Schema validity does not prove a live host is safe.",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "tool": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"
+    },
+    "recipe": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?![\\s\\S]*[A-Za-z][A-Za-z0-9+.-]*://[^\\s]*[@?#%\\\\])[\\s\\S]*$"
+    },
+    "place": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"
+    },
+    "address": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^(?![\\s\\S]*\\s)https://[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?(?::[0-9]{1,5})?(?:/[A-Za-z0-9._~/-]*)?$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "health_address": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^(?![\\s\\S]*\\s)https://[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?(?::[0-9]{1,5})?(?:/[A-Za-z0-9._~/-]*)?$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "deploys_on_merge": {
+      "type": "boolean"
+    },
+    "services": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"
+          },
+          "kind": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^(?![\\s\\S]*[A-Za-z][A-Za-z0-9+.-]*://[^\\s]*[@?#%\\\\])[\\s\\S]*$"
+          },
+          "version": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^(?![\\s\\S]*[A-Za-z][A-Za-z0-9+.-]*://[^\\s]*[@?#%\\\\])[\\s\\S]*$"
+          },
+          "region": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^(?![\\s\\S]*[A-Za-z][A-Za-z0-9+.-]*://[^\\s]*[@?#%\\\\])[\\s\\S]*$"
+          }
+        },
+        "required": [
+          "name",
+          "kind",
+          "version",
+          "region"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "rollback_targets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "release": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^(?![\\s\\S]*[A-Za-z][A-Za-z0-9+.-]*://[^\\s]*[@?#%\\\\])[\\s\\S]*$"
+          },
+          "image": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^(?![\\s\\S]*\\s)[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)*(?::[0-9]{1,5})?/[a-z0-9]+(?:[._-][a-z0-9]+)*(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)*(?::[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}|@sha256:[0-9a-f]{64})$"
+          },
+          "database_compatibility": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^(?![\\s\\S]*[A-Za-z][A-Za-z0-9+.-]*://[^\\s]*[@?#%\\\\])[\\s\\S]*$"
+          }
+        },
+        "required": [
+          "release",
+          "image",
+          "database_compatibility"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "last_backup_check": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "at": {
+              "type": "string",
+              "minLength": 1,
+              "format": "date-time"
+            },
+            "result": {
+              "type": "string",
+              "enum": [
+                "passed",
+                "failed"
+              ]
+            },
+            "evidence": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^(?![\\s\\S]*\\s)(?:https://[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?(?::[0-9]{1,5})?(?:/[A-Za-z0-9._~/-]*)?|(?!.*(?:^|/)\\.{1,2}(?:/|$))[A-Za-z0-9_~-][A-Za-z0-9._~/-]*)$"
+            }
+          },
+          "required": [
+            "at",
+            "result",
+            "evidence"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "last_restore_drill": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "at": {
+              "type": "string",
+              "minLength": 1,
+              "format": "date-time"
+            },
+            "result": {
+              "type": "string",
+              "enum": [
+                "passed",
+                "failed"
+              ]
+            },
+            "evidence": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^(?![\\s\\S]*\\s)(?:https://[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?(?::[0-9]{1,5})?(?:/[A-Za-z0-9._~/-]*)?|(?!.*(?:^|/)\\.{1,2}(?:/|$))[A-Za-z0-9_~-][A-Za-z0-9._~/-]*)$"
+            },
+            "duration_hours": {
+              "type": "number",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "at",
+            "result",
+            "evidence",
+            "duration_hours"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "fit": {
+      "type": "string",
+      "enum": [
+        "fits",
+        "gaps",
+        "unassessed"
+      ]
+    },
+    "gaps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "field": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^(?![\\s\\S]*[A-Za-z][A-Za-z0-9+.-]*://[^\\s]*[@?#%\\\\])[\\s\\S]*$"
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^(?![\\s\\S]*[A-Za-z][A-Za-z0-9+.-]*://[^\\s]*[@?#%\\\\])[\\s\\S]*$"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "open",
+              "accepted"
+            ]
+          },
+          "acceptance": {
+            "type": "object",
+            "properties": {
+              "words": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^(?![\\s\\S]*[A-Za-z][A-Za-z0-9+.-]*://[^\\s]*[@?#%\\\\])[\\s\\S]*$"
+              },
+              "by": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^(?![\\s\\S]*[A-Za-z][A-Za-z0-9+.-]*://[^\\s]*[@?#%\\\\])[\\s\\S]*$"
+              },
+              "at": {
+                "type": "string",
+                "minLength": 1,
+                "format": "date-time"
+              }
+            },
+            "required": [
+              "words",
+              "by",
+              "at"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "field",
+          "reason",
+          "status"
+        ],
+        "additionalProperties": false,
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "status": {
+                  "const": "accepted"
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "acceptance"
+              ]
+            },
+            "else": {
+              "properties": {
+                "acceptance": false
+              }
+            }
+          }
+        ]
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "tool",
+    "recipe",
+    "place",
+    "address",
+    "health_address",
+    "deploys_on_merge",
+    "services",
+    "rollback_targets",
+    "last_backup_check",
+    "last_restore_drill",
+    "fit",
+    "gaps"
+  ],
+  "additionalProperties": false
+}

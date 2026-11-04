@@ -23,8 +23,9 @@ version, and checks that never change anything.
 | `/check-live` | You want to know whether a live tool is healthy. It will only read, and never change anything |
 | `/change-live` | Something about a live tool needs to change: undo a release, secrets, access, a restore test, a move, or retiring it |
 
-These are stubs: each reports that it is not built yet and stops. The first
-host planned is a rented server running Coolify, followed by Microsoft Azure.
+The choice step in `/setup-hosting` compares the handover with stub recipes,
+suggests a host and saves a local choice record. Creating the place is not
+built yet. The other three commands remain stubs. No host is proven.
 
 ## Install the beta
 

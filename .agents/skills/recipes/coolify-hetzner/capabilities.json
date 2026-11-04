@@ -1,0 +1,8 @@
+{
+  "residency": {
+    "uk": {
+      "status": "cannot",
+      "reason": "This host has no UK location; your data would be in Germany or Finland."
+    }
+  }
+}

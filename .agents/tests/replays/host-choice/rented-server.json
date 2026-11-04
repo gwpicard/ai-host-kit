@@ -1,0 +1,109 @@
+{
+  "name": "rented-server",
+  "handover": {
+    "schema_version": "1.0",
+    "tool": {
+      "name": "leave-approvals",
+      "owner": "Example owner",
+      "successor": "Example successor"
+    },
+    "image": {
+      "dockerfile": "Dockerfile"
+    },
+    "processes": {
+      "web": {
+        "command": "web",
+        "port": 3000
+      },
+      "worker": null,
+      "migrate": {
+        "command": "migrate",
+        "when": "before-release"
+      }
+    },
+    "health": {
+      "path": "/api/health",
+      "checks": [
+        "database"
+      ],
+      "commit_env": "SOURCE_COMMIT"
+    },
+    "config": [
+      {
+        "name": "DATABASE_URL",
+        "kind": "secret",
+        "phase": "runtime",
+        "source": "host"
+      },
+      {
+        "name": "AUTH_SECRET",
+        "kind": "secret",
+        "phase": "runtime",
+        "source": "generated"
+      }
+    ],
+    "postgres": {
+      "min_major": 17,
+      "extensions": [],
+      "roles": {
+        "migrate": "owner",
+        "app": "no-owner-no-bypassrls"
+      }
+    },
+    "sign_in": {
+      "staff": {
+        "provider": "oidc",
+        "directory": "single-tenant",
+        "outside_refused_test": "e2e/outside-account.spec.ts",
+        "redirect_path": "/auth/callback"
+      },
+      "outsiders": "none"
+    },
+    "access": "private",
+    "residency": "eu",
+    "data_risk": [
+      "personal"
+    ],
+    "recovery": {
+      "max_data_loss_hours": 24,
+      "max_restore_hours": 8
+    },
+    "limits": {
+      "longest_request_seconds": 30,
+      "memory_mb": 512,
+      "outbound_internet": true
+    },
+    "previews": {
+      "wanted": false,
+      "data": "separate-database"
+    }
+  },
+  "place": null,
+  "turns": [
+    "Help me choose somewhere to run this tool.",
+    "My answers are {\"cloud\": \"none\", \"care\": \"server\", \"long_work\": false}. Please show the fit and your suggestion.",
+    "Choose coolify-hetzner. Please record that choice."
+  ],
+  "expected": {
+    "host": "coolify-hetzner",
+    "answers": {
+      "cloud": "none",
+      "care": "server",
+      "long_work": false
+    },
+    "wish": null,
+    "questions": [
+      "cloud",
+      "care",
+      "long_work"
+    ],
+    "warnings": 0,
+    "acceptance": null,
+    "outcomes": [
+      "Before the person chooses a host, the transcript suggests the expected host with its trade-off and says not yet proven.",
+      "Every fit need, including residency and unknowns, is visible.",
+      "The local place-record.json validates and records the choice, answers, proof status and any wish.",
+      "No provider is contacted and no infrastructure is created. The transcript says creating the place is not built yet."
+    ]
+  }
+}

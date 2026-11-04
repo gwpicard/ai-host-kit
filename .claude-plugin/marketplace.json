@@ -9,7 +9,7 @@
     {
       "name": "ai-host-kit",
       "source": "./",
-      "description": "Beta hosting kit. Four command stubs; no hosting behaviour yet.",
+      "description": "Beta hosting kit. Local host choice; creating the place is not built yet.",
       "license": "MIT"
     }
   ]

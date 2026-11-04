@@ -44,7 +44,8 @@ Edit `.agents/skills/<name>/SKILL.md`, then run:
 Save canonical skills and generated adapters together. The inventory is
 `.agents/tools/kit-inventory.txt`. [COMPATIBILITY.md](COMPATIBILITY.md) owns the
 installation routes and coding agent map. A command's description must remain
-honest about the stub; there are no background skills or agents yet.
+honest about what is built. `host-fit` is a background skill with no command
+adapter; the inventory records it separately. No agents are shipped.
 
 Maintainer skills live in `.agents/maintainer-skills/`. They have no adapter or
 release entry. The writing skill retains its MIT licence. Before saving any
@@ -113,3 +114,43 @@ run both checks and the merged-tree rehearsal, then rehearse both install
 routes in disposable projects. Ask what an existing user must do to upgrade.
 Record missing checks and compatibility limits in the review. Publication,
 tags, release promotion and the `stable` ruleset need separate instructions.
+
+## Local host choice and replays
+
+Edit recipe declarations in `.agents/skills/recipes/`, schemas in `contracts/`
+and the reader in `.agents/tools/record_validation.py`. `build-adapters.sh`
+also refreshes their runtime copies in `host-fit/resources/`. Never edit those
+copies directly. Drift fails the same adapter check. The script and generated
+resources ship inside host-fit so a skill-only installation has its dependencies.
+
+The local outcome checks are in `.agents/tests/host-fit.sh`. They compare fixed
+fit lines for every valid handover fixture against every stub and refuse the
+invalid fixtures before reporting fit. They test the suggestion table, question
+selection, record preservation, acceptance and recipe/menu boundaries. Mutations
+remove protections in disposable copies and rerun the outcome assertions.
+
+Prepare replay projects without calling a model:
+
+```sh
+python3 .agents/tools/replay-host-choice.py --dry --case all
+```
+
+On the finished branch, the maintainer can run the scripted person turns once:
+
+```sh
+python3 .agents/tools/replay-host-choice.py --run --case all --output /private/tmp/ai-host-kit-host-choice-replays
+```
+
+Use the activated Python environment above and a new output folder. The run
+needs an authenticated Claude Code installation. It calls `claude -p` for each
+person turn and resumes the same session within a case. Tool permission covers
+local file operations and the host-fit script. The fixture instructions forbid
+provider calls; the harness is not a host isolation mechanism. It does not load
+project or provider credentials into the child environment.
+
+Each case leaves its transcript, expected outcomes and project files. Review
+meaning and outcomes: the suggested host, trade-off, questions actually asked,
+every need shown, recorded answers and wishes, and a single shortfall notice
+followed by dated acceptance with no further gate. A completed call is not a
+pass. Record the maintainer's verdict beside the evidence; deterministic checks
+and dry mode do not establish that a replay suggests the expected host.

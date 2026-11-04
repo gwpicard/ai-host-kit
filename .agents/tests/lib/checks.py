@@ -70,6 +70,7 @@ def source_rules(work):
     mutation('README.md', lambda t: t + '\nGenerated ' + 'by Codex\n', 'attribution or session link')
     mutation('README.md', lambda t: t + '\nA sentence' + chr(0x2014) + 'with a dash.\n', 'em or en dash')
     mutation('README.md', lambda t: t.replace('| `/go-live` |', '| `/publish` |'), 'command list does not match')
+    mutation('.agents/skills/host-fit/resources/recipes/azure/capabilities.json', lambda t: t + '\n', 'adapter drift')
     mutation('.claude/commands/check-live.md', lambda t: t + '\nStale.\n', 'adapter drift')
     mutation('.agents/tools/kit-inventory.txt', lambda t: t + 'command fifth\n', 'exactly the four hosting commands')
     mutation('release-manifest.txt', lambda t: t + '.agents/maintainer-skills|\n', 'maintainer or undeclared material')
@@ -129,6 +130,14 @@ def release_builder(work):
         assert (pack / f'agent-plugin/skills/{name}/SKILL.md').read_bytes() == source
     for forbidden in ('AGENTS.md', '.agents/tools', '.agents/tests', '.agents/maintainer-skills', '.githooks', '.github/workflows', 'docs/MAINTAINING.md', 'release-manifest.txt'):
         assert not (pack / forbidden).exists(), f'maintainer material shipped: {forbidden}'
+    # Both packaged skill locations must run without the maintainer checkout.
+    for location in ('.agents/skills', 'agent-plugin/skills'):
+        script = pack / location / 'host-fit/scripts/host_fit.py'
+        assert json.loads(run([sys.executable, script, 'menu'], cwd=pack).stdout) == []
+        run([sys.executable, script, 'check-recipes'], cwd=pack)
+        output = run([sys.executable, script, 'questions', '--handover',
+                      ROOT / '.agents/tests/fixtures/contracts/handover/valid.json'], cwd=pack)
+        assert [q['id'] for q in json.loads(output.stdout)] == ['cloud', 'care']
     # The manifest predicts exactly the built tree, including plugin skill copies.
     sys.path.insert(0, str(ROOT / '.agents/tools'))
     import kit

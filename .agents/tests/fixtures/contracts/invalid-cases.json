@@ -228,5 +228,75 @@
     "kind": "host-record",
     "field": "recipe",
     "withheld": "0123456789abcde0123456789abcde0123456789abcde0123456789abcde"
+  },
+  {
+    "kind": "capabilities",
+    "file": "capabilities/invalid-status.json",
+    "field": "residency.uk.status"
+  },
+  {
+    "kind": "capabilities",
+    "file": "capabilities/invalid-condition.json",
+    "field": "jobs.runner.host-tick.condition"
+  },
+  {
+    "kind": "capabilities",
+    "file": "capabilities/invalid-reason.json",
+    "field": "residency.uk.reason"
+  },
+  {
+    "kind": "capabilities",
+    "file": "capabilities/invalid-operator.json",
+    "field": "jobs.runner.host-tick.condition.operator"
+  },
+  {
+    "kind": "capabilities",
+    "file": "capabilities/invalid-field.json",
+    "field": "made_up"
+  },
+  {
+    "kind": "place-record",
+    "file": "place-record/invalid-choice-date.json",
+    "field": "choice.accepted_shortfalls[0].date"
+  },
+  {
+    "kind": "place-record",
+    "file": "place-record/invalid-choice-words.json",
+    "field": "choice.accepted_shortfalls[0].words"
+  },
+  {
+    "kind": "place-record",
+    "file": "place-record/invalid-choice-done.json",
+    "field": "choice.accepted_shortfalls[0].status"
+  },
+  {
+    "kind": "place-record",
+    "file": "place-record/invalid-choice-secret.json",
+    "field": "choice.accepted_shortfalls[0].words"
+  },
+  {
+    "kind": "place-record",
+    "file": "place-record/invalid-choice-reference.json",
+    "field": "choice.accepted_shortfalls[0].words"
+  },
+  {
+    "kind": "place-record",
+    "file": "place-record/invalid-choice-proof.json",
+    "field": "choice.proven"
+  },
+  {
+    "kind": "place-record",
+    "file": "place-record/invalid-choice-missing-words.json",
+    "field": "choice.accepted_shortfalls[0].words"
+  },
+  {
+    "kind": "capabilities",
+    "file": "capabilities/invalid-numeric-condition.json",
+    "field": "jobs.runner.host-tick.condition.value"
+  },
+  {
+    "kind": "capabilities",
+    "file": "capabilities/invalid-check-reference.json",
+    "field": "jobs.runner.worker.check"
   }
 ]
