@@ -1,0 +1,7 @@
+# GENERATED from .agents/skills/go-live/SKILL.md. Do not edit.
+# Run .agents/tools/build-adapters.sh to regenerate.
+description = "Put a tool live for the first time only."
+prompt = """
+Load and follow `.agents/skills/go-live/SKILL.md`.
+Treat the following as the person's request (it may be empty): {{args}}
+"""

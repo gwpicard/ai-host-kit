@@ -1,0 +1,21 @@
+# Adapted from AI Build Kit; see docs/SOURCES.md.
+name: pull request base
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, edited, ready_for_review]
+permissions:
+  contents: read
+concurrency:
+  group: pull-request-base-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+jobs:
+  pull-request-base:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - name: Require main as the base
+        env:
+          BASE: ${{ github.event.pull_request.base.ref }}
+        run: .agents/tools/check-pull-request-base.sh "$BASE"

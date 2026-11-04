@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
+  "name": "ai-host-kit",
+  "description": "The beta AI Host Kit distribution for Claude Code.",
+  "owner": {
+    "name": "Guillaume Picard"
+  },
+  "plugins": [
+    {
+      "name": "ai-host-kit",
+      "source": "./",
+      "description": "Beta hosting kit. Four command stubs; no hosting behaviour yet.",
+      "license": "MIT"
+    }
+  ]
+}

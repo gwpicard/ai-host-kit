@@ -1,0 +1,11 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "ai-host-kit",
+  "description": "Beta hosting kit. Four command stubs; no hosting behaviour yet.",
+  "version": "0.0.1",
+  "author": {
+    "name": "Guillaume Picard"
+  },
+  "repository": "https://github.com/gwpicard/ai-host-kit",
+  "license": "MIT"
+}

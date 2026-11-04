@@ -1,0 +1,7 @@
+# GENERATED from .agents/skills/setup-hosting/SKILL.md. Do not edit.
+# Run .agents/tools/build-adapters.sh to regenerate.
+description = "Set up or adopt a place to run tools. Checking is /check-live."
+prompt = """
+Load and follow `.agents/skills/setup-hosting/SKILL.md`.
+Treat the following as the person's request (it may be empty): {{args}}
+"""

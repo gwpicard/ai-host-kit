@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security problem privately
+    url: https://github.com/gwpicard/ai-host-kit/security/advisories/new
+    about: AI Host Kit is beta. Use private reporting for security problems.

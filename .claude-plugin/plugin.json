@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "ai-host-kit",
+  "description": "Beta hosting kit. Four command stubs; no hosting behaviour yet.",
+  "version": "0.0.1",
+  "author": {
+    "name": "Guillaume Picard"
+  },
+  "repository": "https://github.com/gwpicard/ai-host-kit",
+  "license": "MIT",
+  "commands": [
+    "./.claude/commands/change-live.md",
+    "./.claude/commands/check-live.md",
+    "./.claude/commands/go-live.md",
+    "./.claude/commands/setup-hosting.md"
+  ]
+}
