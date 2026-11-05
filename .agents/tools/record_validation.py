@@ -11,6 +11,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[2]
 SCHEMAS = {
+    'capabilities': 'contracts/capabilities.schema.json',
     'handover': 'contracts/provisional-ai-build-kit/handover.schema.json',
     'host-record': 'contracts/host-record.schema.json',
     'place-record': 'contracts/place-record.schema.json',
@@ -24,7 +25,7 @@ def field_path(parts):
             result += f'[{part}]'
         else:
             # Unknown keys are input too. Do not print arbitrary strings as field names.
-            safe = part if re.fullmatch(r'[a-z][a-z0-9_]{0,47}', part) else '<unknown field>'
+            safe = part if part in ('host-tick', 'in-app', '*') or re.fullmatch(r'[a-z][a-z0-9_]{0,47}(?:\.(?:[a-z][a-z0-9_]{0,47}|\*))*', part) else '<unknown field>'
             result += ('.' if result else '') + safe
     return result or '$'
 
@@ -160,7 +161,7 @@ def validate(kind, path):
     for error in validator_type(schema, format_checker=formats).iter_errors(value):
         for parts, reason in error_fields(error):
             errors.add((field_path(parts), reason))
-    if kind in ('host-record', 'place-record'):
+    if kind in ('host-record', 'place-record', 'capabilities'):
         for parts in secret_fields(value):
             errors.add((field_path(parts), 'contains possible secret content; use a name or reference'))
     if errors:

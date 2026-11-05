@@ -1,8 +1,10 @@
 """Boundary rehearsals for AI Host Kit; no host, model or credentials required."""
 import json
+import importlib.util
 import os
 from pathlib import Path
 import shutil
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -70,6 +72,7 @@ def source_rules(work):
     mutation('README.md', lambda t: t + '\nGenerated ' + 'by Codex\n', 'attribution or session link')
     mutation('README.md', lambda t: t + '\nA sentence' + chr(0x2014) + 'with a dash.\n', 'em or en dash')
     mutation('README.md', lambda t: t.replace('| `/go-live` |', '| `/publish` |'), 'command list does not match')
+    mutation('.agents/skills/host-fit/resources/recipes/azure/capabilities.json', lambda t: t + '\n', 'adapter drift')
     mutation('.claude/commands/check-live.md', lambda t: t + '\nStale.\n', 'adapter drift')
     mutation('.agents/tools/kit-inventory.txt', lambda t: t + 'command fifth\n', 'exactly the four hosting commands')
     mutation('release-manifest.txt', lambda t: t + '.agents/maintainer-skills|\n', 'maintainer or undeclared material')
@@ -129,6 +132,23 @@ def release_builder(work):
         assert (pack / f'agent-plugin/skills/{name}/SKILL.md').read_bytes() == source
     for forbidden in ('AGENTS.md', '.agents/tools', '.agents/tests', '.agents/maintainer-skills', '.githooks', '.github/workflows', 'docs/MAINTAINING.md', 'release-manifest.txt'):
         assert not (pack / forbidden).exists(), f'maintainer material shipped: {forbidden}'
+    # Use each packaged skill's documented command from a separate project.
+    # A plugin root is resolved once from the skill's installed location.
+    spec = importlib.util.spec_from_file_location('replay', ROOT / '.agents/tools/replay-host-choice.py')
+    replay = importlib.util.module_from_spec(spec); spec.loader.exec_module(replay)
+    project = work / 'plugin project'; (project / 'hosting').mkdir(parents=True)
+    shutil.copy2(ROOT / '.agents/tests/fixtures/contracts/handover/valid.json',
+                 project / 'hosting/handover.json')
+    for route, plugin, location in (
+        ('Claude Code plugin', pack, '.agents/skills'),
+        ('Agent Plugins package', pack / 'agent-plugin', 'skills'),
+    ):
+        prefix = replay.skill_command(plugin / location / 'host-fit/SKILL.md', route)
+        command = shlex.split(prefix.replace('<plugin-root>', str(plugin)))
+        assert json.loads(run(command + ['menu'], cwd=project).stdout) == []
+        run(command + ['check-recipes'], cwd=project)
+        output = run(command + ['questions', '--handover', 'hosting/handover.json'], cwd=project)
+        assert [q['id'] for q in json.loads(output.stdout)] == ['cloud', 'care']
     # The manifest predicts exactly the built tree, including plugin skill copies.
     sys.path.insert(0, str(ROOT / '.agents/tools'))
     import kit

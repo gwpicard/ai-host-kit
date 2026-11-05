@@ -1,0 +1,802 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AI Host Kit recipe capabilities",
+  "description": "Absent fields or selectors are unknown. Conditions are data, never executable expressions. Declarations do not prove a recipe.",
+  "type": "object",
+  "properties": {
+    "image.dockerfile": {
+      "type": "object",
+      "properties": {
+        "*": {
+          "$ref": "#/$defs/entry"
+        }
+      },
+      "additionalProperties": false,
+      "minProperties": 1
+    },
+    "processes.web.command": {
+      "type": "object",
+      "properties": {
+        "*": {
+          "$ref": "#/$defs/entry"
+        }
+      },
+      "additionalProperties": false,
+      "minProperties": 1
+    },
+    "processes.web.port": {
+      "type": "object",
+      "properties": {
+        "*": {
+          "$ref": "#/$defs/entry"
+        }
+      },
+      "additionalProperties": false,
+      "minProperties": 1
+    },
+    "processes.worker.command": {
+      "type": "object",
+      "properties": {
+        "*": {
+          "$ref": "#/$defs/entry"
+        }
+      },
+      "additionalProperties": false,
+      "minProperties": 1
+    },
+    "processes.migrate.command": {
+      "type": "object",
+      "properties": {
+        "*": {
+          "$ref": "#/$defs/entry"
+        }
+      },
+      "additionalProperties": false,
+      "minProperties": 1
+    },
+    "processes.migrate.when": {
+      "type": "object",
+      "properties": {
+        "*": {
+          "$ref": "#/$defs/entry"
+        },
+        "before-release": {
+          "$ref": "#/$defs/entry"
+        }
+      },
+      "additionalProperties": false,
+      "minProperties": 1
+    },
+    "health.path": {
+      "type": "object",
+      "properties": {
+        "*": {
+          "$ref": "#/$defs/entry"
+        }
+      },
+      "additionalProperties": false,
+      "minProperties": 1
+    },
+    "health.checks": {
+      "type": "object",
+      "properties": {
+        "*": {
+          "$ref": "#/$defs/entry"
+        }
+      },
+      "additionalProperties": false,
+      "minProperties": 1
+    },
+    "health.commit_env": {
+      "type": "object",
+      "properties": {
+        "*": {
+          "$ref": "#/$defs/entry"
+        }
+      },
+      "additionalProperties": false,
+      "minProperties": 1
+    },
+    "config.*.name": {
+      "type": "object",
+      "properties": {
+        "*": {
+          "$ref": "#/$defs/entry"
+        }
+      },
+      "additionalProperties": false,
+      "minProperties": 1
+    },
+    "config.*.kind": {
+      "type": "object",
+      "properties": {
+        "*": {
+          "$ref": "#/$defs/entry"
+        },
+        "secret": {
+          "$ref": "#/$defs/entry"
+        },
+        "setting": {
+          "$ref": "#/$defs/entry"
+        }
+      },
+      "additionalProperties": false,
+      "minProperties": 1
+    },
+    "config.*.phase": {
+      "type": "object",
+      "properties": {
+        "*": {
+          "$ref": "#/$defs/entry"
+        },
+        "build": {
+          "$ref": "#/$defs/entry"
+        },
+        "runtime": {
+          "$ref": "#/$defs/entry"
+        }
+      },
+      "additionalProperties": false,
+      "minProperties": 1
+    },
+    "config.*.source": {
+      "type": "object",
+      "properties": {
+        "*": {
+          "$ref": "#/$defs/entry"
+        },
+        "generated": {
+          "$ref": "#/$defs/entry"
+        },
+        "person": {
+          "$ref": "#/$defs/entry"
+        },
+        "host": {
+          "$ref": "#/$defs/entry"
+        }
+      },
+      "additionalProperties": false,
+      "minProperties": 1
+    },
+    "postgres.min_major": {
+      "type": "object",
+      "properties": {
+        "*": {
+          "$ref": "#/$defs/entry"
+        }
+      },
+      "additionalProperties": false,
+      "minProperties": 1
+    },
+    "postgres.extensions": {
+      "type": "object",
+      "properties": {
+        "*": {
+          "$ref": "#/$defs/entry"
+        }
+      },
+      "additionalProperties": false,
+      "minProperties": 1
+    },
+    "postgres.roles.migrate": {
+      "type": "object",
+      "properties": {
+        "*": {
+          "$ref": "#/$defs/entry"
+        },
+        "owner": {
+          "$ref": "#/$defs/entry"
+        }
+      },
+      "additionalProperties": false,
+      "minProperties": 1
+    },
+    "postgres.roles.app": {
+      "type": "object",
+      "properties": {
+        "*": {
+          "$ref": "#/$defs/entry"
+        },
+        "no-owner-no-bypassrls": {
+          "$ref": "#/$defs/entry"
+        }
+      },
+      "additionalProperties": false,
+      "minProperties": 1
+    },
+    "files.port": {
+      "type": "object",
+      "properties": {
+        "*": {
+          "$ref": "#/$defs/entry"
+        },
+        "s3": {
+          "$ref": "#/$defs/entry"
+        },
+        "azure-blob": {
+          "$ref": "#/$defs/entry"
+        }
+      },
+      "additionalProperties": false,
+      "minProperties": 1
+    },
+    "files.buckets.*.name": {
+      "type": "object",
+      "properties": {
+        "*": {
+          "$ref": "#/$defs/entry"
+        }
+      },
+      "additionalProperties": false,
+      "minProperties": 1
+    },
+    "files.buckets.*.private": {
+      "type": "object",
+      "properties": {
+        "*": {
+          "$ref": "#/$defs/entry"
+        },
+        "true": {
+          "$ref": "#/$defs/entry"
+        },
+        "false": {
+          "$ref": "#/$defs/entry"
+        }
+      },
+      "additionalProperties": false,
+      "minProperties": 1
+    },
+    "files.buckets.*.link_minutes": {
+      "type": "object",
+      "properties": {
+        "*": {
+          "$ref": "#/$defs/entry"
+        }
+      },
+      "additionalProperties": false,
+      "minProperties": 1
+    },
+    "email.transport": {
+      "type": "object",
+      "properties": {
+        "*": {
+          "$ref": "#/$defs/entry"
+        },
+        "smtp": {
+          "$ref": "#/$defs/entry"
+        }
+      },
+      "additionalProperties": false,
+      "minProperties": 1
+    },
+    "email.sender_domain": {
+      "type": "object",
+      "properties": {
+        "*": {
+          "$ref": "#/$defs/entry"
+        }
+      },
+      "additionalProperties": false,
+      "minProperties": 1
+    },
+    "email.inbound": {
+      "type": "object",
+      "properties": {
+        "*": {
+          "$ref": "#/$defs/entry"
+        },
+        "true": {
+          "$ref": "#/$defs/entry"
+        },
+        "false": {
+          "$ref": "#/$defs/entry"
+        }
+      },
+      "additionalProperties": false,
+      "minProperties": 1
+    },
+    "jobs.library": {
+      "type": "object",
+      "properties": {
+        "*": {
+          "$ref": "#/$defs/entry"
+        }
+      },
+      "additionalProperties": false,
+      "minProperties": 1
+    },
+    "jobs.runner": {
+      "type": "object",
+      "properties": {
+        "*": {
+          "$ref": "#/$defs/entry"
+        },
+        "worker": {
+          "$ref": "#/$defs/entry"
+        },
+        "in-app": {
+          "$ref": "#/$defs/entry"
+        },
+        "host-tick": {
+          "$ref": "#/$defs/entry"
+        }
+      },
+      "additionalProperties": false,
+      "minProperties": 1
+    },
+    "jobs.longest_job_seconds": {
+      "type": "object",
+      "properties": {
+        "*": {
+          "$ref": "#/$defs/entry"
+        }
+      },
+      "additionalProperties": false,
+      "minProperties": 1
+    },
+    "jobs.schedules.*.name": {
+      "type": "object",
+      "properties": {
+        "*": {
+          "$ref": "#/$defs/entry"
+        }
+      },
+      "additionalProperties": false,
+      "minProperties": 1
+    },
+    "jobs.schedules.*.cron": {
+      "type": "object",
+      "properties": {
+        "*": {
+          "$ref": "#/$defs/entry"
+        }
+      },
+      "additionalProperties": false,
+      "minProperties": 1
+    },
+    "sign_in.staff.provider": {
+      "type": "object",
+      "properties": {
+        "*": {
+          "$ref": "#/$defs/entry"
+        },
+        "entra": {
+          "$ref": "#/$defs/entry"
+        },
+        "google": {
+          "$ref": "#/$defs/entry"
+        },
+        "oidc": {
+          "$ref": "#/$defs/entry"
+        }
+      },
+      "additionalProperties": false,
+      "minProperties": 1
+    },
+    "sign_in.staff.directory": {
+      "type": "object",
+      "properties": {
+        "*": {
+          "$ref": "#/$defs/entry"
+        }
+      },
+      "additionalProperties": false,
+      "minProperties": 1
+    },
+    "sign_in.staff.outside_refused_test": {
+      "type": "object",
+      "properties": {
+        "*": {
+          "$ref": "#/$defs/entry"
+        }
+      },
+      "additionalProperties": false,
+      "minProperties": 1
+    },
+    "sign_in.staff.redirect_path": {
+      "type": "object",
+      "properties": {
+        "*": {
+          "$ref": "#/$defs/entry"
+        }
+      },
+      "additionalProperties": false,
+      "minProperties": 1
+    },
+    "sign_in.outsiders": {
+      "type": "object",
+      "properties": {
+        "*": {
+          "$ref": "#/$defs/entry"
+        },
+        "email-link": {
+          "$ref": "#/$defs/entry"
+        },
+        "none": {
+          "$ref": "#/$defs/entry"
+        }
+      },
+      "additionalProperties": false,
+      "minProperties": 1
+    },
+    "ai.needed": {
+      "type": "object",
+      "properties": {
+        "*": {
+          "$ref": "#/$defs/entry"
+        },
+        "true": {
+          "$ref": "#/$defs/entry"
+        },
+        "false": {
+          "$ref": "#/$defs/entry"
+        }
+      },
+      "additionalProperties": false,
+      "minProperties": 1
+    },
+    "ai.capabilities": {
+      "type": "object",
+      "properties": {
+        "*": {
+          "$ref": "#/$defs/entry"
+        }
+      },
+      "additionalProperties": false,
+      "minProperties": 1
+    },
+    "ai.residency": {
+      "type": "object",
+      "properties": {
+        "*": {
+          "$ref": "#/$defs/entry"
+        },
+        "uk": {
+          "$ref": "#/$defs/entry"
+        },
+        "eu": {
+          "$ref": "#/$defs/entry"
+        },
+        "any": {
+          "$ref": "#/$defs/entry"
+        }
+      },
+      "additionalProperties": false,
+      "minProperties": 1
+    },
+    "access": {
+      "type": "object",
+      "properties": {
+        "*": {
+          "$ref": "#/$defs/entry"
+        },
+        "private": {
+          "$ref": "#/$defs/entry"
+        },
+        "invitation": {
+          "$ref": "#/$defs/entry"
+        },
+        "public": {
+          "$ref": "#/$defs/entry"
+        }
+      },
+      "additionalProperties": false,
+      "minProperties": 1
+    },
+    "residency": {
+      "type": "object",
+      "properties": {
+        "*": {
+          "$ref": "#/$defs/entry"
+        },
+        "uk": {
+          "$ref": "#/$defs/entry"
+        },
+        "eu": {
+          "$ref": "#/$defs/entry"
+        },
+        "any": {
+          "$ref": "#/$defs/entry"
+        }
+      },
+      "additionalProperties": false,
+      "minProperties": 1
+    },
+    "data_risk": {
+      "type": "object",
+      "properties": {
+        "*": {
+          "$ref": "#/$defs/entry"
+        }
+      },
+      "additionalProperties": false,
+      "minProperties": 1
+    },
+    "recovery.max_data_loss_hours": {
+      "type": "object",
+      "properties": {
+        "*": {
+          "$ref": "#/$defs/entry"
+        }
+      },
+      "additionalProperties": false,
+      "minProperties": 1
+    },
+    "recovery.max_restore_hours": {
+      "type": "object",
+      "properties": {
+        "*": {
+          "$ref": "#/$defs/entry"
+        }
+      },
+      "additionalProperties": false,
+      "minProperties": 1
+    },
+    "limits.longest_request_seconds": {
+      "type": "object",
+      "properties": {
+        "*": {
+          "$ref": "#/$defs/entry"
+        }
+      },
+      "additionalProperties": false,
+      "minProperties": 1
+    },
+    "limits.memory_mb": {
+      "type": "object",
+      "properties": {
+        "*": {
+          "$ref": "#/$defs/entry"
+        }
+      },
+      "additionalProperties": false,
+      "minProperties": 1
+    },
+    "limits.outbound_internet": {
+      "type": "object",
+      "properties": {
+        "*": {
+          "$ref": "#/$defs/entry"
+        },
+        "true": {
+          "$ref": "#/$defs/entry"
+        },
+        "false": {
+          "$ref": "#/$defs/entry"
+        }
+      },
+      "additionalProperties": false,
+      "minProperties": 1
+    },
+    "previews.wanted": {
+      "type": "object",
+      "properties": {
+        "*": {
+          "$ref": "#/$defs/entry"
+        },
+        "true": {
+          "$ref": "#/$defs/entry"
+        },
+        "false": {
+          "$ref": "#/$defs/entry"
+        }
+      },
+      "additionalProperties": false,
+      "minProperties": 1
+    },
+    "previews.data": {
+      "type": "object",
+      "properties": {
+        "*": {
+          "$ref": "#/$defs/entry"
+        },
+        "separate-database": {
+          "$ref": "#/$defs/entry"
+        }
+      },
+      "additionalProperties": false,
+      "minProperties": 1
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "entry": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "status": {
+              "const": "met"
+            },
+            "check": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^(?![\\s\\S]*\\s)(?!.*(?:^|/)\\.{1,2}(?:/|$))[A-Za-z0-9_~-][A-Za-z0-9._~/-]*$"
+            }
+          },
+          "required": [
+            "status"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "status": {
+              "const": "met-if"
+            },
+            "condition": {
+              "type": "object",
+              "properties": {
+                "field": {
+                  "enum": [
+                    "image.dockerfile",
+                    "processes.web.command",
+                    "processes.web.port",
+                    "processes.worker.command",
+                    "processes.migrate.command",
+                    "processes.migrate.when",
+                    "health.path",
+                    "health.checks",
+                    "health.commit_env",
+                    "config.*.name",
+                    "config.*.kind",
+                    "config.*.phase",
+                    "config.*.source",
+                    "postgres.min_major",
+                    "postgres.extensions",
+                    "postgres.roles.migrate",
+                    "postgres.roles.app",
+                    "files.port",
+                    "files.buckets.*.name",
+                    "files.buckets.*.private",
+                    "files.buckets.*.link_minutes",
+                    "email.transport",
+                    "email.sender_domain",
+                    "email.inbound",
+                    "jobs.library",
+                    "jobs.runner",
+                    "jobs.longest_job_seconds",
+                    "jobs.schedules.*.name",
+                    "jobs.schedules.*.cron",
+                    "sign_in.staff.provider",
+                    "sign_in.staff.directory",
+                    "sign_in.staff.outside_refused_test",
+                    "sign_in.staff.redirect_path",
+                    "sign_in.outsiders",
+                    "ai.needed",
+                    "ai.capabilities",
+                    "ai.residency",
+                    "access",
+                    "residency",
+                    "data_risk",
+                    "recovery.max_data_loss_hours",
+                    "recovery.max_restore_hours",
+                    "limits.longest_request_seconds",
+                    "limits.memory_mb",
+                    "limits.outbound_internet",
+                    "previews.wanted",
+                    "previews.data"
+                  ]
+                },
+                "operator": {
+                  "enum": [
+                    "eq",
+                    "in",
+                    "lte",
+                    "gte"
+                  ]
+                },
+                "value": {
+                  "oneOf": [
+                    {
+                      "type": "string",
+                      "minLength": 1,
+                      "pattern": "^(?![\\s\\S]*[A-Za-z][A-Za-z0-9+.-]*://[^\\s]*[@?#%\\\\])[^\\r\\n]+$"
+                    },
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "boolean"
+                    },
+                    {
+                      "type": "array",
+                      "minItems": 1,
+                      "items": {
+                        "oneOf": [
+                          {
+                            "type": "string",
+                            "minLength": 1,
+                            "pattern": "^(?![\\s\\S]*[A-Za-z][A-Za-z0-9+.-]*://[^\\s]*[@?#%\\\\])[^\\r\\n]+$"
+                          },
+                          {
+                            "type": "number"
+                          },
+                          {
+                            "type": "boolean"
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "field",
+                "operator",
+                "value"
+              ],
+              "additionalProperties": false,
+              "allOf": [
+                {
+                  "if": {
+                    "properties": {
+                      "operator": {
+                        "enum": [
+                          "lte",
+                          "gte"
+                        ]
+                      }
+                    }
+                  },
+                  "then": {
+                    "properties": {
+                      "value": {
+                        "type": "number"
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "operator": {
+                        "const": "in"
+                      }
+                    }
+                  },
+                  "then": {
+                    "properties": {
+                      "value": {
+                        "type": "array"
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            "check": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^(?![\\s\\S]*\\s)(?!.*(?:^|/)\\.{1,2}(?:/|$))[A-Za-z0-9_~-][A-Za-z0-9._~/-]*$"
+            }
+          },
+          "required": [
+            "status",
+            "condition"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "status": {
+              "const": "cannot"
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^(?![\\s\\S]*[A-Za-z][A-Za-z0-9+.-]*://[^\\s]*[@?#%\\\\])[^\\r\\n]+$"
+            }
+          },
+          "required": [
+            "status",
+            "reason"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    }
+  }
+}

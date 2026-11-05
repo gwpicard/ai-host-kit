@@ -12,6 +12,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[2]
 COMMANDS = {'setup-hosting', 'go-live', 'check-live', 'change-live'}
+BACKGROUNDS = {'host-fit'}
 ADAPTER_DIRS = ('.claude/commands', '.cursor/commands', '.gemini/commands')
 PUBLIC_FILES = {'README.md', 'LICENSE', 'NOTICES', 'CONTRIBUTING.md', 'SECURITY.md',
                 '.ai-host-kit-version', 'docs/PHILOSOPHY.md', 'docs/PROMISES.md',
@@ -45,7 +46,7 @@ def safe_path(value):
 def public(path):
     if path in PUBLIC_FILES:
         return True
-    for name in COMMANDS:
+    for name in COMMANDS | BACKGROUNDS:
         if path.startswith(f'.agents/skills/{name}/') or path.startswith(f'agent-plugin/skills/{name}/'):
             return True
         for directory, ext in zip(ADAPTER_DIRS, ('.md', '.md', '.toml')):
@@ -88,7 +89,7 @@ def packing_list():
             result[target] = f
     # Missing entries are as dangerous as leaks: every offered command needs its body.
     required = PUBLIC_FILES | {f'{d}/{n}{e}' for d, e in zip(ADAPTER_DIRS, ('.md', '.md', '.toml')) for n in COMMANDS}
-    required |= {f'{d}/{n}/SKILL.md' for d in ('.agents/skills', 'agent-plugin/skills') for n in COMMANDS}
+    required |= {f'{d}/{n}/SKILL.md' for d in ('.agents/skills', 'agent-plugin/skills') for n in COMMANDS | BACKGROUNDS}
     if not required <= result.keys():
         error('release manifest is missing required public files: ' + ', '.join(sorted(required - result.keys())))
     return result
@@ -96,28 +97,32 @@ def packing_list():
 
 def skill_headers():
     inventory = []
+    backgrounds = []
     for line in (ROOT / '.agents/tools/kit-inventory.txt').read_text().splitlines():
         if not line.strip() or line.lstrip().startswith('#'):
             continue
         fields = line.split()
-        if len(fields) != 2 or fields[0] != 'command':
-            error('inventory must contain command names only')
-        inventory.append(fields[1])
+        if len(fields) != 2 or fields[0] not in ('command', 'background'):
+            error('inventory must contain command or background names')
+        (inventory if fields[0] == 'command' else backgrounds).append(fields[1])
     if set(inventory) != COMMANDS or len(inventory) != len(COMMANDS):
         error('inventory must list exactly the four hosting commands')
+    if set(backgrounds) != BACKGROUNDS or len(backgrounds) != len(BACKGROUNDS):
+        error('inventory must list the supported background skills')
     actual = {p.name for p in (ROOT / '.agents/skills').iterdir()}
-    if actual != COMMANDS:
+    if actual != COMMANDS | BACKGROUNDS | {'recipes'}:
         error('installable skill folders do not match the inventory')
     result = {}
-    for name in sorted(COMMANDS):
+    for name in sorted(COMMANDS | BACKGROUNDS):
         path = ROOT / f'.agents/skills/{name}/SKILL.md'
         text = path.read_text()
         match = re.match(r'\A---\nname: ([a-z-]+)\ndescription: ([^\n]+)\n---\n\n(.+)\Z', text, re.S)
         if not match or match[1] != name or ': ' in match[2]:
             error(f'{path.relative_to(ROOT)}: expected name and a plain description in YAML frontmatter')
-        if '\n\n' in match[3].strip():
+        if name not in {'setup-hosting'} | BACKGROUNDS and '\n\n' in match[3].strip():
             error(f'{name}: the stub must be one paragraph')
-        result[name] = match[2]
+        if name in COMMANDS:
+            result[name] = match[2]
     return result
 
 
@@ -137,6 +142,17 @@ def adapter_files():
             f'description = {json.dumps(description)}\nprompt = """\n'
             f'Load and follow `{canonical}`.\n'
             "Treat the following as the person's request (it may be empty): {{args}}\n" + '"""\n')
+    # Bundle dependencies so a skill-only installation has the same reader and data.
+    resources = '.agents/skills/host-fit/resources/'
+    for name in ('capabilities.schema.json', 'place-record.schema.json',
+                 'host-record.schema.json', 'provisional-ai-build-kit/handover.schema.json'):
+        result[resources + 'contracts/' + name] = (ROOT / 'contracts' / name).read_text()
+    source = ROOT / '.agents/skills/recipes'
+    for path in sorted(source.rglob('*')):
+        if path.is_file() and path.suffix in ('.json', '.md'):
+            result[resources + 'recipes/' + str(path.relative_to(source))] = path.read_text()
+    for name in ('record_validation.py', 'schema-requirements.txt'):
+        result[resources + name] = (ROOT / '.agents/tools' / name).read_text()
     return result
 
 
@@ -145,7 +161,7 @@ def build_adapters(args):
         error('usage: build-adapters.sh [--check]')
     expected = adapter_files()
     if args:
-        actual = {str(p.relative_to(ROOT)) for d in ADAPTER_DIRS for p in (ROOT / d).rglob('*') if p.is_file() or p.is_symlink()}
+        actual = {str(p.relative_to(ROOT)) for d in (*ADAPTER_DIRS, '.agents/skills/host-fit/resources') for p in (ROOT / d).rglob('*') if p.is_file() or p.is_symlink()}
         if actual != expected.keys():
             error('adapter file list has drifted; run build-adapters.sh')
         for path, text in expected.items():
@@ -153,7 +169,7 @@ def build_adapters(args):
                 error(f'adapter drift: {path}; run build-adapters.sh')
         print('adapters match: 4 commands, no drift')
     else:
-        for d in ADAPTER_DIRS:
+        for d in (*ADAPTER_DIRS, '.agents/skills/host-fit/resources'):
             folder = ROOT / d
             if folder.is_symlink():
                 error(f'adapter directory is a symlink: {d}')

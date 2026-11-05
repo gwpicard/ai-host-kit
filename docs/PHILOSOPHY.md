@@ -22,6 +22,6 @@ judgement a machine cannot make. Shell checks guard boundaries; conversation
 replays will measure behaviour when there is behaviour to test. A host recipe
 needs a recorded real run before it is offered as proven.
 
-The kit is beta. Its commands are stubs and no host is proven.
+The kit is beta. Only the local host choice is built; no host is proven.
 [PROMISES.md](PROMISES.md) records the missing mechanisms; an intention is not
 a guarantee.

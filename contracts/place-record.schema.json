@@ -225,17 +225,200 @@
         "key_custodian"
       ],
       "additionalProperties": false
+    },
+    "choice": {
+      "type": "object",
+      "properties": {
+        "host": {
+          "enum": [
+            "coolify-hetzner",
+            "vercel-postgres",
+            "azure",
+            "existing"
+          ]
+        },
+        "proven": {
+          "type": "boolean"
+        },
+        "answers": {
+          "type": "object",
+          "properties": {
+            "cloud": {
+              "enum": [
+                "azure",
+                "aws",
+                "google-cloud",
+                "none",
+                "not-sure"
+              ]
+            },
+            "care": {
+              "enum": [
+                "managed",
+                "server",
+                "no-preference"
+              ]
+            },
+            "long_work": {
+              "type": "boolean"
+            }
+          },
+          "additionalProperties": false
+        },
+        "wish": {
+          "enum": [
+            "aws",
+            "google-cloud"
+          ]
+        },
+        "accepted_shortfalls": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "field": {
+                "enum": [
+                  "image.dockerfile",
+                  "processes.web.command",
+                  "processes.web.port",
+                  "processes.worker.command",
+                  "processes.migrate.command",
+                  "processes.migrate.when",
+                  "health.path",
+                  "health.checks",
+                  "health.commit_env",
+                  "config.*.name",
+                  "config.*.kind",
+                  "config.*.phase",
+                  "config.*.source",
+                  "postgres.min_major",
+                  "postgres.extensions",
+                  "postgres.roles.migrate",
+                  "postgres.roles.app",
+                  "files.port",
+                  "files.buckets.*.name",
+                  "files.buckets.*.private",
+                  "files.buckets.*.link_minutes",
+                  "email.transport",
+                  "email.sender_domain",
+                  "email.inbound",
+                  "jobs.library",
+                  "jobs.runner",
+                  "jobs.longest_job_seconds",
+                  "jobs.schedules.*.name",
+                  "jobs.schedules.*.cron",
+                  "sign_in.staff.provider",
+                  "sign_in.staff.directory",
+                  "sign_in.staff.outside_refused_test",
+                  "sign_in.staff.redirect_path",
+                  "sign_in.outsiders",
+                  "ai.needed",
+                  "ai.capabilities",
+                  "ai.residency",
+                  "access",
+                  "residency",
+                  "data_risk",
+                  "recovery.max_data_loss_hours",
+                  "recovery.max_restore_hours",
+                  "limits.longest_request_seconds",
+                  "limits.memory_mb",
+                  "limits.outbound_internet",
+                  "previews.wanted",
+                  "previews.data"
+                ]
+              },
+              "status": {
+                "const": "accepted"
+              },
+              "date": {
+                "type": "string",
+                "format": "date"
+              },
+              "words": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^(?![\\s\\S]*[A-Za-z][A-Za-z0-9+.-]*://[^\\s]*[@?#%\\\\])[^\\r\\n]+$"
+              }
+            },
+            "required": [
+              "field",
+              "status",
+              "date",
+              "words"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "host",
+        "proven",
+        "answers",
+        "accepted_shortfalls"
+      ],
+      "additionalProperties": false
     }
   },
+  "additionalProperties": false,
   "required": [
-    "schema_version",
-    "place",
-    "network",
-    "firewall",
-    "backup_storage",
-    "alert_addresses",
-    "tools",
-    "encrypted_state"
+    "schema_version"
   ],
-  "additionalProperties": false
+  "anyOf": [
+    {
+      "required": [
+        "schema_version",
+        "place",
+        "network",
+        "firewall",
+        "backup_storage",
+        "alert_addresses",
+        "tools",
+        "encrypted_state"
+      ]
+    },
+    {
+      "required": [
+        "choice"
+      ],
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "place"
+            ]
+          },
+          {
+            "required": [
+              "network"
+            ]
+          },
+          {
+            "required": [
+              "firewall"
+            ]
+          },
+          {
+            "required": [
+              "backup_storage"
+            ]
+          },
+          {
+            "required": [
+              "alert_addresses"
+            ]
+          },
+          {
+            "required": [
+              "tools"
+            ]
+          },
+          {
+            "required": [
+              "encrypted_state"
+            ]
+          }
+        ]
+      }
+    }
+  ]
 }

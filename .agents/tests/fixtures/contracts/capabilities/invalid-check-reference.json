@@ -1,0 +1,8 @@
+{
+  "jobs.runner": {
+    "worker": {
+      "status": "met",
+      "check": "https://example.invalid/?synthetic-secret-marker"
+    }
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "schema_version": "1.0",
+  "choice": {
+    "host": "coolify-hetzner",
+    "proven": false,
+    "answers": {
+      "cloud": "none",
+      "care": "server"
+    },
+    "accepted_shortfalls": [
+      {
+        "field": "residency",
+        "status": "accepted",
+        "date": "not-a-date",
+        "words": "I accept Germany or Finland for this tool."
+      }
+    ]
+  }
+}

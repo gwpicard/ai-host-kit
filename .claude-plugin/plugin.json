@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "ai-host-kit",
-  "description": "Beta hosting kit. Four command stubs; no hosting behaviour yet.",
+  "description": "Beta hosting kit. Local host choice; creating the place is not built yet.",
   "version": "0.0.1",
   "author": {
     "name": "Guillaume Picard"

@@ -3,3 +3,4 @@ command setup-hosting
 command go-live
 command check-live
 command change-live
+background host-fit
