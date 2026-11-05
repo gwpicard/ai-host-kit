@@ -27,8 +27,9 @@ def summary_cases(checks, gate, case):
         for field in ('ipv4_address', 'ipv6_address'):
             assert field + ': withheld (sensitive or unknown)' in internet
     elif case == 'all_protocols':
-        for field in ('protocol', 'from_port', 'to_port'):
-            assert field + ': not set -> all protocols and all ports' in internet
+        assert 'protocol: not set -> all protocols and all ports' in internet
+        for field in ('from_port', 'to_port'):
+            assert field + ': not set -> all ports' in internet
         for value in ('all', '-1', '*'):
             plan = copy.deepcopy(plans[case])
             plan['resource_changes'][0]['change']['after'] = {'rules': [{'protocol': value}]}
@@ -192,11 +193,14 @@ def run_regressions(checks, work):
         assert gate.target_identity() == initial
         config.write_text(saved + '\nterraform {\n  backend "local" {}\n}\n')
         checks.tofu(original, 'init', '-reconfigure', '-input=false', '-backend-config=path=one.tfstate')
+        original_plan = (original / 'first.plan').read_bytes()
+        checks.tofu(original, 'plan', '-input=false', '-out=first.plan')
         backend_record = checks.record_for(gate, original / 'first.plan')
         backend_approval = work / 'backend-approval.json'; backend_approval.write_text(json.dumps(backend_record))
         checks.tofu(original, 'init', '-reconfigure', '-input=false', '-backend-config=path=two.tfstate')
         target_refusal(checks, gate, original, backend_approval)
         config.write_text(saved)
+        (original / 'first.plan').write_bytes(original_plan)
         shutil.rmtree(original / '.terraform')
         checks.tofu(original, 'init', '-input=false')
         assert gate.target_identity() == initial
@@ -219,11 +223,11 @@ def run_regressions(checks, work):
         ('protected map keys', script, '(protected and i == len(path) - 1 and len(path) > 1)', 'False', key_masks),
         ('target binding', script, "if record['target'] != target:", 'if False:',
          lambda module: target_refusal(checks, module, other, copied)),
-        ('network fields', script, '|ipv4_address|ipv6_address|(?:^|\\.)protocol$|ip_protocol', '',
+        ('network fields', script, 'if NETWORK.search(match_path):', 'if False:',
          lambda module: summary_cases(checks, module, 'public_server')),
-        ('all protocols', script, "if value in ('all', '-1', '*', -1) else value", 'if False else value',
+        ('all protocols', script, "if protocol in ('all', '-1', '*'):", 'if False:',
          lambda module: summary_cases(checks, module, 'all_protocols')),
-        ('wildcard sources', script, "if value in ('*', 'any', 'Internet', '0.0.0.0/0', '::/0'):", 'if False:',
+        ('wildcard sources', script, "if value.lower() in ('*', 'any', 'internet'):", 'if False:',
          lambda module: summary_cases(checks, module, 'wildcard_sources')),
         ('empty structures', script, '        yield path, before, after, False\n    if objects:', '        pass\n    if objects:', empty_check),
         ('output actions', script, "Output {label(name)}: {action}; value withheld", "Output {label(name)}: value withheld",
@@ -232,9 +236,9 @@ def run_regressions(checks, work):
     results['protection_removals'] = []
     for name, path, old, new, check in mutations:
         saved = path.read_text()
-        assert old in saved, name
+        mutated = checks.mutate_text(saved, old, new, name)
         try:
-            path.write_text(saved.replace(old, new, 1))
+            path.write_text(mutated)
             try:
                 check(checks.load(scratch))
             except AssertionError:

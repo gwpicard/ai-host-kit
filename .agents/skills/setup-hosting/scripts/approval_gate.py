@@ -1,5 +1,6 @@
 """Summarise, record terminal approval and apply the exact approved plan bytes."""
 import argparse
+import base64
 from contextlib import contextmanager, redirect_stdout
 from datetime import datetime, timezone
 import hashlib
@@ -13,6 +14,7 @@ import subprocess
 import sys
 import tempfile
 import termios
+import zipfile
 from types import SimpleNamespace
 
 sys.dont_write_bytecode = True
@@ -41,7 +43,7 @@ ACTIONS = {('create',): 'Create', ('update',): 'Change', ('delete',): 'Destroy',
            ('create', 'delete'): 'Replace and destroy the old resource',
            ('read',): 'Read', ('no-op',): 'Keep', ('forget',): 'Stop managing',
            ('create', 'forget'): 'Create and stop managing the old resource'}
-NETWORK = re.compile(r'port|ingress|egress|firewall|security_group|cidr|source|public|acl|network|internet|ipv4_address|ipv6_address|(?:^|\.)protocol$|ip_protocol')
+NETWORK = re.compile(r'ip|address|cidr|range|source|port|protocol|public|nat|ingress|egress|firewall|security_group|acl|network|internet', re.IGNORECASE)
 ACCESS = re.compile(r'key|user|role|policy|permission|member|principal|identity|application|directory|registration|firewall|security_group|source|cidr|ingress|acl')
 PORTS = {'port', 'ports', 'from_port', 'to_port', 'source_port_range',
          'source_port_ranges', 'destination_port_range', 'destination_port_ranges'}
@@ -49,7 +51,8 @@ SOURCES = {'source_ips', 'destination_ips', 'cidr_blocks', 'ipv6_cidr_blocks',
            'cidr_ipv4', 'cidr_ipv6', 'source_address_prefix', 'source_address_prefixes',
            'public_ip', 'public_ip_address', 'public_ipv4', 'public_ipv6',
            'public_ipv4_address', 'public_ipv6_address', 'public_ips', 'public_ip_addresses',
-           'ip_address', 'ipv4_address', 'ipv6_address'}
+           'ip_address', 'ipv4_address', 'ipv6_address', 'ipv6_addresses',
+           'address', 'nat_ip', 'external_ipv6', 'source_ranges'}
 
 
 def refuse(message):
@@ -112,28 +115,54 @@ def leaves(before, after, sensitive_before=False, sensitive_after=False, unknown
         yield path, before, after, False
 
 
-def display_value(value, path, protected):
+def all_ports_context(value, path, *masks):
+    # Infer port scope only from an unmasked protocol in the same rule.
+    field = next((i for i in range(len(path) - 1, -1, -1) if isinstance(path[i], str)), 0)
+    for key in path[:field]:
+        value = child(value, key)
+        masks = [child(mask, key) for mask in masks]
+    if not isinstance(value, dict):
+        return False
+    for name in ('protocol', 'ip_protocol'):
+        if any(child(mask, name) for mask in masks):
+            continue
+        protocol = value.get(name)
+        if isinstance(protocol, (str, int)) and str(protocol).lower() in ('-1', 'all', '*'):
+            return True
+    return False
+
+
+def display_value(value, path, protected, all_ports=False):
     if protected:
         return 'withheld (sensitive or unknown)'
     name = next((x for x in reversed(path) if isinstance(x, str)), '')
     # Only narrow network primitives may be shown. All free text stays withheld.
     if name in PORTS:
         if type(value) is int and -1 <= value <= 65535:
-            return 'all protocols and all ports' if value == 0 else ('all ports' if value == -1 else str(value))
+            return 'all ports' if value == 0 and all_ports else ('all ports' if value == -1 else str(value))
         if isinstance(value, str) and re.fullmatch(r'\d{1,5}(?:[-:]\d{1,5})?', value):
             if all(int(x) <= 65535 for x in re.split('[-:]', value)):
-                return 'all protocols and all ports' if value == '0' else value
+                return 'all ports' if value == '0' and all_ports else value
         if value in ('*', 'any'):
             return 'all ports'
     if name in SOURCES and isinstance(value, str):
-        if value in ('*', 'any', 'Internet', '0.0.0.0/0', '::/0'):
+        if value.lower() in ('*', 'any', 'internet'):
             return 'all sources (' + value + ')'
         try:
-            return str(ipaddress.ip_network(value, strict=False) if '/' in value else ipaddress.ip_address(value))
+            address = ipaddress.ip_network(value, strict=False) if '/' in value else ipaddress.ip_address(value)
+            if isinstance(address, (ipaddress.IPv4Network, ipaddress.IPv6Network)) and address.prefixlen == 0:
+                return 'all sources (' + str(address) + ')'
+            return str(address)
         except ValueError:
             pass
-    if name in {'protocol', 'ip_protocol'} and value in ('tcp', 'udp', 'icmp', 'icmpv6', 'all', '-1', '*', -1):
-        return 'all protocols and all ports' if value in ('all', '-1', '*', -1) else value
+    if name in {'protocol', 'ip_protocol'} and type(value) in (str, int):
+        protocol = str(value).lower()
+        if protocol in ('all', '-1', '*'):
+            return 'all protocols and all ports'
+        if protocol in ('tcp', 'udp', 'icmp', 'icmpv6', 'gre', 'esp', 'ah', 'sctp'):
+            return protocol
+        if re.fullmatch(r'[0-9]{1,3}', protocol) and int(protocol) <= 255:
+            return protocol
     if name in {'direction', 'access'} and value in ('in', 'out', 'Allow', 'Deny'):
         return value
     if name == 'acl' and value in ('private', 'public-read', 'public-read-write', 'authenticated-read'):
@@ -195,13 +224,16 @@ def summarise(plan):
                               else key for i, key in enumerate(path))
             field = records.field_path(safe_path)
             # Include unchanged rule fields too: a source-only change can open an existing port.
-            line = f'{name}: {field}: {display_value(before, path, protected)} -> {display_value(after, path, protected)}.'
+            masks = [change.get(key) for key in ('before_sensitive', 'after_sensitive', 'after_unknown')]
+            before_all = all_ports_context(change.get('before'), path, *masks)
+            after_all = all_ports_context(change.get('after'), path, *masks)
+            line = f'{name}: {field}: {display_value(before, path, protected, before_all)} -> {display_value(after, path, protected, after_all)}.'
             if not protected and any(isinstance(x, (dict, list)) and not x for x in (before, after)) and before != after:
                 line = f'{name}: {field}: structural change (empty container added, removed or changed); values withheld.'
             result['changes'].append(line)
             match_path = '.'.join(x for x in path if isinstance(x, str))
             if NETWORK.search(match_path):
-                result['internet'].append(line + ' Treat new or wider sources as possible internet access; unknown sources need review.')
+                result['internet'].append(line + ' Possibly affects who can reach the tool. Treat new or wider sources as possible internet access; unknown sources need review.')
             if ACCESS.search(match_path):
                 result['access'].append(line)
     for name, change in plan.get('output_changes', {}).items():
@@ -303,6 +335,93 @@ def saved_plan(path):
         yield snapshot, sha
 
 
+def protobuf_fields(data):
+    """Read wire fields without interpreting resource values or importing a schema."""
+    position = 0
+    fields = {}
+    def integer():
+        nonlocal position
+        value = 0
+        for shift in range(0, 70, 7):
+            byte = data[position]
+            position += 1
+            value |= (byte & 127) << shift
+            if byte < 128:
+                return value
+        raise ValueError('Invalid wire integer')
+    while position < len(data):
+        tag = integer()
+        wire = tag & 7
+        if not tag >> 3:
+            raise ValueError('Invalid wire field')
+        if wire == 0:
+            value = integer()
+        elif wire in (1, 2, 5):
+            size = integer() if wire == 2 else (8 if wire == 1 else 4)
+            value = data[position:position + size]
+            position += size
+            if position > len(data):
+                raise ValueError('Incomplete wire field')
+        else:
+            raise ValueError('Unsupported wire type')
+        fields.setdefault(tag >> 3, []).append(value)
+    return fields
+
+
+def single(fields, key):
+    values = fields[key]
+    if len(values) != 1:
+        raise ValueError('Repeated identity field')
+    return values[0]
+
+
+def plan_destination(snapshot):
+    # No plaintext files: decrypt only in memory, then read the backend submessage.
+    # Only the bundled PBKDF2/AES-GCM fragment and pinned package format are supported.
+    try:
+        import msgpack
+        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+        from cryptography.exceptions import InvalidTag
+    except ImportError:
+        refuse('Install the bundled requirements to read the saved plan destination.')
+    try:
+        envelope = json.loads(snapshot.read_bytes())
+        metadata = json.loads(base64.b64decode(envelope['meta']['key_provider.pbkdf2.host'], validate=True))
+        if (envelope['encryption_version'] != 'v0' or metadata['hash_function'] != 'sha512'
+                or metadata['iterations'] != 600000 or metadata['key_length'] != 32):
+            raise ValueError('Unsupported encryption settings')
+        key = hashlib.pbkdf2_hmac('sha512', os.environ['TF_VAR_host_state_passphrase'].encode(),
+                                  base64.b64decode(metadata['salt'], validate=True), 600000, 32)
+        encrypted = base64.b64decode(envelope['encrypted_data'], validate=True)
+        plaintext = AESGCM(key).decrypt(encrypted[:12], encrypted[12:], None)
+        with zipfile.ZipFile(io.BytesIO(plaintext)) as package:
+            if package.namelist().count('tfplan') != 1:
+                raise ValueError('Ambiguous plan member')
+            fields = protobuf_fields(package.read('tfplan'))
+        if single(fields, 1) != 3 or single(fields, 14) != VERSION.encode():
+            raise ValueError('Unsupported plan format')
+        backend = protobuf_fields(single(fields, 13))
+        config = protobuf_fields(single(backend, 2))
+        return dict(type=single(backend, 1).decode(),
+                    config=msgpack.unpackb(single(config, 1), raw=False),
+                    workspace=single(backend, 3).decode())
+    except (ValueError, KeyError, TypeError, IndexError, UnicodeError, zipfile.BadZipFile, InvalidTag):
+        refuse('The saved plan destination could not be read. Use the pinned OpenTofu version and bundled encryption fragment, then save and review a new plan. Values are withheld.')
+
+
+def match_plan_destination(snapshot):
+    planned = plan_destination(snapshot)
+    metadata = Path(os.environ.get('TF_DATA_DIR', '.terraform')) / 'terraform.tfstate'
+    backend = json.loads(metadata.read_bytes())['backend'] if metadata.exists() else dict(
+        type='local', config=dict(path=None, workspace_dir=None))
+    selected = tofu('workspace', 'show')
+    if selected.returncode:
+        refuse('The current target workspace could not be read. Initialise the project and review a new plan.')
+    current = dict(type=backend['type'], config=backend['config'], workspace=selected.stdout.decode().strip())
+    if planned != current:
+        refuse('The saved plan targets a different backend or workspace from this project. Return to the plan destination or save a new plan and approve it.')
+
+
 def read_plan(snapshot, require_complete=True):
     version = tofu('version', '-json')
     if version.returncode or json.loads(version.stdout).get('terraform_version') != VERSION:
@@ -312,6 +431,7 @@ def read_plan(snapshot, require_complete=True):
         refuse('OpenTofu could not read the saved plan. Check the encryption passphrase and configuration, then save and review a new plan. Raw diagnostics are withheld.')
     plan = json.loads(shown.stdout)
     summary = summarise(plan)
+    match_plan_destination(snapshot)
     if require_complete and (plan.get('deferred_changes') or plan.get('complete') is False):
         refuse('The plan is incomplete or has deferred changes. Resolve them, save a complete plan and review it before approval.')
     return summary

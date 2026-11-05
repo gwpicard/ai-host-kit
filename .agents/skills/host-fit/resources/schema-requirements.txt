@@ -4,3 +4,7 @@ jsonschema-specifications==2025.9.1
 referencing==0.36.2
 rpds-py==0.27.1
 typing_extensions==4.16.0
+cffi==2.0.0
+cryptography==45.0.7
+msgpack==1.1.1
+pycparser==2.23

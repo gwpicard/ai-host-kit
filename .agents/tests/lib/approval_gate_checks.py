@@ -28,6 +28,16 @@ ENV = dict(TF_VAR_host_state_passphrase=PASSPHRASE, TF_VAR_fixture_secret=SECRET
            TF_IN_AUTOMATION='1', TF_INPUT='0')
 
 
+class MutationHarnessError(RuntimeError):
+    """A protection removal could not be constructed; this is not a test result."""
+
+
+def mutate_text(text, old, new, name):
+    if old not in text or old == new:
+        raise MutationHarnessError('Mutation harness error: replacement text missing or unchanged: ' + name)
+    return text.replace(old, new, 1)
+
+
 def load(skill=SKILL):
     sys.modules.pop('record_validation', None)
     spec = importlib.util.spec_from_file_location('approval_gate', skill / 'scripts/approval_gate.py')
@@ -205,7 +215,7 @@ def apply_case(gate, project, case):
     assert SECRET not in output and PASSPHRASE not in output
 
 
-def terminal_run(skill, project, destination, piped=False, wrong=False, words='I approve the local fixture changes.'):
+def terminal_run(skill, project, destination, piped=False, wrong=False, words='I approve the local fixture changes.', before_words=None):
     # A synthetic terminal is test machinery, not evidence of a real person's approval.
     sha = hashlib.sha256((project / 'first.plan').read_bytes()).hexdigest()
     confirmation = 'approve ' + '-'.join(sha[n:n+4] for n in (0,4,8))
@@ -237,6 +247,8 @@ def terminal_run(skill, project, destination, piped=False, wrong=False, words='I
             if b'Type approve followed' in output and not sent_confirmation:
                 os.write(fd, (confirmation + '\n').encode()); sent_confirmation = True
             if b'Input is hidden:' in output and not sent_words:
+                if before_words is not None:
+                    before_words()
                 os.write(fd, (words + '\n').encode()); sent_words = True
             done, status = os.waitpid(pid, os.WNOHANG)
             if done:
@@ -314,13 +326,12 @@ def encryption_removals(work):
     for section in ('state', 'plan'):
         enforced_check(work, fragment, section)
         before = '    ' + section + ' {\n      method = method.aes_gcm.host\n      enforced = true'
-        assert before in fragment
-        weakened = fragment.replace(before, before.replace('true', 'false'))
+        weakened = mutate_text(fragment, before, before.replace('true', 'false'), section + ' encryption')
         try: enforced_check(work, weakened, section)
         except AssertionError: print('Protection removal detected: enforced ' + section + ' encryption')
         else: raise AssertionError('encryption enforcement removal escaped check')
     project = work / 'non-ephemeral'; project.mkdir()
-    (project / 'encryption.tf').write_text(fragment.replace('  ephemeral = true\n', ''))
+    (project / 'encryption.tf').write_text(mutate_text(fragment, '  ephemeral = true\n', '', 'ephemeral passphrase'))
     (project / 'main.tf').write_text('resource "terraform_data" "local" { input = "synthetic" }\n')
     tofu(project, 'init', '-input=false')
     tofu(project, 'plan', '-out=planfile', '-input=false')
@@ -388,8 +399,7 @@ def mutations(work, project):
             end = original.index('\n\ndef main():', start)
             mutated = original[:start] + "    with saved_plan(path) as (snapshot, sha):\n        read_plan(snapshot)\n        unchanged(path, sha)\n        tofu('apply', snapshot)\n" + original[end:]
         else:
-            assert old in original, name
-            mutated = original.replace(old, new, 1)
+            mutated = mutate_text(original, old, new, name)
         script.write_text(mutated)
         gate = load(scratch)
         try:
@@ -431,7 +441,7 @@ def mutations(work, project):
         finally: schema_path.write_text(schema_original)
     reader = scratch / 'resources/record_validation.py'
     reader_original = reader.read_text()
-    reader.write_text(reader_original.replace("'capabilities', 'approval-record'):", "'capabilities'):", 1))
+    reader.write_text(mutate_text(reader_original, "'capabilities', 'approval-record'):", "'capabilities'):", 'record secret scanner'))
     try:
         record_checks(load(scratch), work)
     except AssertionError:
@@ -478,8 +488,8 @@ def installer_checks(work):
     check(original, 'baseline')
     for name, old in [('published checksum pin', "if published != [CHECKSUMS[target]]:"),
                       ('archive checksum', 'if hashlib.sha256(archive).hexdigest() != CHECKSUMS[target]:')]:
-        assert old in original
-        try: check(original.replace(old, 'if False:'), name.replace(' ', '-'))
+        mutated = mutate_text(original, old, 'if False:', name)
+        try: check(mutated, name.replace(' ', '-'))
         except AssertionError: print('Protection removal detected: ' + name)
         else: raise AssertionError('installer checksum removal escaped checks')
 
@@ -530,6 +540,8 @@ def main():
             installer_checks(work)
             from approval_regressions import run_regressions
             run_regressions(sys.modules[__name__], work / 'review-regressions')
+            from approval_destination_checks import run_checks
+            run_checks(sys.modules[__name__], work / 'destination-regressions')
     print('Approval gate checks passed. All fixtures are local; no provider, cloud, model or person approval was used.')
     return 0
 

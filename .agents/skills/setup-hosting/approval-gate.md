@@ -46,10 +46,14 @@ The four sections list destruction first, possible internet exposure, access
 changes and irreversible effects. Replacements include destruction. The
 summary names resources and network fields; it withholds free-text values.
 Only narrow network values such as ports, IP addresses, source ranges,
-protocols and known public-access settings can appear. Sensitive and unknown
+protocols and known public-access settings can appear. Fields whose names suggest
+addresses, ranges, sources, ports, protocols or public access are listed as
+possibly affecting who can reach the tool, even without a specific rendering
+rule. Zero ports are shown as zero unless an unmasked protocol in the same
+rule specifies all protocols. Sensitive and unknown
 masks take precedence, including parent object and list masks. Secret-shaped
 map keys and keys beneath protected values are withheld too. Known wildcard
-sources are named as all sources. Empty container changes have structural
+sources and equivalent zero-prefix IP ranges are named as all sources. Empty container changes have structural
 lines, and each output is labelled as created, changed or removed while its
 value stays withheld. Unrecognised resource types and actions get their own review lines. This conservative
 report can flag a closed port or private rule for review; it does not establish
@@ -92,12 +96,28 @@ and the selected workspace. A state target SHA-256 combines that root,
 configuration digest, resolved OpenTofu data directory, workspace and a hash
 of the local backend metadata, or the default local backend marker when no
 metadata exists. Backend metadata is hashed without displaying its contents.
-This identifies the state destination even before a state exists. The project
+Before showing a summary or accepting approval or apply, the gate also reads
+backend type, configuration and workspace from the saved plan itself and
+requires them to match the current metadata and selected workspace. This
+comparison works before a local state exists. The project
 path and workspace are withheld if unsafe to display; their complete values
 still contribute to the fingerprints. Copying a plan and record to another
 project cannot match the absolute project root fingerprint. Changing configuration,
 backend metadata, data directory or workspace requires fresh approval.
 OpenTofu still checks whether a saved plan is stale against the state.
+
+OpenTofu 1.13.2 stores this destination in the package's `tfplan` protobuf
+member, with backend configuration encoded as MessagePack. Its
+[`show -json` format](https://github.com/opentofu/opentofu/blob/v1.13.2/internal/command/jsonplan/plan.go)
+does not expose that destination. The gate decrypts the package in memory
+using the bundled PBKDF2 and AES-GCM settings and reads the destination from
+the same private copy used for the summary and apply. It writes no decrypted
+plan file and prints no backend configuration. Other encryption methods,
+key-provider names, encryption parameters and plan formats are refused.
+Install the bundled requirements, which include `cryptography` and `msgpack`.
+This reader and its destination comparisons are tested with local backends;
+remote backends and environment-based account selection are not established
+by these checks.
 
 ## Apply
 
