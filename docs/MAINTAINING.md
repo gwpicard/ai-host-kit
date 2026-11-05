@@ -165,3 +165,42 @@ every need shown, recorded answers and wishes, and a single shortfall notice
 followed by dated acceptance with no further gate. A completed call is not a
 pass. Record the maintainer's verdict beside the evidence; deterministic checks
 and dry mode do not establish that a replay suggests the expected host.
+
+## Saved-plan approval checks
+
+Install the pinned OpenTofu outside this repository, then put that folder on
+`PATH` alongside the Python environment described above:
+
+```sh
+python3 .agents/tools/install-tofu.py /private/tmp/ai-host-kit-tofu
+export PATH="/private/tmp/ai-host-kit-tofu:$PATH"
+```
+
+Choose a new folder if that binary already exists. The installer downloads
+OpenTofu 1.13.2 from the official
+[release](https://github.com/opentofu/opentofu/releases/tag/v1.13.2), compares
+the published SHA-256 with the checked-in platform pin, then compares the
+archive bytes before extracting only the binary. CI uses the same installer
+for Linux amd64. This verifies checksums over HTTPS; it does not verify a
+release signature. The pins cover macOS and Linux on arm64 and amd64.
+
+`approval-gate.sh` builds real saved plans using only the built-in
+`terraform_data` resource in temporary folders. It runs `tofu validate` and
+`tofu test` offline. OpenTofu's
+[test command](https://opentofu.org/docs/v1.13/cli/commands/test/) supports
+mock providers in test files; the ordinary plan command has no mock-provider
+option. These tests need neither provider downloads nor mocks. The network
+summary case uses `network.show.json`, a constructed fixture in the shape of
+`tofu show -json`, because there is no cloud provider schema installed.
+Refusal tests use actual encrypted saved plans, not that JSON fixture.
+
+The suite creates synthetic terminal confirmations for local fixtures only.
+They are test data, never a person's approval. Protection removals run in
+throwaway copies and must fail the same outcome assertions. No test uses a
+host, model, cloud account or credential store.
+
+The runtime scripts are canonical in `setup-hosting/scripts/`. The builder
+bundles the canonical record reader, approval schema and `tofu/encryption.tf`
+in `setup-hosting/resources/`. Regenerate and save those copies whenever their
+sources change. The released project settings are `.claude/settings.json`;
+installation must merge them into the user's project settings to take effect.

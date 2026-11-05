@@ -227,3 +227,23 @@ python3 .agents/tools/record_validation.py capabilities path/to/capabilities.jso
 python3 .agents/skills/host-fit/scripts/host_fit.py questions --handover hosting/handover.json
 python3 .agents/skills/host-fit/scripts/host_fit.py menu
 ```
+
+## Saved-plan approval
+
+AI Host Kit owns `approval-record.json`, described by
+[approval-record.schema.json](approval-record.schema.json). It holds the full
+saved plan SHA-256, approval time, typed short checksum, the person's
+words, the terminal method and the four summary sections. Only the checksum
+field is exempt from the shared secret-text scan. Text and summary lines use
+the same restricted URL forms and obvious-secret protections as the other
+Host Kit records. Unknown fields are refused. The canonical fixtures live in
+`.agents/tests/fixtures/contracts/approval-record/`.
+
+The [approval tools](../.agents/skills/setup-hosting/approval-gate.md) write and
+compare the record with the exact saved plan bytes and regenerated summary.
+Schema validation alone does not establish a person's identity or permission.
+The [limits](../docs/PROMISES.md#approval-gate-limits) explain that boundary.
+
+```sh
+python3 .agents/tools/record_validation.py approval-record path/to/approval-record.json
+```
