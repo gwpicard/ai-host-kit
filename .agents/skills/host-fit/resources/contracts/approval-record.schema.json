@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "AI Host Kit approval record v1",
-  "description": "Owned by AI Host Kit. Binds a terminal confirmation and the displayed summary to saved plan bytes. This is not proof of human identity.",
+  "description": "Owned by AI Host Kit. Binds a terminal confirmation and the displayed summary to saved plan bytes and a target project, configuration and state workspace. This is not proof of human identity.",
   "type": "object",
   "additionalProperties": false,
   "properties": {
@@ -80,6 +80,43 @@
         "access",
         "irreversible"
       ]
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "project_root": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^(?![\\s\\S]*[A-Za-z][A-Za-z0-9+.-]*://[^\\s]*[@?#%\\\\])[\\s\\S]*$",
+          "maxLength": 4096
+        },
+        "project_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "configuration_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "state_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "workspace": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^(?![\\s\\S]*[A-Za-z][A-Za-z0-9+.-]*://[^\\s]*[@?#%\\\\])[\\s\\S]*$",
+          "maxLength": 200
+        }
+      },
+      "required": [
+        "project_root",
+        "project_sha256",
+        "configuration_sha256",
+        "state_sha256",
+        "workspace"
+      ]
     }
   },
   "required": [
@@ -89,6 +126,7 @@
     "words",
     "confirmation",
     "method",
-    "summary"
+    "summary",
+    "target"
   ]
 }

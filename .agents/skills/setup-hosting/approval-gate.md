@@ -47,8 +47,11 @@ changes and irreversible effects. Replacements include destruction. The
 summary names resources and network fields; it withholds free-text values.
 Only narrow network values such as ports, IP addresses, source ranges,
 protocols and known public-access settings can appear. Sensitive and unknown
-masks take precedence, including parent object and list masks. Unrecognised
-resource types and actions get their own review lines. This conservative
+masks take precedence, including parent object and list masks. Secret-shaped
+map keys and keys beneath protected values are withheld too. Known wildcard
+sources are named as all sources. Empty container changes have structural
+lines, and each output is labelled as created, changed or removed while its
+value stays withheld. Unrecognised resource types and actions get their own review lines. This conservative
 report can flag a closed port or private rule for review; it does not establish
 live reachability. Unknown or withheld sources must be resolved before the
 person can judge who gains access. Observed drift and deferred changes are listed separately. Incomplete or
@@ -78,8 +81,23 @@ is owned by AI Host Kit; the installed copy is
 `resources/contracts/approval-record.schema.json`. The checksum binds the full
 saved plan bytes; the short checksum is only for reading back. The date and
 words record the decision, and `summary` records exactly the four sections
-shown. References and text use the shared record protections. The record is
-not signed and is not evidence of a person's identity.
+shown. The separate `target` records the project path, configuration and state
+workspace displayed above those sections. Records without a target must be
+replaced by running approval again. References and text use the shared record
+protections. The record is not signed and is not evidence of a person's identity.
+
+The target includes the resolved absolute project root and its SHA-256, a
+SHA-256 over the names and contents of the root `.tf` and `.tf.json` files,
+and the selected workspace. A state target SHA-256 combines that root,
+configuration digest, resolved OpenTofu data directory, workspace and a hash
+of the local backend metadata, or the default local backend marker when no
+metadata exists. Backend metadata is hashed without displaying its contents.
+This identifies the state destination even before a state exists. The project
+path and workspace are withheld if unsafe to display; their complete values
+still contribute to the fingerprints. Copying a plan and record to another
+project cannot match the absolute project root fingerprint. Changing configuration,
+backend metadata, data directory or workspace requires fresh approval.
+OpenTofu still checks whether a saved plan is stale against the state.
 
 ## Apply
 
@@ -88,7 +106,9 @@ sh <skill-folder>/scripts/apply.sh <planfile> <approval-record.json>
 ```
 
 Apply checks the complete record, full SHA-256, short confirmation and freshly
-computed summary. It checks the original plan again immediately before apply.
+computed summary. It compares the target before reading the plan and again
+before apply. Approval also rechecks the target after terminal input. It checks
+the original plan again immediately before apply.
 It passes OpenTofu a private, read-only temporary copy of the exact checked
 bytes, then deletes that copy. Replacing the original path after that check
 cannot substitute another plan. It calls `tofu apply <private-plan-copy>`

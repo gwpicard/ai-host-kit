@@ -41,13 +41,15 @@ ACTIONS = {('create',): 'Create', ('update',): 'Change', ('delete',): 'Destroy',
            ('create', 'delete'): 'Replace and destroy the old resource',
            ('read',): 'Read', ('no-op',): 'Keep', ('forget',): 'Stop managing',
            ('create', 'forget'): 'Create and stop managing the old resource'}
-NETWORK = re.compile(r'port|ingress|egress|firewall|security_group|cidr|source|public|acl|network|internet')
+NETWORK = re.compile(r'port|ingress|egress|firewall|security_group|cidr|source|public|acl|network|internet|ipv4_address|ipv6_address|(?:^|\.)protocol$|ip_protocol')
 ACCESS = re.compile(r'key|user|role|policy|permission|member|principal|identity|application|directory|registration|firewall|security_group|source|cidr|ingress|acl')
 PORTS = {'port', 'ports', 'from_port', 'to_port', 'source_port_range',
          'source_port_ranges', 'destination_port_range', 'destination_port_ranges'}
 SOURCES = {'source_ips', 'destination_ips', 'cidr_blocks', 'ipv6_cidr_blocks',
            'cidr_ipv4', 'cidr_ipv6', 'source_address_prefix', 'source_address_prefixes',
-           'public_ip', 'ip_address', 'ipv4_address', 'ipv6_address'}
+           'public_ip', 'public_ip_address', 'public_ipv4', 'public_ipv6',
+           'public_ipv4_address', 'public_ipv6_address', 'public_ips', 'public_ip_addresses',
+           'ip_address', 'ipv4_address', 'ipv6_address'}
 
 
 def refuse(message):
@@ -92,6 +94,8 @@ def leaves(before, after, sensitive_before=False, sensitive_after=False, unknown
         return
     objects = [x for x in (before, after, sensitive_before, sensitive_after, unknown) if isinstance(x, dict)]
     arrays = [x for x in (before, after, sensitive_before, sensitive_after, unknown) if isinstance(x, list)]
+    if before != after and any(isinstance(x, (dict, list)) and not x for x in (before, after)):
+        yield path, before, after, False
     if objects:
         for key in sorted(set().union(*(x.keys() for x in objects))):
             yield from leaves(before.get(key) if isinstance(before, dict) else None,
@@ -115,19 +119,21 @@ def display_value(value, path, protected):
     # Only narrow network primitives may be shown. All free text stays withheld.
     if name in PORTS:
         if type(value) is int and -1 <= value <= 65535:
-            return 'all ports' if value == -1 else str(value)
+            return 'all protocols and all ports' if value == 0 else ('all ports' if value == -1 else str(value))
         if isinstance(value, str) and re.fullmatch(r'\d{1,5}(?:[-:]\d{1,5})?', value):
             if all(int(x) <= 65535 for x in re.split('[-:]', value)):
-                return value
+                return 'all protocols and all ports' if value == '0' else value
         if value in ('*', 'any'):
             return 'all ports'
     if name in SOURCES and isinstance(value, str):
+        if value in ('*', 'any', 'Internet', '0.0.0.0/0', '::/0'):
+            return 'all sources (' + value + ')'
         try:
             return str(ipaddress.ip_network(value, strict=False) if '/' in value else ipaddress.ip_address(value))
         except ValueError:
             pass
-    if name in {'protocol', 'ip_protocol'} and value in ('tcp', 'udp', 'icmp', 'icmpv6', '-1'):
-        return 'all protocols and all ports' if value == '-1' else value
+    if name in {'protocol', 'ip_protocol'} and value in ('tcp', 'udp', 'icmp', 'icmpv6', 'all', '-1', '*', -1):
+        return 'all protocols and all ports' if value in ('all', '-1', '*', -1) else value
     if name in {'direction', 'access'} and value in ('in', 'out', 'Allow', 'Deny'):
         return value
     if name == 'acl' and value in ('private', 'public-read', 'public-read-write', 'authenticated-read'):
@@ -184,9 +190,14 @@ def summarise(plan):
             result['access'].append(f'{name}: access, identity or directory registration changes; check who gains or loses access.')
         for path, before, after, protected in leaves(change.get('before'), change.get('after'),
                 change.get('before_sensitive'), change.get('after_sensitive'), change.get('after_unknown')):
-            field = records.field_path(path)
+            safe_path = tuple('<name withheld>' if isinstance(key, str) and
+                              (protected and i == len(path) - 1 and len(path) > 1)
+                              else key for i, key in enumerate(path))
+            field = records.field_path(safe_path)
             # Include unchanged rule fields too: a source-only change can open an existing port.
             line = f'{name}: {field}: {display_value(before, path, protected)} -> {display_value(after, path, protected)}.'
+            if not protected and any(isinstance(x, (dict, list)) and not x for x in (before, after)) and before != after:
+                line = f'{name}: {field}: structural change (empty container added, removed or changed); values withheld.'
             result['changes'].append(line)
             match_path = '.'.join(x for x in path if isinstance(x, str))
             if NETWORK.search(match_path):
@@ -194,7 +205,9 @@ def summarise(plan):
             if ACCESS.search(match_path):
                 result['access'].append(line)
     for name, change in plan.get('output_changes', {}).items():
-        result['changes'].append(f'Output {label(name)}: value withheld; output changes do not create resources.')
+        action = {('create',): 'created', ('update',): 'changed', ('delete',): 'removed',
+                  ('no-op',): 'unchanged'}.get(tuple(change.get('actions', [])), 'has an unrecognised change')
+        result['changes'].append(f'Output {label(name)}: {action}; value withheld; output changes do not create resources.')
     for key, prefix in (('resource_drift', 'Observed drift'), ('deferred_changes', 'Deferred change')):
         for item in plan.get(key, []):
             resource = item.get('resource_change', item)
@@ -215,8 +228,14 @@ def summarise(plan):
     return result
 
 
-def render(sha, summary):
+def render(sha, summary, target=None):
     lines = [f'Plan SHA-256: {sha}', f'Read-back checksum: {short_hash(sha)}']
+    if target is not None:
+        lines.extend(['Target project: ' + target['project_root'],
+                      'Project SHA-256: ' + target['project_sha256'],
+                      'Configuration SHA-256: ' + target['configuration_sha256'],
+                      'State target SHA-256: ' + target['state_sha256'],
+                      'Workspace: ' + target['workspace']])
     for key, heading in HEADINGS.items():
         lines.extend(['', heading] + ['- ' + line for line in summary[key]])
     return '\n'.join(lines) + '\n'
@@ -234,6 +253,36 @@ def tofu(*args):
                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
     except OSError:
         refuse('OpenTofu could not start. Install the pinned version and try again.')
+
+
+def target_identity():
+    # Hash configuration and backend metadata without rendering their contents.
+    # The absolute root binds even the first plan, before a state lineage exists.
+    root = Path.cwd().resolve()
+    configuration = [(p.name, digest(p.read_bytes())) for p in sorted(root.iterdir())
+                     if p.is_file() and p.name.endswith(('.tf', '.tf.json'))]
+    data_dir = Path(os.environ.get('TF_DATA_DIR', '.terraform')).resolve()
+    metadata = data_dir / 'terraform.tfstate'
+    backend = digest(metadata.read_bytes()) if metadata.exists() else 'default local backend'
+    selected = tofu('workspace', 'show')
+    if selected.returncode:
+        refuse('The target workspace could not be read. Initialise the configuration and review the plan again. Raw diagnostics are withheld.')
+    workspace = selected.stdout.decode().strip()
+    if not workspace:
+        refuse('The target workspace is empty. Select a workspace and review the plan again.')
+    configuration_sha = digest(json.dumps(configuration).encode())
+    state_sha = digest(json.dumps([str(root), str(data_dir), backend, workspace, configuration_sha]).encode())
+    root_text = str(root)
+    if list(records.secret_fields(root_text)) or any(ord(c) < 32 for c in root_text) or re.search(r'[@?#%\\]', root_text):
+        root_text = '<project path withheld>'
+    return dict(project_root=root_text, project_sha256=digest(str(root).encode()),
+                configuration_sha256=configuration_sha, state_sha256=state_sha,
+                workspace=label(workspace))
+
+
+def match_target(record, target):
+    if record['target'] != target:
+        refuse('The target project, configuration or state workspace differs from the approval. Return to the approved project or save a new plan and approve its target.')
 
 
 @contextmanager
@@ -328,7 +377,8 @@ def typed(tty, prompt):
 def approve(path, destination):
     with terminal() as tty, saved_plan(path) as (snapshot, sha):
         summary = read_plan(snapshot)
-        tty.write(render(sha, summary))
+        target = target_identity()
+        tty.write(render(sha, summary, target))
         tty.flush()
         # Discard pre-fed terminal input: confirmation follows the displayed summary.
         termios.tcflush(tty.fileno(), termios.TCIFLUSH)
@@ -338,7 +388,7 @@ def approve(path, destination):
         words = typed(tty, 'In your own words, what do you approve? Input is hidden: ')
         record = dict(schema_version='1.0', plan_sha256=sha,
                       approved_at=datetime.now(timezone.utc).isoformat(), words=words,
-                      confirmation=confirmation, method='terminal-checksum', summary=summary)
+                      confirmation=confirmation, method='terminal-checksum', summary=summary, target=target)
         # Validate before creating the requested file. Temporary record contains only
         # the redacted summary and words; reject unsafe words before writing anything.
         loaded = records.dependencies()
@@ -348,6 +398,7 @@ def approve(path, destination):
         schema = records.read_json(RESOURCES / 'contracts/approval-record.schema.json')
         if list(validator(schema, format_checker=formats).iter_errors(record)) or list(records.secret_fields(record)):
             refuse('The approval text is empty, malformed or may contain a secret. Run approve again using plain words without secrets or signed links.')
+        match_target(record, target_identity())
         unchanged(path, sha)
         descriptor = os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(descriptor, 'w') as output:
@@ -360,12 +411,15 @@ def apply(path, record_path):
     if not Path(record_path).is_file():
         refuse('No approval record exists. Review the plan and run approve yourself from your terminal.')
     record = validate_record(record_path)
+    target = target_identity()
+    match_target(record, target)
     with saved_plan(path) as (snapshot, sha):
         summary = read_plan(snapshot)
         match_record(record, sha, summary)
         unchanged(path, sha)
         if digest(snapshot.read_bytes()) != sha:
             refuse('The private plan copy changed. Save a new plan, review it and run approve again.')
+        match_target(record, target_identity())
         applied = tofu('apply', snapshot)
         if applied.returncode:
             refuse('OpenTofu could not apply the approved plan. Check the state privately and save a fresh plan before approving again. Raw diagnostics are withheld.')
@@ -390,7 +444,7 @@ def main():
             with saved_plan(args.plan) as (snapshot, sha):
                 summary = read_plan(snapshot, require_complete=False)
                 unchanged(args.plan, sha)
-                print(render(sha, summary), end='')
+                print(render(sha, summary, target_identity()), end='')
         elif not args.record:
             refuse('Supply the approval record path after the saved plan path.')
         elif args.command == 'approve':

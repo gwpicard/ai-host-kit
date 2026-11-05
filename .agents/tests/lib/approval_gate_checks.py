@@ -97,7 +97,7 @@ def summary_checks(gate):
     assert 'storage changes may lose data' in '\n'.join(summary['irreversible'])
     internet = '\n'.join(summary['internet'])
     assert 'port: 443 -> 443' in internet and 'port: not set -> 8080' in internet
-    assert '10.0.0.0/8 -> 0.0.0.0/0' in internet and '::/0' in internet
+    assert '10.0.0.0/8 -> all sources (0.0.0.0/0)' in internet and '::/0' in internet
     assert 'private -> public-read' in internet and '198.51.100.10' in internet
     assert 'azuread_application.staff' in '\n'.join(summary['access'])
     assert 'Unrecognised resource type future_unknown: future_unknown.widget' in changes
@@ -127,7 +127,7 @@ def record_for(gate, plan):
         summary = gate.read_plan(snapshot)
     return dict(schema_version='1.0', plan_sha256=sha, approved_at='2026-11-05T12:00:00Z',
                 words='I approve the local fixture changes.', confirmation='approve ' + gate.short_hash(sha),
-                method='terminal-checksum', summary=summary)
+                method='terminal-checksum', summary=summary, target=gate.target_identity())
 
 
 def record_checks(gate, work):
@@ -140,6 +140,11 @@ def record_checks(gate, work):
     for field in record:
         bad = copy.deepcopy(record); del bad[field]
         assert not valid(bad), 'missing approval field accepted'
+    for field in record['target']:
+        bad = copy.deepcopy(record); del bad['target'][field]
+        assert not valid(bad), 'missing target identity field accepted'
+        bad = copy.deepcopy(record); bad['target'][field] = 'token=synthetic-marker'
+        assert not valid(bad), 'unsafe target identity accepted'
     for field, value in [('approved_at', '2026-02-30T12:00:00Z'), ('plan_sha256', 'short'),
                          ('schema_version', '1.1'), ('method', 'agent'), ('extra', 'unexpected')]:
         bad = dict(record, **{field:value})
@@ -523,6 +528,8 @@ def main():
             settings_check(ROOT / '.claude/settings.json')
             mutations(work, project)
             installer_checks(work)
+            from approval_regressions import run_regressions
+            run_regressions(sys.modules[__name__], work / 'review-regressions')
     print('Approval gate checks passed. All fixtures are local; no provider, cloud, model or person approval was used.')
     return 0
 
