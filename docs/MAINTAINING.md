@@ -135,6 +135,17 @@ Prepare replay projects without calling a model:
 python3 .agents/tools/replay-host-choice.py --dry --case all
 ```
 
+Dry mode reads the Project skills command prefix from `host-fit/SKILL.md`,
+requires the harness's independent Bash allow rule to match it exactly, then
+runs that command with `python3` from each throwaway project root. The rule
+uses Claude Code's [trailing wildcard syntax](https://code.claude.com/docs/en/permissions#wildcard-patterns).
+The check covers this literal command form, not Claude Code's permission engine
+or the agent's choice of command. The suite changes the skill command and
+allow rule separately in a disposable copy, requires dry mode to fail, then
+restores each change and reruns it. It also refuses a broader Python allow rule.
+Packaged and shared skill copies run their documented commands from separate
+projects. These checks do not invoke a model or repeat the real installers.
+
 On the finished branch, the maintainer can run the scripted person turns once:
 
 ```sh

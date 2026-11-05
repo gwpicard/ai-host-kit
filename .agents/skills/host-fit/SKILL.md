@@ -3,14 +3,36 @@ name: host-fit
 description: Compare a handover with recipe declarations and guide a local host choice.
 ---
 
-Use this background skill for the choice step in `/setup-hosting`. Run
-`python3 scripts/host_fit.py` from this skill's folder. It needs the packages
-in `resources/schema-requirements.txt`; report a missing dependency and stop
+Use this background skill for the choice step in `/setup-hosting`. Run every
+script call from the project root, where `hosting/handover.json` lives. Never
+use `cd`, a shell wrapper or a different spelling of the script path. Select
+the installed route once and keep its command prefix for every call:
+
+| Installed route | Command prefix |
+| --- | --- |
+| Project skills | `python3 .agents/skills/host-fit/scripts/host_fit.py` |
+| Claude-only shared skills | `python3 .claude/skills/host-fit/scripts/host_fit.py` |
+| Claude Code plugin | `python3 "<plugin-root>/.agents/skills/host-fit/scripts/host_fit.py"` |
+| Agent Plugins package | `python3 "<plugin-root>/skills/host-fit/scripts/host_fit.py"` |
+
+Use Project skills for the replay and for shared installations with
+`.agents/skills/host-fit/`, even if Claude reads a link under `.claude/skills/`.
+Use Claude-only shared skills only when that is the installed copy. For a
+plugin, replace `<plugin-root>` once with the literal installed plugin folder
+from which this skill was loaded; retain the quotes. The Agent Plugins root
+is the packaged `agent-plugin/` folder. Do not rely on a shell environment
+variable for either plugin path. Append the action and arguments below to
+the chosen prefix. Keep project file arguments relative to the project root.
+
+The script needs the packages in this skill's
+`resources/schema-requirements.txt`; report a missing dependency and stop
 without claiming a check passed. Never install packages without explaining
 that local prerequisite.
 
 Call `questions --handover FILE` with `--place FILE` when a place record
-exists, and `--answers FILE` as answers arrive. Ask only the returned questions.
+exists, and `--answers hosting/host-fit-answers.tmp.json` as answers arrive.
+Keep that temporary JSON file free of secrets; remove it when the choice step
+ends, or leave it there with no secrets. Ask only the returned questions.
 The answer object uses `cloud` (azure, aws, google-cloud, none, not-sure),
 `care` (managed, server, no-preference) and `long_work` (true or false).
 Residency comes from the handover. A known job duration supplies long_work;

@@ -6,9 +6,11 @@ description: Choose a host and record its fit. Creating the place is not built y
 Read `hosting/handover.json` and the organisation's local `place-record.json`
 if one exists. Use the sibling `host-fit/SKILL.md` and its script for questions,
 fit reports, suggestions and recording. Locate the sibling beside this skill
-in the installed kit, including when loaded through a plugin. Ask at most the
-three returned questions in plain words. Keep answers in a temporary local
-JSON file without secrets. Explain the not-sure response as the script directs.
+in the installed kit, including when loaded through a plugin. Use its command
+prefix for that install route from the project root; never use `cd`. Ask at
+most the three returned questions in plain words. Keep temporary answers at
+the path and with the cleanup described in host-fit. Explain the not-sure
+response as the script directs.
 Do not ask about residency or ask about long work when the handover supplies
 its duration.
 

@@ -5,6 +5,7 @@ import importlib.util
 import io
 import json
 from pathlib import Path
+import shlex
 import shutil
 import sys
 import tempfile
@@ -191,6 +192,49 @@ def replay_checks(m, work):
     try:replay.load_case(path)
     except ValueError:pass
     else:raise AssertionError('empty replay turns passed')
+    # Exercise the documented shared paths, including a Claude-only copy.
+    for route, location in (('Project skills', '.agents/skills'),
+                            ('Claude-only shared skills', '.claude/skills')):
+        project = work / route
+        skill = project / location / 'host-fit'
+        shutil.copytree(SKILL, skill)
+        (project / 'hosting').mkdir()
+        shutil.copy2(FIXTURES / 'handover/valid.json', project / 'hosting/handover.json')
+        prefix = replay.skill_command(skill / 'SKILL.md', route)
+        result = run(shlex.split(prefix) + ['questions', '--handover', 'hosting/handover.json'], cwd=project)
+        assert [q['id'] for q in json.loads(result.stdout)] == ['cloud', 'care']
+
+    # Run the real dry entry point in a disposable source copy. Change each
+    # side independently, then restore it and prove the dry check passes again.
+    tree = work / 'replay-source'
+    for relative in ('.agents/skills/host-fit', '.agents/skills/setup-hosting',
+                     '.agents/tests/replays/host-choice'):
+        shutil.copytree(ROOT / relative, tree / relative)
+    script = tree / '.agents/tools/replay-host-choice.py'
+    script.parent.mkdir(parents=True)
+    shutil.copy2(ROOT / '.agents/tools/replay-host-choice.py', script)
+    skill = tree / '.agents/skills/host-fit/SKILL.md'
+    command = [sys.executable, script, '--dry', '--case', 'azure']
+    run(command)
+    for label, path, before, after in (
+        ('skill command', skill, 'python3 .agents/skills/host-fit/scripts/host_fit.py',
+         'python3 .agents/skills/host-fit/scripts/renamed.py'),
+        ('allow rule', script, "SCRIPT_ALLOW_RULE = 'Bash(python3 .agents/skills/host-fit/scripts/host_fit.py *)'",
+         "SCRIPT_ALLOW_RULE = 'Bash(python3 .agents/skills/host-fit/scripts/renamed.py *)'"),
+        ('broad allow rule', script, "SCRIPT_ALLOW_RULE = 'Bash(python3 .agents/skills/host-fit/scripts/host_fit.py *)'",
+         "SCRIPT_ALLOW_RULE = 'Bash(python3 *)'"),
+    ):
+        original = path.read_text()
+        assert before in original
+        path.write_text(original.replace(before, after))
+        try:
+            result = run(command, expected=1)
+            assert 'skill command and harness allow rule differ' in result.stdout, result.stdout
+            print(label + ': dry mode refused drift')
+        finally:
+            path.write_text(original)
+        run(command)
+    print('Replay command mutations restored; dry mode passed without a model.')
 
 
 def future_need_checks(m, work):

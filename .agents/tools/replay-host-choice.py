@@ -4,6 +4,8 @@ import argparse
 import json
 import os
 from pathlib import Path
+import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -12,11 +14,40 @@ import uuid
 
 ROOT = Path(__file__).resolve().parents[2]
 CASES = ROOT / '.agents/tests/replays/host-choice'
+# Keep this independent of the skill text so dry mode detects drift on either side.
+SCRIPT_ALLOW_RULE = 'Bash(python3 .agents/skills/host-fit/scripts/host_fit.py *)'
+ANSWERS = 'hosting/host-fit-answers.tmp.json'
 
 
 def require(ok, message):
     if not ok:
         raise ValueError(message)
+
+
+def skill_command(skill, route='Project skills'):
+    rows = re.findall(r'^\| ' + re.escape(route) + r' \| `([^`]+)` \|$',
+                      skill.read_text(), re.MULTILINE)
+    require(len(rows) == 1, 'skill needs one command prefix for ' + route)
+    return rows[0]
+
+
+def check_command_rule(prefix):
+    # Claude Code's documented trailing " *" matches the literal prefix and
+    # its arguments. This checks that narrow form, not the full permission engine.
+    # https://code.claude.com/docs/en/permissions#wildcard-patterns
+    require(re.fullmatch(r'python3 [a-zA-Z0-9_./-]+', prefix) is not None,
+            'replay needs a literal project-relative script command')
+    require(not shlex.split(prefix)[1].startswith('/'), 'replay script path must be relative')
+    require(SCRIPT_ALLOW_RULE == 'Bash(' + prefix + ' *)',
+            'skill command and harness allow rule differ')
+
+
+def checked_command(prefix, action, *args):
+    check_command_rule(prefix)
+    command = prefix + ' ' + shlex.join([action, *args])
+    literal = SCRIPT_ALLOW_RULE[len('Bash('):-len(' *)')]
+    require(command.startswith(literal + ' '), 'script command does not match allow rule')
+    return shlex.split(command)
 
 
 def load_case(path):
@@ -55,20 +86,19 @@ def build(case, folder):
 
 
 def dry_check(case, project):
-    sys.path.insert(0, str(project / '.agents/skills/host-fit/scripts'))
-    # A fresh subprocess proves the assembled, installed script resolves its resources.
-    script = project / '.agents/skills/host-fit/scripts/host_fit.py'
-    base = [sys.executable, str(script)]
+    prefix = skill_command(project / '.agents/skills/host-fit/SKILL.md')
+    check_command_rule(prefix)
+    # Execute exactly the documented command from the throwaway project root.
     def call(action, *args):
-        result = subprocess.run(base + [action] + list(args), cwd=project, text=True, capture_output=True)
+        result = subprocess.run(checked_command(prefix, action, *args), cwd=project, text=True, capture_output=True)
         require(result.returncode == 0, 'assembled project check failed: ' + result.stdout + result.stderr)
         return result.stdout
     h = ['--handover', 'hosting/handover.json']
     place = ['--place', 'place-record.json'] if case['place'] else []
     questions = json.loads(call('questions', *h, *place))
     require([q['id'] for q in questions] == case['expected']['questions'], 'question expectation differs')
-    (project / 'answers.json').write_text(json.dumps(case['expected']['answers']))
-    result = json.loads(call('suggest', *h, *place, '--answers', 'answers.json'))
+    (project / ANSWERS).write_text(json.dumps(case['expected']['answers']))
+    result = json.loads(call('suggest', *h, *place, '--answers', ANSWERS))
     require(result['host'] == case['expected']['host'] and result['wish'] == case['expected']['wish'], 'suggestion expectation differs')
     require(result['proof'] == 'not yet proven', 'stub became proven')
     require(json.loads(call('menu')) == [], 'stub reached the menu')
@@ -77,7 +107,7 @@ def dry_check(case, project):
         call('fit', *h, '--recipe', host)
     pending = json.loads(call('warnings', *h, *place, '--recipe', case['expected']['host']))
     require(len(pending) == case['expected']['warnings'], 'warning expectation differs')
-    (project / 'answers.json').unlink()
+    (project / ANSWERS).unlink()
 
 
 def run_case(case, project, evidence):
@@ -86,7 +116,7 @@ def run_case(case, project, evidence):
     # Keep only CLI/runtime essentials; provider credentials are not needed.
     env = {k:v for k,v in os.environ.items() if k in ('PATH','HOME','TMPDIR','LANG','SHELL','USER')}
     for index, turn in enumerate(case['turns']):
-        args = ['claude', '-p', '--output-format', 'json', '--tools', 'Read,Write,Edit,Bash', '--permission-mode', 'acceptEdits', '--allowedTools', 'Read', 'Write', 'Edit', 'Bash(python3 .agents/skills/host-fit/scripts/host_fit.py *)']
+        args = ['claude', '-p', '--output-format', 'json', '--tools', 'Read,Write,Edit,Bash', '--permission-mode', 'acceptEdits', '--allowedTools', 'Read', 'Write', 'Edit', SCRIPT_ALLOW_RULE]
         args += ['--session-id' if index == 0 else '--resume', session]
         prompt = ('Follow AGENTS.md and run the setup-hosting choice step. ' if index == 0 else '') + turn
         result = subprocess.run(args + [prompt], cwd=project, env=env, text=True, capture_output=True, timeout=600)
@@ -127,7 +157,7 @@ def main():
                     run_case(case, project, evidence)
                     print(case['name'] + ': run saved, maintainer judgement pending')
                 else:
-                    print(case['name'] + ': dry passed; project assembled, no model called')
+                    print(case['name'] + ': dry passed; skill command matches allow rule and runs from project root, no model called')
         return 0
     except (ValueError, OSError, subprocess.SubprocessError) as exc:
         print('replay failed: ' + str(exc), file=sys.stderr)

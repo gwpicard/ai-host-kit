@@ -1,8 +1,10 @@
 """Boundary rehearsals for AI Host Kit; no host, model or credentials required."""
 import json
+import importlib.util
 import os
 from pathlib import Path
 import shutil
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -130,13 +132,22 @@ def release_builder(work):
         assert (pack / f'agent-plugin/skills/{name}/SKILL.md').read_bytes() == source
     for forbidden in ('AGENTS.md', '.agents/tools', '.agents/tests', '.agents/maintainer-skills', '.githooks', '.github/workflows', 'docs/MAINTAINING.md', 'release-manifest.txt'):
         assert not (pack / forbidden).exists(), f'maintainer material shipped: {forbidden}'
-    # Both packaged skill locations must run without the maintainer checkout.
-    for location in ('.agents/skills', 'agent-plugin/skills'):
-        script = pack / location / 'host-fit/scripts/host_fit.py'
-        assert json.loads(run([sys.executable, script, 'menu'], cwd=pack).stdout) == []
-        run([sys.executable, script, 'check-recipes'], cwd=pack)
-        output = run([sys.executable, script, 'questions', '--handover',
-                      ROOT / '.agents/tests/fixtures/contracts/handover/valid.json'], cwd=pack)
+    # Use each packaged skill's documented command from a separate project.
+    # A plugin root is resolved once from the skill's installed location.
+    spec = importlib.util.spec_from_file_location('replay', ROOT / '.agents/tools/replay-host-choice.py')
+    replay = importlib.util.module_from_spec(spec); spec.loader.exec_module(replay)
+    project = work / 'plugin project'; (project / 'hosting').mkdir(parents=True)
+    shutil.copy2(ROOT / '.agents/tests/fixtures/contracts/handover/valid.json',
+                 project / 'hosting/handover.json')
+    for route, plugin, location in (
+        ('Claude Code plugin', pack, '.agents/skills'),
+        ('Agent Plugins package', pack / 'agent-plugin', 'skills'),
+    ):
+        prefix = replay.skill_command(plugin / location / 'host-fit/SKILL.md', route)
+        command = shlex.split(prefix.replace('<plugin-root>', str(plugin)))
+        assert json.loads(run(command + ['menu'], cwd=project).stdout) == []
+        run(command + ['check-recipes'], cwd=project)
+        output = run(command + ['questions', '--handover', 'hosting/handover.json'], cwd=project)
         assert [q['id'] for q in json.loads(output.stdout)] == ['cloud', 'care']
     # The manifest predicts exactly the built tree, including plugin skill copies.
     sys.path.insert(0, str(ROOT / '.agents/tools'))
