@@ -298,5 +298,40 @@
     "kind": "capabilities",
     "file": "capabilities/invalid-check-reference.json",
     "field": "jobs.runner.worker.check"
+  },
+  {
+    "kind": "handover",
+    "file": "handover/invalid-credential-value.json",
+    "field": "tool.owner"
+  },
+  {
+    "kind": "handover",
+    "file": "handover/invalid-credential-field.json",
+    "field": "tool.api_token"
+  },
+  {
+    "kind": "handover",
+    "file": "handover/invalid-unsafe-field.json",
+    "field": "tool.<unknown field>"
+  },
+  {
+    "kind": "handover",
+    "file": "handover/invalid-typed-sign-in.json",
+    "field": "sign_in.host_setup.callbacks"
+  },
+  {
+    "kind": "handover",
+    "file": "handover/invalid-extension-credential-value.json",
+    "field": "future.items[0].note"
+  },
+  {
+    "kind": "handover",
+    "file": "handover/invalid-extension-credential-field.json",
+    "field": "future.api_token"
+  },
+  {
+    "kind": "handover",
+    "file": "handover/invalid-extension-unsafe-field.json",
+    "field": "future.<unknown field>"
   }
 ]

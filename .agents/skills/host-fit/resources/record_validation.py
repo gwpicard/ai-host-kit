@@ -12,7 +12,7 @@ import sys
 ROOT = Path(__file__).resolve().parents[2]
 SCHEMAS = {
     'capabilities': 'contracts/capabilities.schema.json',
-    'handover': 'contracts/provisional-ai-build-kit/handover.schema.json',
+    'handover': 'contracts/ai-build-kit/handover.schema.json',
     'host-record': 'contracts/host-record.schema.json',
     'place-record': 'contracts/place-record.schema.json',
 }
@@ -25,7 +25,7 @@ def field_path(parts):
             result += f'[{part}]'
         else:
             # Unknown keys are input too. Do not print arbitrary strings as field names.
-            safe = part if part in ('host-tick', 'in-app', '*') or re.fullmatch(r'[a-z][a-z0-9_]{0,47}(?:\.(?:[a-z][a-z0-9_]{0,47}|\*))*', part) else '<unknown field>'
+            safe = part if part in ('host-tick', 'in-app', '*') or re.fullmatch(r'[A-Z][A-Z0-9_]{0,63}', part) or re.fullmatch(r'[a-z][a-z0-9_]{0,63}(?:\.(?:[a-z][a-z0-9_]{0,63}|\*))*', part) else '<unknown field>'
             result += ('.' if result else '') + safe
     return result or '$'
 
@@ -78,8 +78,20 @@ def dependencies():
     return Draft202012Validator, formats
 
 
-def error_fields(error):
+def error_fields(error, value, schema):
     path = list(error.absolute_path)
+    if error.schema is False and list(error.absolute_schema_path)[-1:] == ['patternProperties']:
+        # jsonschema omits the key when a pattern maps to the false schema.
+        parent = value
+        for part in path:
+            parent = parent[part]
+        patterns = schema
+        for part in error.absolute_schema_path:
+            patterns = patterns[part]
+        return [(path + [name], 'field is not allowed') for name in parent
+                if any(rule is False and re.search(pattern, name) for pattern, rule in patterns.items())]
+    if 'propertyNames' in error.absolute_schema_path and isinstance(error.instance, str):
+        path.append(error.instance)
     if error.validator == 'required' and isinstance(error.instance, dict):
         return [(path + [name], 'required field is missing') for name in error.validator_value
                 if name not in error.instance]
@@ -87,7 +99,7 @@ def error_fields(error):
         return [(path + [name], 'field is not allowed') for name in error.instance
                 if name not in error.schema.get('properties', {})]
     if error.context:
-        return [item for child in error.context for item in error_fields(child)]
+        return [item for child in error.context for item in error_fields(child, value, schema)]
     reasons = {
         'type': 'has the wrong type', 'enum': 'choose a supported option',
         'const': 'does not meet the required rule', 'pattern': 'has the wrong form',
@@ -107,6 +119,8 @@ def unknown_fields(value, schema, path=()):
                 yield from unknown_fields(value, branch, path)
                 return
         properties = schema.get('properties', {})
+        if not properties and isinstance(schema.get('additionalProperties'), dict) and '$ref' not in schema['additionalProperties']:
+            return
         for name, child in value.items():
             current = path + (name,)
             if name not in properties:
@@ -159,7 +173,7 @@ def validate(kind, path):
     validator_type.check_schema(schema)
     errors = set()
     for error in validator_type(schema, format_checker=formats).iter_errors(value):
-        for parts, reason in error_fields(error):
+        for parts, reason in error_fields(error, value, schema):
             errors.add((field_path(parts), reason))
     if kind in ('host-record', 'place-record', 'capabilities'):
         for parts in secret_fields(value):
@@ -171,7 +185,7 @@ def validate(kind, path):
     if kind == 'handover':
         for parts in unknown_fields(value, schema):
             print(f'{field_path(parts)}: unknown optional field; ignored')
-        print('valid: handover matches the provisional draft; upstream agreement is not checked')
+        print('valid: handover matches the vendored AI Build Kit schema; live behaviour is not checked')
     else:
         print(f'valid: {kind} structure; live behaviour is not checked')
     return 0

@@ -12,12 +12,10 @@ reader for its local choice step. The canonical copies live here.
 | `hosting/host-record.json` | AI Host Kit | What was set up for one tool. AI Host Kit writes it through a pull request the person merges. |
 | `place-record.json` in the private place repository | AI Host Kit | Shared hosting details for the organisation. |
 
-The [provisional handover schema](provisional-ai-build-kit/handover.schema.json)
-is a draft for AI Build Kit to adopt. It is not a published or agreed upstream
-contract. AI Build Kit owns the canonical schema once published. AI Host Kit
-will vendor each supported published copy unchanged. The
-[upstream pin](provisional-ai-build-kit/README.md) records its origin and is
-empty until a published schema is adopted.
+The [published handover schema](ai-build-kit/handover.schema.json) is owned by
+AI Build Kit and vendored unchanged. The [upstream pin](ai-build-kit/README.md)
+records its repository, branch, commit, path, Git blob and SHA-256. No release
+tag is required. AI Host Kit does not edit this schema.
 
 AI Host Kit owns the [host record schema](host-record.schema.json) and
 [place record schema](place-record.schema.json). The schemas own the field
@@ -26,7 +24,7 @@ show complete records. All examples describe fictional places.
 
 ## Reading the handover
 
-The draft uses JSON Schema draft 2020-12. `schema_version` is a `major.minor`
+The published schema uses JSON Schema draft 2020-12. `schema_version` is a `major.minor`
 string. The reader supports `1.x`. A minor version may add optional fields;
 the reader reports unknown fields by path and ignores them, except inside
 `config` declarations. Known fields keep their constraints. A removal, rename,
@@ -35,22 +33,30 @@ AI Host Kit update that supports it. No such update is claimed to exist.
 
 `config` declares names, kinds, phases and sources, never values. Secret names
 must use `phase: runtime`. Each declaration permits only `name`, `kind`,
-`phase` and `source`, with their defined types and forms. Every other field
+`phase`, `source` and optional `description`, with their defined types and forms. Every other field
 is refused by path, including in a newer minor version and when it contains
 an object or array. This is an exception to ignoring optional minor-version
 fields: extending a declaration requires a reader update before that record
-can be accepted. This rule is part of the draft for AI Build Kit to adopt.
+can be accepted. The published schema defines this rule.
 
-Closing declarations prevents extra fields from carrying values; it does not
-recognise every secret disguised as metadata or text elsewhere. A person must
-still keep values out of every record. Validation messages print field paths
-and fixed explanations without printing values.
+The published schema rejects recognisable credentials in declared and extension
+values, and credential-shaped extension names. Objects allowing extensions
+require safe identifiers. `sign_in.configuration` uses upper-case environment
+names; other open objects use lower-case identifiers. These rules can miss
+secrets disguised as ordinary prose. A person must keep values out of records.
+Validation messages name fields with fixed explanations and withhold values.
+Unsafe field names are shown as `<unknown field>`.
 
 `jobs.runner` accepts `worker` for a separate process, `in-app` for a scheduler
 in the web process, and `host-tick` for a host timer. A worker runner requires
 `processes.worker`. The cron field checks five parts, not whether the schedule
 will run. Staff sign-in uses `entra` for Microsoft, `google`, or generic `oidc`.
-The outsider method `email-link` requires an email declaration.
+The outsider method `email-link` requires an email declaration. Active sign-in
+also requires typed configuration, secret-file declarations and host registration
+with callback paths, plus `postgres.sign_in` and `postgres.roles.auth`.
+`health.checks` must include `database`. The schema owns the exact conditions.
+Host fit traverses these typed fields as needs, reporting unknown wherever a
+recipe has no capability. Configuration descriptions are permitted metadata.
 
 Recovery targets use hours: how much recent data may be lost and how long a
 restore may take. The app database role must declare that it owns no table and
@@ -90,18 +96,14 @@ that a host exists or that a file can be read. IPv6 URL literals and signed
 URLs are not supported. `encrypted_state.encryption` accepts only `AES-GCM`,
 `AES-256-GCM` or `ChaCha20-Poly1305`, with no parameters or key material.
 
-The handover's `image.dockerfile` and `sign_in.staff.outside_refused_test`
-use relative repository paths without `.` or `..` segments. `health.path`
-and `sign_in.staff.redirect_path` start with one slash. These paths use the
-same path characters as the references above and refuse URL credentials,
-queries, fragments, percent escapes, backslashes and whitespace.
-
-The remaining declared free-text fields in the handover and hosting record
-schemas refuse
-`scheme://` tokens containing `@`, `?`, `#`, `%` or a backslash, including
-tokens within prose or commands. The same rule applies to cron text. This
-blocks these URL forms, not every possible way to conceal a credential.
-Unknown optional handover fields remain outside these field constraints.
+The handover uses its own published path and reference forms. Its free text
+rejects all scheme URLs, not just URLs with credentials. Repository paths and
+rooted health and callback paths have different constraints. In particular,
+rooted paths permit a second leading slash, percent signs and backslashes.
+With this reader, a trailing newline also matches the published rooted-path
+pattern. These paths are not subject to the Host Kit reference forms above. Extension values have recursive credential
+checks and extension names must be safe identifiers. Validation applies the
+vendored schema exactly rather than adding Host Kit's reference rules.
 
 The record validator also scans every string value in host and place records
 for obvious secret content. It refuses assignments such as `key=`, `token=`,
@@ -112,8 +114,8 @@ at four bits per character; hexadecimal runs of at least 40 characters use
 and is excluded from this scan; the schema still checks its form. These
 checks can reject harmless identifiers or other hashes and miss
 short, disguised or low-entropy secrets. They catch obvious cases and are not
-a guarantee that a record contains no secrets. The handover's free text is
-not covered by this scan.
+a guarantee that a record contains no secrets. The handover uses the published
+schema's credential checks instead of this scan.
 
 AI Build Kit owns the masterplan and its generated "How it stays running"
 section. It will render that section from the handover and host record and
@@ -135,23 +137,22 @@ python3 .agents/tools/check-handover-vendor.py
 ```
 
 The vendoring check reads the committed upstream pin and refuses unsaved pin
-changes. It obtains the tagged file itself, confirms the tag's commit and the
-file's SHA-256, then compares the vendored copy byte for byte, including
-whitespace. It accepts no command-line file or pin overrides. See the
-[pin instructions](provisional-ai-build-kit/README.md) for its fields.
+changes. It fetches the pinned commit and named branch itself, confirms that
+the commit is reachable from that branch, verifies the Git blob and SHA-256,
+then compares the vendored bytes, including whitespace. It accepts no
+command-line file or pin overrides. See the [pin instructions](ai-build-kit/README.md).
 
 Exit status `0` means the requested check completed successfully, `1` means a
 record or comparison failed, and `2` means the check could not run. An absent
-or empty pin, failed fetch, moved tag or hash mismatch reports "could not
-check" and exits `2`. A hash mismatch leaves the upstream bytes unconfirmed,
-so it cannot establish drift in the vendored copy. Once upstream is confirmed,
-a different vendored copy exits `1`.
+or empty pin, failed fetch, unreachable commit, wrong blob or wrong hash reports
+"could not check" and exits `2`. Unconfirmed upstream bytes cannot establish
+drift. Once upstream is confirmed, different vendored bytes exit `1`.
 
-The tests use temporary local Git repositories and tags through an internal
-Python transport override. No CLI option, pin field or environment variable
-enables that override. Matching local fixtures test byte comparison only;
-they cannot establish publication. The test suite uses no network. Actual
-agreement with AI Build Kit remains unchecked until the pin is filled.
+Tests use temporary local Git repositories without tags through an internal
+Python transport argument. No CLI option, pin field or environment variable
+enables that override. The tests establish checker behaviour without network
+access. A real check establishes agreement only with the pinned file and branch
+reachability at the time it runs, not compatibility or live hosting behaviour.
 
 ## Recipe capabilities and local choice
 
@@ -171,7 +172,9 @@ Array indices appear in fit lines. Internally, capability paths escape literal
 backslashes, dots and stars in keys with a backslash. A literal dotted key is
 shown in brackets and quotes, so `["limits.memory_mb"]` is distinct from
 `limits.memory_mb` and cannot inherit its capability. Unknown key text still
-passes through the reader's field-name filter before display.
+passes through the reader's field-name filter before display. The published
+schema refuses dotted extension keys before a normal fit report; internal
+path escaping remains tested independently.
 
 Each entry is `met`, `cannot` with a reason, or `met-if` with a condition object.
 Conditions name a field, an operator (`eq`, `in`, `lte`, `gte`) and a value.
@@ -220,7 +223,7 @@ Google Cloud wishes use the same nearest-host routing and prefer a proven
 candidate if one exists. Today every candidate is not yet proven. Residency
 is always read from the handover. The interview can ask about a missing or
 null job duration, but a fit report still requires a valid handover; the
-provisional schema itself is unchanged.
+published schema still requires that duration for a valid record.
 
 ```sh
 python3 .agents/tools/record_validation.py capabilities path/to/capabilities.json
