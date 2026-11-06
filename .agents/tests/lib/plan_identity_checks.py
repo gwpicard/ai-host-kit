@@ -256,6 +256,8 @@ def run_checks(checks, work):
         version_pin(checks, module, project, work)
         apply_version_recheck(checks, module, project, work)
     check_all(gate)
+    from approval_symlink_checks import run_checks as symlink_checks
+    symlink_checks(checks, work / 'symlinks')
     real_http(checks, gate, work)
     print('Identity regressions passed: absent, malformed, other plan, changed target, late removal, backend and environment restrictions, fragment and version.')
     scratch = work / 'mutated-skill'; shutil.copytree(checks.SKILL, scratch)

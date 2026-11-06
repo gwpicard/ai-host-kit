@@ -293,10 +293,10 @@ def target_identity():
     # Hash configuration and complete backend metadata; show only safe local paths.
     # The absolute root binds even the first plan, before a state lineage exists.
     root = Path.cwd().resolve()
-    configuration = [(p.name, digest(p.read_bytes())) for p in sorted(root.iterdir())
+    configuration = [(p.name, str(p.resolve()), digest(p.read_bytes())) for p in sorted(root.iterdir())
                      if p.is_file() and p.name.endswith(('.tf', '.tf.json'))]
     data_dir = Path('.terraform').resolve()
-    metadata = data_dir / 'terraform.tfstate'
+    metadata = (data_dir / 'terraform.tfstate').resolve()
     backend_record = records.read_json(metadata)['backend'] if metadata.exists() else dict(
         type='local', config=dict(path='terraform.tfstate', workspace_dir='terraform.tfstate.d'))
     backend = digest(json.dumps(backend_record, sort_keys=True).encode())
@@ -316,8 +316,6 @@ def target_identity():
         refuse('The local backend destination is missing or unsupported. Set an explicit state path, then save and approve a new plan.')
     backend_settings = dict(path=str((root / settings['path']).resolve()),
                             workspace_dir=str((root / (settings.get('workspace_dir') or 'terraform.tfstate.d')).resolve()))
-    settings_sha = digest(json.dumps(backend_settings, sort_keys=True).encode())
-    backend_settings = {key: safe_destination(value) for key, value in backend_settings.items()}
     redirecting = {}
     selected = tofu('workspace', 'show')
     if selected.returncode:
@@ -325,8 +323,13 @@ def target_identity():
     workspace = selected.stdout.decode().strip()
     if not workspace:
         refuse('The target workspace is empty. Select a workspace and review the plan again.')
+    state_path = (root / settings['path'] if workspace == 'default' else
+                  root / (settings.get('workspace_dir') or 'terraform.tfstate.d') / workspace / 'terraform.tfstate').resolve()
+    settings_sha = digest(json.dumps([backend_settings, str(state_path)], sort_keys=True).encode())
+    backend_settings = {key: safe_destination(value) for key, value in backend_settings.items()}
     configuration_sha = digest(json.dumps(configuration).encode())
-    state_sha = digest(json.dumps([str(root), str(data_dir), backend, settings_sha, workspace, configuration_sha]).encode())
+    state_sha = digest(json.dumps([str(root), str(data_dir), backend, settings_sha, workspace, configuration_sha,
+                                  str(metadata)]).encode())
     root_text = str(root)
     if list(records.secret_fields(root_text)) or any(ord(c) < 32 for c in root_text) or re.search(r'[@?#%\\]', root_text):
         root_text = '<project path withheld>'
