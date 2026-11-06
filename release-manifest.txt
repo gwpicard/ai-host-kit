@@ -23,6 +23,7 @@ agent-plugin/plugin.json|
 .agents/skills/check-live|agent-plugin/skills/check-live
 .agents/skills/go-live|agent-plugin/skills/go-live
 .agents/skills/setup-hosting|agent-plugin/skills/setup-hosting
+# Includes the unchanged contracts/ai-build-kit schema bundled in host-fit resources.
 .agents/skills/host-fit|
 .agents/skills/host-fit|agent-plugin/skills/host-fit
 .claude/settings.json|

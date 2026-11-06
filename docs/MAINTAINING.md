@@ -68,7 +68,7 @@ python3 -m pip install -r .agents/tools/schema-requirements.txt
 
 On systems without `/private/tmp`, choose another temporary folder. CI installs
 the same requirements. [The contract guide](../contracts/README.md) describes
-the provisional handover, Host Kit records and the separate vendoring check.
+the published, vendored handover, Host Kit records and the separate vendoring check.
 
 The validator checks adapter drift, command consistency, configuration syntax,
 release boundaries, attribution, issue references and the beta notice. It
@@ -114,6 +114,27 @@ run both checks and the merged-tree rehearsal, then rehearse both install
 routes in disposable projects. Ask what an existing user must do to upgrade.
 Record missing checks and compatibility limits in the review. Publication,
 tags, release promotion and the `stable` ruleset need separate instructions.
+
+## Adopt an upstream handover commit
+
+Read the [pin format](../contracts/ai-build-kit/README.md). Fetch AI Build Kit's
+named branch and the candidate commit in a temporary repository. Confirm the
+commit is reachable from that branch, inspect `hosting/handover.schema.json`
+at the commit, and record its Git blob and SHA-256. A release tag is not needed.
+Copy the file byte for byte into `contracts/ai-build-kit/handover.schema.json`
+and save the six-field `upstream.json` pin beside it. Never edit the schema to
+make Host Kit's checks pass.
+
+Update fixtures, reader paths and any rules that rely on changed fields.
+Check whether Host Kit refuses a handover the published schema accepts;
+remove the extra rule or explain why it is needed. Refresh bundled resources
+with `build-adapters.sh`, run validation and the suite after each step, and
+run replay dry mode. Save the pin and schema together, then run
+`python3 .agents/tools/check-handover-vendor.py` with network access. The
+checker requires the pin in `HEAD`; an unsaved pin cannot produce a pass.
+Report a failed or unavailable real check as such. Finish with the saved-tree
+rehearsal. Review the commit, blob, hash, fixture and rule changes and all check
+results in the pull request before adopting the commit.
 
 ## Local host choice and replays
 

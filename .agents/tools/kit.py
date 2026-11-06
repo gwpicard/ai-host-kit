@@ -145,7 +145,7 @@ def adapter_files():
     # Bundle dependencies so a skill-only installation has the same reader and data.
     resources = '.agents/skills/host-fit/resources/'
     for name in ('plan-identity.schema.json', 'approval-record.schema.json', 'capabilities.schema.json', 'place-record.schema.json',
-                 'host-record.schema.json', 'provisional-ai-build-kit/handover.schema.json'):
+                 'host-record.schema.json', 'ai-build-kit/handover.schema.json'):
         result[resources + 'contracts/' + name] = (ROOT / 'contracts' / name).read_text()
     source = ROOT / '.agents/skills/recipes'
     for path in sorted(source.rglob('*')):
