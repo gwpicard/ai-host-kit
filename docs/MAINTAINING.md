@@ -156,6 +156,11 @@ Prepare replay projects without calling a model:
 python3 .agents/tools/replay-host-choice.py --dry --case all
 ```
 
+Dry mode checks that both skills, the script defaults and the harness use
+`hosting/place-record.json` for the local draft. It exercises reading and writing
+that default path. The suite changes each location independently in a disposable
+copy and requires dry mode to fail.
+
 Dry mode reads the Project skills command prefix from `host-fit/SKILL.md`,
 requires the harness's independent Bash allow rule to match it exactly, then
 runs that command with `python3` from each throwaway project root. The rule

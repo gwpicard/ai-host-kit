@@ -251,6 +251,29 @@ def replay_checks(m, work):
         finally:
             path.write_text(original)
         run(command)
+    for label, path, before, after in (
+        ('setup-hosting location', tree / '.agents/skills/setup-hosting/SKILL.md',
+         'hosting/place-record.json', 'place-record.json'),
+        ('host-fit location', skill, 'hosting/place-record.json', 'place-record.json'),
+        ('input default', tree / '.agents/skills/host-fit/scripts/host_fit.py',
+         "parser.add_argument('--place', type=Path, default='hosting/place-record.json')",
+         "parser.add_argument('--place', type=Path, default='place-record.json')"),
+        ('output default', tree / '.agents/skills/host-fit/scripts/host_fit.py',
+         "parser.add_argument('--output', type=Path, default='hosting/place-record.json')",
+         "parser.add_argument('--output', type=Path, default='place-record.json')"),
+        ('harness location', script, "PLACE = 'hosting/place-record.json'",
+         "PLACE = 'place-record.json'"),
+    ):
+        original = path.read_text()
+        assert before in original
+        path.write_text(original.replace(before, after))
+        try:
+            result = run(command, expected=1)
+            assert 'draft place record location differ' in result.stdout, result.stdout
+            print(label + ': dry mode refused drift')
+        finally:
+            path.write_text(original)
+        run(command)
     print('Replay command mutations restored; dry mode passed without a model.')
 
 
