@@ -332,10 +332,10 @@ def main():
     parser.add_argument('action', choices=['fit', 'questions', 'suggest', 'menu', 'check-recipes', 'warnings', 'record'])
     parser.add_argument('--handover', type=Path)
     parser.add_argument('--recipe', choices=CHOICES)
-    parser.add_argument('--place', type=Path)
+    parser.add_argument('--place', type=Path, default='hosting/place-record.json')
     parser.add_argument('--answers', type=Path)
     parser.add_argument('--acceptances', type=Path)
-    parser.add_argument('--output', type=Path)
+    parser.add_argument('--output', type=Path, default='hosting/place-record.json')
     args = parser.parse_args()
     try:
         if args.action == 'menu':
@@ -346,7 +346,8 @@ def main():
             if not args.handover:
                 raise ValueError('handover: supply --handover')
             h = handover(args.handover, args.action in ('questions', 'suggest', 'record'))
-            place = read('place-record', args.place) if args.place else None
+            explicit_place = any(arg == '--place' or arg.startswith('--place=') for arg in sys.argv[1:])
+            place = read('place-record', args.place) if args.place.exists() or explicit_place else None
             a = rv.read_json(args.answers) if args.answers else {}
             if not isinstance(a, dict):
                 raise ValueError('answers: expected an object')
@@ -362,8 +363,6 @@ def main():
             elif args.action == 'warnings':
                 result = warnings(h, args.recipe, place)
             elif args.action == 'record':
-                if not args.output:
-                    raise ValueError('output: supply a local place record path')
                 if args.output.exists() and (not args.place or args.output.resolve() != args.place.resolve()):
                     raise ValueError('output: read the existing record with --place before updating it')
                 accepted = rv.read_json(args.acceptances) if args.acceptances else []

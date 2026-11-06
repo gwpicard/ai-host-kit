@@ -285,7 +285,7 @@
     "outcomes": [
       "Before the person chooses a host, the transcript suggests the expected host with its trade-off and says not yet proven.",
       "Every fit need, including residency and unknowns, is visible.",
-      "The local place-record.json validates and records the choice, answers, proof status and any wish.",
+      "The local hosting/place-record.json validates and records the choice, answers, proof status and any wish.",
       "No provider is contacted and no infrastructure is created. The transcript says creating the place is not built yet."
     ]
   }

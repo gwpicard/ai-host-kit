@@ -112,6 +112,11 @@ def source_rules(work):
 
 
 def release_builder(work):
+    sys.path.insert(0, str(ROOT / '.agents/tools'))
+    from record_validation import dependencies
+    if dependencies() is None:
+        print('could-not-run: schema packages are missing')
+        sys.exit(2)
     builder = ROOT / '.agents/tools/build-release.sh'
     packs = [work / 'pack-a', work / 'pack-b']
     for p in packs:
@@ -266,6 +271,30 @@ def rehearsal_runner(work):
     # A synchronisation copy must not make the runner call itself forever.
     shutil.copy2(ROOT / '.agents/tests/run-all.sh', incomplete / '.agents/tests/run-all copy.sh')
     run(['.agents/tests/run-all.sh'], cwd=incomplete, env={'GITHUB_ACTIONS':'false'})
+    for missing in ('python3', 'git', 'ruby'):
+        folder = suite('missing-' + missing, {'source-rules.sh': 'echo group-ran\n'})
+        tools = folder / 'bin'; tools.mkdir()
+        for tool in ('sh', 'dirname', 'basename', 'mktemp', 'rm', 'tee', 'cat', 'sed',
+                     'python3', 'git', 'ruby'):
+            if tool != missing:
+                target = shutil.which(tool)
+                if target:
+                    (tools / tool).symlink_to(target)
+        result = run(['/bin/sh', '.agents/tests/run-all.sh'], cwd=folder,
+                     env={'PATH': str(tools), 'GITHUB_ACTIONS': 'false'})
+        assert 'group-ran' not in result.stdout
+        assert '0 of 1 rehearsals passed' in result.stdout
+        assert '0 failed; 1 could not run' in result.stdout
+        assert missing + ' is not on PATH' in result.stdout
+    folder = suite('missing-tofu', {'approval-gate.sh': 'exec ' + shlex.join([sys.executable, str(ROOT / '.agents/tests/lib/approval_gate_checks.py')]) + '\n'})
+    result = run(['/bin/sh', '.agents/tests/run-all.sh'], cwd=folder,
+                 env={'PATH': str(tools), 'GITHUB_ACTIONS': 'false'})
+    assert 'could not run: approval-gate' in result.stdout
+    assert '0 of 1 rehearsals passed' in result.stdout
+    assert '0 failed; 1 could not run' in result.stdout
+    assert 'OpenTofu' in result.stdout
+    print('Missing OpenTofu reported as could not run by the real approval group.')
+    print('Missing Python, Git and Ruby reported as could not run before the group started.')
     print('Runner continued after failure and never counted an incomplete or crashed check as passed.')
 
 
