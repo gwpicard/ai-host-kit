@@ -1,0 +1,40 @@
+{
+  "schema_version": "1.0",
+  "phase": "place",
+  "place": {
+    "name": "test-place",
+    "organisation": "Example organisation",
+    "kind": "server",
+    "provider": "Hetzner",
+    "region": "fsn1"
+  },
+  "network": {
+    "cidrs": [
+      "100.64.0.0/10"
+    ],
+    "private_access": "Tailscale"
+  },
+  "firewall": {
+    "default_inbound": "deny",
+    "rules": []
+  },
+  "tools": [],
+  "encrypted_state": {
+    "location": "s3://example-state/place/state",
+    "encryption": "AES-GCM",
+    "key_custodian": "Example owner"
+  },
+  "infrastructure": {
+    "server_id": 101,
+    "firewall_id": 102,
+    "ssh_key_id": 103,
+    "public_ipv4": "192.0.2.10",
+    "tailnet_ipv4": "100.64.0.10",
+    "versions": {
+      "coolify": "4.3.23",
+      "mcp": "3.9.0",
+      "docktail": "1.8.6",
+      "hcloud": "1.70.2"
+    }
+  }
+}

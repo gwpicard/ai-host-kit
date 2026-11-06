@@ -1,5 +1,5 @@
 ---
-description: Read-only health and recovery checks for a live tool.
+description: Read-only place checks and planned health and recovery checks for a live tool.
 ---
 <!-- GENERATED from .agents/skills/check-live/. Do not edit; run .agents/tools/build-adapters.sh -->
 

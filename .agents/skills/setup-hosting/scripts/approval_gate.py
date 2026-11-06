@@ -22,6 +22,9 @@ import record_validation as records
 records.ROOT = RESOURCES
 
 VERSION = '1.13.2'
+S3_CREDENTIALS = None
+S3_REDIRECT_ENV = {'HTTP_PROXY','HTTPS_PROXY','ALL_PROXY','NO_PROXY','http_proxy','https_proxy','all_proxy','no_proxy','SSL_CERT_FILE','SSL_CERT_DIR'}
+S3_ENDPOINTS = {f'https://{region}.your-objectstorage.com': region for region in ('fsn1', 'nbg1', 'hel1')}
 HEADINGS = {
     'changes': 'What will be destroyed, created or changed',
     'internet': 'What will become reachable from the internet',
@@ -208,6 +211,11 @@ def summarise(plan):
             result['access'].append(f'{name}: who can get in is not established for this resource or change; review it.')
         if isinstance(kind, str) and NETWORK.search(kind):
             result['internet'].append(f'{name}: network or public-access change; check the ports, addresses and source ranges below.')
+        if (kind == 'hcloud_firewall' and isinstance(change.get('after'), dict)
+                and change['after'].get('rule') == []
+                and all(mask is not True and not (isinstance(mask, dict) and mask.get('rule'))
+                        for mask in (change.get('after_sensitive'), change.get('after_unknown')))):
+            result['internet'].append(f'{name}: no public inbound ports are opened by these firewall rules.')
         if isinstance(kind, str) and ACCESS.search(kind):
             result['access'].append(f'{name}: access, identity or directory registration changes; check who gains or loses access.')
         for path, before, after, protected in leaves(change.get('before'), change.get('after'),
@@ -261,18 +269,65 @@ def render(sha, summary, target=None):
                       'Configuration SHA-256: ' + target['configuration_sha256'],
                       'State target SHA-256: ' + target['state_sha256'],
                       'Workspace: ' + target['workspace'],
-                      'State storage: ' + target['backend_type'],
-                      'Local state path: ' + target['backend_settings']['path'],
-                      'Workspace state folder: ' + target['backend_settings']['workspace_dir']])
+                      'State storage: ' + target['backend_type']])
+        lines.extend(key + ': ' + str(value) for key, value in target['backend_settings'].items())
     for key, heading in HEADINGS.items():
         lines.extend(['', heading] + ['- ' + line for line in summary[key]])
     return '\n'.join(lines) + '\n'
 
 
+def storage_credentials():
+    global S3_CREDENTIALS
+    if S3_CREDENTIALS is None:
+        with terminal() as tty:
+            access = typed(tty, 'Storage access key (hidden): ')
+            secret = typed(tty, 'Storage secret key (hidden): ')
+        if not access or not secret:
+            refuse('Both storage key fields are required. Values are withheld.')
+        S3_CREDENTIALS = (access, secret)
+    return S3_CREDENTIALS
+
+
+def s3_settings(settings):
+    # Permit only a narrow, explicit Hetzner destination with no credential chain.
+    if not isinstance(settings, dict):
+        refuse('Backend settings must be an object.')
+    fixed = dict(use_path_style=True, skip_credentials_validation=True,
+                 skip_region_validation=True, skip_requesting_account_id=True,
+                 skip_metadata_api_check=True, skip_s3_checksum=True,
+                 shared_credentials_files=['/dev/null'], shared_config_files=['/dev/null'],
+                 use_lockfile=True)
+    allowed = set(fixed) | {'bucket', 'key', 'region', 'endpoints', 'workspace_key_prefix', 'max_retries'}
+    effective = {k: v for k, v in settings.items() if v is not None}
+    if set(effective) - allowed or any(effective.get(k) != v for k, v in fixed.items()):
+        refuse('Unsupported S3 settings or credential source. Use the documented Hetzner backend fragment.')
+    endpoints = effective.get('endpoints', {})
+    if not isinstance(endpoints, dict):
+        refuse('Backend endpoints must be an object.')
+    active = {k: v for k, v in endpoints.items() if v is not None}
+    endpoint = active.get('s3')
+    if set(active) != {'s3'} or S3_ENDPOINTS.get(endpoint) != effective.get('region'):
+        refuse('The S3 endpoint and region must name the same supported Hetzner location.')
+    bucket, key = effective.get('bucket'), effective.get('key')
+    prefix = effective.get('workspace_key_prefix')
+    if (not isinstance(bucket, str) or not re.fullmatch(r'[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]', bucket)
+            or not isinstance(key, str) or not re.fullmatch(r'[A-Za-z0-9_./-]+', key)
+            or any(x in ('', '.', '..') for x in key.split('/'))
+            or not isinstance(prefix, str) or not re.fullmatch(r'[A-Za-z0-9_/-]+', prefix)
+            or any(x in ('', '.', '..') for x in prefix.split('/'))):
+        refuse('Set an explicit bucket, safe state key and workspace prefix.')
+    return dict(endpoint=endpoint, bucket=bucket, key=key, region=effective['region'], workspace_key_prefix=prefix)
+
+
 def environment():
     # Raw OpenTofu logs can contain secrets, even when the command fails.
-    return {key: value for key, value in os.environ.items()
-            if not key.startswith(('TF_LOG', 'TF_CLI_ARGS', 'TOFU_LOG'))}
+    child = {key: value for key, value in os.environ.items()
+             if not key.startswith(('TF_LOG', 'TF_CLI_ARGS', 'TOFU_LOG', 'AWS_'))}
+    if S3_CREDENTIALS is not None:
+        child.update(AWS_ACCESS_KEY_ID=S3_CREDENTIALS[0], AWS_SECRET_ACCESS_KEY=S3_CREDENTIALS[1],
+                     AWS_SHARED_CONFIG_FILE='/dev/null', AWS_SHARED_CREDENTIALS_FILE='/dev/null',
+                     AWS_EC2_METADATA_DISABLED='true')
+    return child
 
 
 def tofu(*args):
@@ -300,21 +355,27 @@ def target_identity():
     backend_record = records.read_json(metadata)['backend'] if metadata.exists() else dict(
         type='local', config=dict(path='terraform.tfstate', workspace_dir='terraform.tfstate.d'))
     backend = digest(json.dumps(backend_record, sort_keys=True).encode())
-    if backend_record['type'] != 'local':
+    if backend_record['type'] not in ('local', 's3'):
         refuse('This state backend is not supported. Use local state storage, then save and approve a new plan.')
     redirecting = {key for key in os.environ if
                    (key.startswith('TF_') and not key.startswith(('TF_VAR_', 'TF_LOG'))
                     and key not in ('TF_INPUT', 'TF_IN_AUTOMATION', 'TF_CLI_CONFIG_FILE'))
-                   or key == 'TOFU_ENCRYPTION'}
+                   or (backend_record['type'] == 's3' and key in S3_REDIRECT_ENV)
+                   or key == 'TOFU_ENCRYPTION' or (key.startswith(('AWS_', 'TOFU_')) and not key.startswith('TOFU_LOG'))}
     if redirecting:
         refuse('A state or workspace override environment variable is set. Unset it, then save and approve a new plan.')
     settings = backend_record['config']
-    if (not isinstance(settings, dict) or set(settings) - {'path', 'workspace_dir'}
+    if backend_record['type'] == 'local' and (not isinstance(settings, dict) or set(settings) - {'path', 'workspace_dir'}
             or not isinstance(settings.get('path'), str) or not settings['path']
             or (settings.get('workspace_dir') is not None and
                 (not isinstance(settings['workspace_dir'], str) or not settings['workspace_dir']))):
         refuse('The local backend destination is missing or unsupported. Set an explicit state path, then save and approve a new plan.')
-    backend_settings = dict(path=str((root / settings['path']).resolve()),
+    if backend_record['type'] == 's3':
+        backend_settings = s3_settings(settings)
+        credentials_sha = digest(json.dumps(storage_credentials()).encode())
+    else:
+        credentials_sha = ''
+        backend_settings = dict(path=str((root / settings['path']).resolve()),
                             workspace_dir=str((root / (settings.get('workspace_dir') or 'terraform.tfstate.d')).resolve()))
     redirecting = {}
     selected = tofu('workspace', 'show')
@@ -323,13 +384,15 @@ def target_identity():
     workspace = selected.stdout.decode().strip()
     if not workspace:
         refuse('The target workspace is empty. Select a workspace and review the plan again.')
-    state_path = (root / settings['path'] if workspace == 'default' else
+    state_path = ((root / settings['path'] if workspace == 'default' else
                   root / (settings.get('workspace_dir') or 'terraform.tfstate.d') / workspace / 'terraform.tfstate').resolve()
+                  if backend_record['type'] != 's3' else
+                  (settings['key'] if workspace == 'default' else settings['workspace_key_prefix'] + '/' + workspace + '/' + settings['key']))
     settings_sha = digest(json.dumps([backend_settings, str(state_path)], sort_keys=True).encode())
     backend_settings = {key: safe_destination(value) for key, value in backend_settings.items()}
     configuration_sha = digest(json.dumps(configuration).encode())
     state_sha = digest(json.dumps([str(root), str(data_dir), backend, settings_sha, workspace, configuration_sha,
-                                  str(metadata)]).encode())
+                                  str(metadata), credentials_sha]).encode())
     root_text = str(root)
     if list(records.secret_fields(root_text)) or any(ord(c) < 32 for c in root_text) or re.search(r'[@?#%\\]', root_text):
         root_text = '<project path withheld>'
@@ -355,7 +418,7 @@ def require_encryption():
         refuse('The bundled encryption fragment is missing. Include it, then save and approve a new plan.')
 
 
-def plan(path):
+def plan(path, destroy=False):
     path = Path(path).resolve()
     record_path = identity_path(path)
     if path.exists() or record_path.exists():
@@ -364,7 +427,7 @@ def plan(path):
     require_encryption()
     before = target_identity()
     try:
-        result = tofu('plan', '-input=false', '-out', path)
+        result = tofu('plan', *(['-destroy'] if destroy else []), '-input=false', '-out', path)
         if result.returncode:
             refuse('OpenTofu could not save the plan. Check the configuration privately, then save and approve a new plan. Raw diagnostics are withheld.')
         after = target_identity()
@@ -549,17 +612,70 @@ class Arguments(argparse.ArgumentParser):
         self.exit(2, 'Use plan/summary <plan>, or approve/apply <plan> <record>. Unexpected argument values are withheld.\n')
 
 
+def effect_sha(effect):
+    if (not isinstance(effect, dict) or effect.get('action') not in ('set-lane', 'register-docktail', 'claim-admin')
+            or not isinstance(effect.get('effect'), str) or not effect['effect']
+            or not re.fullmatch(r'[0-9a-f]{64}', effect.get('place_sha256', ''))
+            or list(records.secret_fields({k:v for k,v in effect.items() if k != 'place_sha256'}))):
+        refuse('The effect is missing, unsupported or contains unsafe text. Values are withheld.')
+    return digest(json.dumps(effect, sort_keys=True, separators=(',', ':')).encode())
+
+
+def safe_words(words):
+    return (isinstance(words, str) and bool(words.strip()) and len(words) <= 2000
+            and not list(records.secret_fields(words)) and not any(ord(c) < 32 for c in words)
+            and not re.search(r'[A-Za-z][A-Za-z0-9+.-]*://[^\s]*[@?#%\\\\]', words))
+
+
+def approve_effect(effect, destination):
+    sha = effect_sha(effect)
+    with terminal() as tty:
+        print(effect['effect'])
+        print('Effect checksum: ' + short_hash(sha), flush=True)
+        termios.tcflush(tty.fileno(), termios.TCIFLUSH)
+        if typed(tty, 'Type approve followed by the checksum: ') != 'approve ' + short_hash(sha):
+            refuse('The effect confirmation did not match.')
+        words = typed(tty, 'Your words: ')
+        if not safe_words(words):
+            refuse('Approval words are empty or unsafe. Values are withheld.')
+    record = dict(effect_sha256=sha, effect=effect['effect'], words=words,
+                  approved_at=datetime.now(timezone.utc).isoformat(), method='foreground-terminal')
+    with os.fdopen(os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'w') as out:
+        json.dump(record, out, indent=2)
+        out.write('\n')
+
+
+def match_effect(effect, path):
+    if not Path(path).is_file():
+        refuse('No effect approval exists. The person must review and approve this effect.')
+    record = records.read_json(path)
+    if (set(record) != {'effect_sha256', 'effect', 'words', 'approved_at', 'method'}
+            or record['method'] != 'foreground-terminal' or not safe_words(record['words'])
+            or record['effect_sha256'] != effect_sha(effect) or record['effect'] != effect['effect']
+            or list(records.secret_fields(record['words']))):
+        refuse('Effect approval differs or is malformed. Review and approve the current effect.')
+    try:
+        if datetime.fromisoformat(record['approved_at'].replace('Z', '+00:00')).tzinfo is None:
+            refuse('Effect approval must include a timezone.')
+    except (TypeError, ValueError):
+        refuse('Effect approval time is malformed.')
+
+
 def main():
     parser = Arguments(description=__doc__)
-    parser.add_argument('command', choices=('plan', 'summary', 'approve', 'apply'))
+    parser.add_argument('command', choices=('plan', 'plan-destroy', 'summary', 'approve', 'apply', 'approve-effect'))
     parser.add_argument('plan')
     parser.add_argument('record', nargs='?')
     args = parser.parse_args()
     try:
-        if args.command == 'plan':
+        if args.command == 'approve-effect':
+            if not args.record:
+                refuse('Supply a new effect approval path.')
+            approve_effect(records.read_json(args.plan), args.record)
+        elif args.command in ('plan', 'plan-destroy'):
             if args.record:
                 refuse('Plan accepts only a new saved plan path.')
-            plan(args.plan)
+            plan(args.plan, destroy=args.command == 'plan-destroy')
         elif args.command == 'summary':
             if args.record:
                 refuse('Summary accepts only a saved plan path.')

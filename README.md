@@ -25,7 +25,10 @@ version, and checks that never change anything.
 
 The choice step in `/setup-hosting` compares the handover with stub recipes,
 suggests a host and saves a local choice record. Creating the place is not
-built yet. The other three commands remain stubs. No host is proven.
+built yet. `/check-live` can run the Coolify on Hetzner recipe's sampled
+read-only Place checks. Tool health checks, `/go-live` and `/change-live` remain
+stubs. The [offline Place recipe](.agents/skills/recipes/coolify-hetzner/recipe.md)
+records its bootstrap and MCP gaps. No host is proven.
 
 ## Install the beta
 

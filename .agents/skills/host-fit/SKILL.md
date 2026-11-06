@@ -29,8 +29,13 @@ The script needs the packages in this skill's
 without claiming a check passed. Never install packages without explaining
 that local prerequisite.
 
-Call `questions --handover FILE` with `--place FILE` when a place record
-exists, and `--answers hosting/host-fit-answers.tmp.json` as answers arrive.
+Keep the local draft place record at `hosting/place-record.json`, beside the
+handover. The script reads that record when it exists and uses that path for
+`record` output by default. Use `--place` and `--output` only to work with an
+explicitly supplied record elsewhere.
+
+Call `questions --handover FILE`, adding
+`--answers hosting/host-fit-answers.tmp.json` as answers arrive.
 Keep that temporary JSON file free of secrets; remove it when the choice step
 ends, or leave it there with no secrets. Ask only the returned questions.
 The answer object uses `cloud` (azure, aws, google-cloud, none, not-sure),
@@ -56,7 +61,7 @@ residency notice; do not add another warning. If the
 person accepts, keep their exact words and the date in an acceptance object
 with `field`, `status: accepted`, `date` (YYYY-MM-DD) and `words`. Pass an array
 of those objects with `--acceptances FILE` to `record`, together with
-`--handover`, `--answers`, `--recipe`, `--output` and any `--place`. Never
+`--handover`, `--answers` and `--recipe`. Never
 invent acceptance. After acceptance, carry on without refusing or asking
 again. The script preserves recorded acceptance for the same host and omits
 its warning on subsequent calls. Unknowns remain visible; they are not
