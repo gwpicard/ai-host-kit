@@ -70,7 +70,7 @@ def label(value):
     if not isinstance(value, str):
         return '<name withheld>'
     value = re.sub(r'\["(?:[^"\\]|\\.)*"\]', '[instance name withheld]', value)
-    if len(value) > 200 or list(records.secret_fields(value)):
+    if len(value) > 200 or list(records.secret_fields(value, field_name=True)):
         return '<name withheld>'
     identifier = r'[a-zA-Z_][a-zA-Z0-9_-]*'
     index = r'(?:\[(?:[0-9]+|instance name withheld)\])?'

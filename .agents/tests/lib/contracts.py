@@ -373,6 +373,8 @@ def main():
         vendor_checks(work)
         reference_checks(work)
         string_checks(work)
+        from integration_regressions import checks as integration_checks
+        integration_checks(work)
     print(f'All schemas, valid fixtures and {len(cases)} field-specific refusals passed.')
     print('Version handling, withheld values and match, drift and unavailable vendor outcomes passed.')
     return 0

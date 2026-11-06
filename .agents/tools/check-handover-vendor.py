@@ -29,7 +29,7 @@ def git(folder, *args):
         return subprocess.run(['git', '-c', 'credential.helper=', '-c', 'core.askPass=', '-C', str(folder), *args], env=env,
                               stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                               check=True, timeout=60).stdout
-    except (OSError, subprocess.SubprocessError):
+    except (OSError, ValueError, TypeError, subprocess.SubprocessError):
         raise CouldNotCheck('the upstream file or pinned commit could not be obtained or confirmed') from None
 
 
@@ -64,7 +64,8 @@ def confirmed_upstream(pin, *, _test_repository=None):
     if not all(re.fullmatch(r'[0-9a-f]{40}', pin[key]) for key in ('commit', 'blob')) or not re.fullmatch(r'[0-9a-f]{64}', pin['sha256']):
         raise CouldNotCheck('the pinned commit, blob or SHA-256 has the wrong form')
     path = PurePosixPath(pin['path'])
-    if not pin['path'] or path.is_absolute() or '..' in path.parts or str(path) != pin['path']:
+    if (not pin['path'] or any(ord(c) < 32 or 127 <= ord(c) <= 159 for c in pin['path'])
+            or path.is_absolute() or '..' in path.parts or str(path) != pin['path']):
         raise CouldNotCheck('the pinned schema path has the wrong form')
     with tempfile.TemporaryDirectory(prefix='ahk-upstream-') as folder:
         git(folder, 'init', '--bare', '-q')
@@ -109,6 +110,9 @@ def main():
         published = confirmed_upstream(pin)
     except CouldNotCheck as exc:
         print('could not check: ' + str(exc))
+        return 2
+    except (OSError, ValueError, TypeError, subprocess.SubprocessError):
+        print('could not check: the upstream file or pinned commit could not be obtained or confirmed')
         return 2
     try:
         vendored = VENDORED.read_bytes()

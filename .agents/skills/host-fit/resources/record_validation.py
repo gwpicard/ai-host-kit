@@ -27,7 +27,7 @@ def field_path(parts):
             result += f'[{part}]'
         else:
             # Unknown keys are input too. Do not print arbitrary strings as field names.
-            safe = part if not list(secret_fields(part)) and (part in ('host-tick', 'in-app', '*') or re.fullmatch(r'[A-Z][A-Z0-9_]{0,63}', part) or re.fullmatch(r'[a-z][a-z0-9_]{0,63}(?:\.(?:[a-z][a-z0-9_]{0,63}|\*))*', part)) else '<unknown field>'
+            safe = part if not list(secret_fields(part, field_name=True)) and (part in ('host-tick', 'in-app', '*') or re.fullmatch(r'[A-Z][A-Z0-9_]{0,63}', part) or re.fullmatch(r'[a-z][a-z0-9_]{0,63}(?:\.(?:[a-z][a-z0-9_]{0,63}|\*))*', part)) else '<unknown field>'
             result += ('.' if result else '') + safe
     return result or '$'
 
@@ -134,7 +134,7 @@ def unknown_fields(value, schema, path=()):
             yield from unknown_fields(child, schema.get('items', {}), path + (index,))
 
 
-def secret_fields(value, path=()):
+def secret_fields(value, path=(), *, field_name=False):
     """Find obvious secret content without returning or printing the content."""
     if isinstance(value, dict):
         for name, child in value.items():
@@ -143,6 +143,11 @@ def secret_fields(value, path=()):
         for index, child in enumerate(value):
             yield from secret_fields(child, path + (index,))
     elif isinstance(value, str):
+        # Names are rendered separately from record validation. Recognisable
+        # provider keys can be short and low entropy, even in synthetic probes.
+        if field_name and re.search(r'(?:AKIA|ASIA)[A-Z0-9]{16}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{20,}', value):
+            yield path
+            return
         if (path == ('plan_sha256',) or (len(path) == 2 and path[0] == 'target' and
                 path[1] in {'project_sha256', 'configuration_sha256', 'state_sha256'})) and re.fullmatch(r'[0-9a-f]{64}', value):
             return

@@ -229,7 +229,7 @@ def run_regressions(checks, work):
     reader = scratch / 'resources/record_validation.py'
     # Each removal runs the corresponding outcome assertion and restores the copy.
     mutations = [
-        ('secret map keys', reader, 'not list(secret_fields(part)) and ', '',
+        ('secret map keys', reader, 'not list(secret_fields(part, field_name=True)) and ', '',
          lambda module: secret_plan(checks, scratch, project, work)),
         ('protected map keys', script, '(protected and i == len(path) - 1 and len(path) > 1)', 'False', key_masks),
         ('target binding', script, "if record['target'] != target:", 'if False:',
