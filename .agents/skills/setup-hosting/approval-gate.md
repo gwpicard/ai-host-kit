@@ -1,7 +1,7 @@
 # Reviewing a saved plan
 
-These local tools prepare and check approval. Host modules and the step that
-creates a place are not built. The hosting commands still stop after the local
+These local tools prepare and check approval. The Coolify on Hetzner module has offline provider-mocked checks. Secret-free
+bootstrap and the complete step that creates a place are not built. The hosting commands still stop after the local
 choice. Use these tools only with a reviewed OpenTofu configuration; a saved
 plan can contain provisioners and other executable work.
 

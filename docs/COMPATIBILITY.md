@@ -1,8 +1,9 @@
 # Installing the beta kit
 
 AI Host Kit is beta. Its four commands are `/setup-hosting`, `/go-live`,
-`/check-live` and `/change-live`. Only the local choice step in `/setup-hosting`
-is built. Creating a place and the other commands remain unbuilt. Installation
+`/check-live` and `/change-live`. The local choice step in `/setup-hosting` and sampled Coolify Place reads
+in `/check-live` are built. Creating a place, tool health, `/go-live` and
+`/change-live` remain unbuilt. Installation
 tests do not prove hosting behaviour.
 
 Choose one route per project. Install from the project folder beside AI Build
@@ -55,8 +56,7 @@ folder and its `plugin.json`; source keeps only the metadata to avoid maintainin
 duplicate skills. No client behaviour is claimed from a metadata check alone.
 
 The choice script needs Python 3 and the pinned packages in the host-fit
-skill's `resources/schema-requirements.txt`. Its schemas, reader and stub
-recipes are bundled inside that skill, so it does not need the maintainer
+skill's `resources/schema-requirements.txt`. Its schemas, reader and recipe declarations and runtime files are bundled inside that skill, so it does not need the maintainer
 tools. `build-adapters.sh` refreshes these copies from their canonical files.
 The shared install route above still omits host choice while the command
 name belongs to AI Build Kit.
