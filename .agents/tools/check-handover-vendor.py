@@ -1,4 +1,4 @@
-"""Verify the handover copy against the saved AI Build Kit release pin."""
+"""Verify the handover copy against the saved AI Build Kit commit pin."""
 import argparse
 import hashlib
 import json
@@ -11,8 +11,8 @@ import tempfile
 
 from record_validation import ROOT, read_json
 
-PIN = 'contracts/provisional-ai-build-kit/upstream.json'
-VENDORED = ROOT / 'contracts/provisional-ai-build-kit/handover.schema.json'
+PIN = 'contracts/ai-build-kit/upstream.json'
+VENDORED = ROOT / 'contracts/ai-build-kit/handover.schema.json'
 REPOSITORY = 'https://github.com/gwpicard/ai-build-kit.git'
 
 
@@ -24,13 +24,13 @@ def git(folder, *args):
     # Ignore caller Git configuration, URL rewrites and repository overrides.
     env = {key: value for key, value in os.environ.items() if not key.startswith('GIT_')}
     env.update(GIT_CONFIG_NOSYSTEM='1', GIT_CONFIG_GLOBAL=os.devnull,
-               GIT_TERMINAL_PROMPT='0')
+               GIT_TERMINAL_PROMPT='0', GIT_ASKPASS='')
     try:
-        return subprocess.run(['git', '-C', str(folder), *args], env=env,
+        return subprocess.run(['git', '-c', 'credential.helper=', '-c', 'core.askPass=', '-C', str(folder), *args], env=env,
                               stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                               check=True, timeout=60).stdout
-    except (OSError, subprocess.SubprocessError):
-        raise CouldNotCheck('the upstream file or release tag could not be obtained or confirmed') from None
+    except (OSError, ValueError, TypeError, subprocess.SubprocessError):
+        raise CouldNotCheck('the upstream file or pinned commit could not be obtained or confirmed') from None
 
 
 def saved_pin():
@@ -54,35 +54,43 @@ def confirmed_upstream(pin, *, _test_repository=None):
     """
     if pin is None:
         raise CouldNotCheck('no published AI Build Kit schema is pinned')
-    fields = {'repository', 'tag', 'commit', 'path', 'sha256'}
+    fields = {'repository', 'ref', 'commit', 'path', 'blob', 'sha256'}
     if not isinstance(pin, dict) or set(pin) != fields or not all(isinstance(v, str) for v in pin.values()):
         raise CouldNotCheck('the upstream pin is incomplete or has unsupported fields')
     if pin['repository'] != REPOSITORY:
         raise CouldNotCheck('the pin must name the AI Build Kit repository')
-    if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._/-]*', pin['tag']):
-        raise CouldNotCheck('the pinned release tag has the wrong form')
-    if not re.fullmatch(r'[0-9a-f]{40}', pin['commit']) or not re.fullmatch(r'[0-9a-f]{64}', pin['sha256']):
-        raise CouldNotCheck('the pinned commit or SHA-256 has the wrong form')
+    if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._/-]*', pin['ref']):
+        raise CouldNotCheck('the pinned branch ref has the wrong form')
+    if not all(re.fullmatch(r'[0-9a-f]{40}', pin[key]) for key in ('commit', 'blob')) or not re.fullmatch(r'[0-9a-f]{64}', pin['sha256']):
+        raise CouldNotCheck('the pinned commit, blob or SHA-256 has the wrong form')
     path = PurePosixPath(pin['path'])
-    if not pin['path'] or path.is_absolute() or '..' in path.parts or str(path) != pin['path']:
+    if (not pin['path'] or any(ord(c) < 32 or 127 <= ord(c) <= 159 for c in pin['path'])
+            or path.is_absolute() or '..' in path.parts or str(path) != pin['path']):
         raise CouldNotCheck('the pinned schema path has the wrong form')
     with tempfile.TemporaryDirectory(prefix='ahk-upstream-') as folder:
         git(folder, 'init', '--bare', '-q')
-        git(folder, 'check-ref-format', 'refs/tags/' + pin['tag'])
+        git(folder, 'check-ref-format', 'refs/heads/' + pin['ref'])
         repository = REPOSITORY
         protocol = 'https'
         if _test_repository is not None:
             repository = str(Path(_test_repository).resolve())
             protocol = 'file'
-        git(folder, '-c', 'protocol.allow=never', '-c', f'protocol.{protocol}.allow=always',
-            'fetch', '--no-tags', '--depth=1', repository,
-            'refs/tags/' + pin['tag'] + ':refs/tags/confirmed')
-        commit = git(folder, 'rev-parse', 'refs/tags/confirmed^{commit}').decode().strip()
+        transport = ('-c', 'protocol.allow=never', '-c', f'protocol.{protocol}.allow=always')
+        git(folder, *transport, 'fetch', '--no-tags', repository,
+            pin['commit'], 'refs/heads/' + pin['ref'] + ':refs/heads/confirmed')
+        commit = git(folder, 'rev-parse', pin['commit'] + '^{commit}').decode().strip()
         if commit != pin['commit']:
-            raise CouldNotCheck('the release tag does not resolve to the pinned commit')
+            raise CouldNotCheck('the pinned commit could not be confirmed')
+        try:
+            git(folder, 'merge-base', '--is-ancestor', commit, 'refs/heads/confirmed')
+        except CouldNotCheck:
+            raise CouldNotCheck('the pinned commit is not reachable from the named ref') from None
         target = commit + ':' + pin['path']
         if git(folder, 'cat-file', '-t', target).strip() != b'blob':
             raise CouldNotCheck('the pinned path is not a file')
+        blob = git(folder, 'rev-parse', target).decode().strip()
+        if blob != pin['blob']:
+            raise CouldNotCheck('the upstream file does not match the pinned blob')
         published = git(folder, 'show', target)
     if hashlib.sha256(published).hexdigest() != pin['sha256']:
         raise CouldNotCheck('the upstream file does not match the pinned SHA-256')
@@ -98,9 +106,13 @@ def main():
     # No caller-supplied file or pin can establish publication.
     argparse.ArgumentParser(description=__doc__).parse_args()
     try:
-        published = confirmed_upstream(saved_pin())
+        pin = saved_pin()
+        published = confirmed_upstream(pin)
     except CouldNotCheck as exc:
         print('could not check: ' + str(exc))
+        return 2
+    except (OSError, ValueError, TypeError, subprocess.SubprocessError):
+        print('could not check: the upstream file or pinned commit could not be obtained or confirmed')
         return 2
     try:
         vendored = VENDORED.read_bytes()
@@ -113,7 +125,7 @@ def main():
     if not same_bytes(vendored, published):
         print('failed: the vendored handover schema differs from the confirmed upstream file')
         return 1
-    print('passed: the vendored handover schema matches the published copy byte for byte')
+    print('passed: the vendored handover schema matches the published copy byte for byte at commit ' + pin['commit'])
     return 0
 
 

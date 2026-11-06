@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "ask": [
+      "Bash(tofu apply *)",
+      "Bash(tofu destroy *)",
+      "Bash(*tofu* apply*)",
+      "Bash(*tofu* destroy*)",
+      "Bash(*approve.sh*)",
+      "Bash(*approval_gate.py*approve*)",
+      "Bash(*apply.sh*)",
+      "Bash(*approval_gate.py*apply*)"
+    ]
+  }
+}

@@ -18,7 +18,7 @@ PUBLIC_FILES = {'README.md', 'LICENSE', 'NOTICES', 'CONTRIBUTING.md', 'SECURITY.
                 '.ai-host-kit-version', 'docs/PHILOSOPHY.md', 'docs/PROMISES.md',
                 'docs/SOURCES.md', 'docs/COMPATIBILITY.md',
                 '.claude-plugin/plugin.json', '.claude-plugin/marketplace.json',
-                'agent-plugin/plugin.json'}
+                'agent-plugin/plugin.json', '.claude/settings.json'}
 VERSION_RE = r'(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?'
 
 
@@ -144,8 +144,8 @@ def adapter_files():
             "Treat the following as the person's request (it may be empty): {{args}}\n" + '"""\n')
     # Bundle dependencies so a skill-only installation has the same reader and data.
     resources = '.agents/skills/host-fit/resources/'
-    for name in ('capabilities.schema.json', 'place-record.schema.json',
-                 'host-record.schema.json', 'provisional-ai-build-kit/handover.schema.json'):
+    for name in ('plan-identity.schema.json', 'approval-record.schema.json', 'capabilities.schema.json', 'place-record.schema.json',
+                 'host-record.schema.json', 'ai-build-kit/handover.schema.json'):
         result[resources + 'contracts/' + name] = (ROOT / 'contracts' / name).read_text()
     source = ROOT / '.agents/skills/recipes'
     for path in sorted(source.rglob('*')):
@@ -153,6 +153,12 @@ def adapter_files():
             result[resources + 'recipes/' + str(path.relative_to(source))] = path.read_text()
     for name in ('record_validation.py', 'schema-requirements.txt'):
         result[resources + name] = (ROOT / '.agents/tools' / name).read_text()
+    resources = '.agents/skills/setup-hosting/resources/'
+    for name in ('record_validation.py', 'schema-requirements.txt'):
+        result[resources + name] = (ROOT / '.agents/tools' / name).read_text()
+    result[resources + 'contracts/plan-identity.schema.json'] = (ROOT / 'contracts/plan-identity.schema.json').read_text()
+    result[resources + 'contracts/approval-record.schema.json'] = (ROOT / 'contracts/approval-record.schema.json').read_text()
+    result[resources + 'encryption.tf'] = (ROOT / 'tofu/encryption.tf').read_text()
     return result
 
 
@@ -161,7 +167,7 @@ def build_adapters(args):
         error('usage: build-adapters.sh [--check]')
     expected = adapter_files()
     if args:
-        actual = {str(p.relative_to(ROOT)) for d in (*ADAPTER_DIRS, '.agents/skills/host-fit/resources') for p in (ROOT / d).rglob('*') if p.is_file() or p.is_symlink()}
+        actual = {str(p.relative_to(ROOT)) for d in (*ADAPTER_DIRS, '.agents/skills/host-fit/resources', '.agents/skills/setup-hosting/resources') for p in (ROOT / d).rglob('*') if p.is_file() or p.is_symlink()}
         if actual != expected.keys():
             error('adapter file list has drifted; run build-adapters.sh')
         for path, text in expected.items():
@@ -169,7 +175,7 @@ def build_adapters(args):
                 error(f'adapter drift: {path}; run build-adapters.sh')
         print('adapters match: 4 commands, no drift')
     else:
-        for d in (*ADAPTER_DIRS, '.agents/skills/host-fit/resources'):
+        for d in (*ADAPTER_DIRS, '.agents/skills/host-fit/resources', '.agents/skills/setup-hosting/resources'):
             folder = ROOT / d
             if folder.is_symlink():
                 error(f'adapter directory is a symlink: {d}')

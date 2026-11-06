@@ -52,7 +52,7 @@ def read(kind, path):
 def handover(path, questions_only=False):
     value = rv.read_json(path)
     candidate = value
-    # The provisional contract requires a duration when jobs is present. The
+    # The published contract requires a duration when jobs is present. The
     # interview can fill that knowledge gap without declaring the record valid.
     if questions_only and isinstance(value, dict) and isinstance(value.get('jobs'), dict):
         if value['jobs'].get('longest_job_seconds') is None:

@@ -11,8 +11,10 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[2]
 SCHEMAS = {
+    'plan-identity': 'contracts/plan-identity.schema.json',
+    'approval-record': 'contracts/approval-record.schema.json',
     'capabilities': 'contracts/capabilities.schema.json',
-    'handover': 'contracts/provisional-ai-build-kit/handover.schema.json',
+    'handover': 'contracts/ai-build-kit/handover.schema.json',
     'host-record': 'contracts/host-record.schema.json',
     'place-record': 'contracts/place-record.schema.json',
 }
@@ -25,7 +27,7 @@ def field_path(parts):
             result += f'[{part}]'
         else:
             # Unknown keys are input too. Do not print arbitrary strings as field names.
-            safe = part if part in ('host-tick', 'in-app', '*') or re.fullmatch(r'[a-z][a-z0-9_]{0,47}(?:\.(?:[a-z][a-z0-9_]{0,47}|\*))*', part) else '<unknown field>'
+            safe = part if not list(secret_fields(part, field_name=True)) and (part in ('host-tick', 'in-app', '*') or re.fullmatch(r'[A-Z][A-Z0-9_]{0,63}', part) or re.fullmatch(r'[a-z][a-z0-9_]{0,63}(?:\.(?:[a-z][a-z0-9_]{0,63}|\*))*', part)) else '<unknown field>'
             result += ('.' if result else '') + safe
     return result or '$'
 
@@ -78,8 +80,20 @@ def dependencies():
     return Draft202012Validator, formats
 
 
-def error_fields(error):
+def error_fields(error, value, schema):
     path = list(error.absolute_path)
+    if error.schema is False and list(error.absolute_schema_path)[-1:] == ['patternProperties']:
+        # jsonschema omits the key when a pattern maps to the false schema.
+        parent = value
+        for part in path:
+            parent = parent[part]
+        patterns = schema
+        for part in error.absolute_schema_path:
+            patterns = patterns[part]
+        return [(path + [name], 'field is not allowed') for name in parent
+                if any(rule is False and re.search(pattern, name) for pattern, rule in patterns.items())]
+    if 'propertyNames' in error.absolute_schema_path and isinstance(error.instance, str):
+        path.append(error.instance)
     if error.validator == 'required' and isinstance(error.instance, dict):
         return [(path + [name], 'required field is missing') for name in error.validator_value
                 if name not in error.instance]
@@ -87,7 +101,7 @@ def error_fields(error):
         return [(path + [name], 'field is not allowed') for name in error.instance
                 if name not in error.schema.get('properties', {})]
     if error.context:
-        return [item for child in error.context for item in error_fields(child)]
+        return [item for child in error.context for item in error_fields(child, value, schema)]
     reasons = {
         'type': 'has the wrong type', 'enum': 'choose a supported option',
         'const': 'does not meet the required rule', 'pattern': 'has the wrong form',
@@ -107,6 +121,8 @@ def unknown_fields(value, schema, path=()):
                 yield from unknown_fields(value, branch, path)
                 return
         properties = schema.get('properties', {})
+        if not properties and isinstance(schema.get('additionalProperties'), dict) and '$ref' not in schema['additionalProperties']:
+            return
         for name, child in value.items():
             current = path + (name,)
             if name not in properties:
@@ -118,7 +134,7 @@ def unknown_fields(value, schema, path=()):
             yield from unknown_fields(child, schema.get('items', {}), path + (index,))
 
 
-def secret_fields(value, path=()):
+def secret_fields(value, path=(), *, field_name=False):
     """Find obvious secret content without returning or printing the content."""
     if isinstance(value, dict):
         for name, child in value.items():
@@ -127,6 +143,14 @@ def secret_fields(value, path=()):
         for index, child in enumerate(value):
             yield from secret_fields(child, path + (index,))
     elif isinstance(value, str):
+        # Names are rendered separately from record validation. Recognisable
+        # provider keys can be short and low entropy, even in synthetic probes.
+        if field_name and re.search(r'(?:AKIA|ASIA)[A-Z0-9]{16}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{20,}', value):
+            yield path
+            return
+        if (path == ('plan_sha256',) or (len(path) == 2 and path[0] == 'target' and
+                path[1] in {'project_sha256', 'configuration_sha256', 'state_sha256'})) and re.fullmatch(r'[0-9a-f]{64}', value):
+            return
         if (len(path) == 3 and path[0] == 'rollback_targets' and
                 isinstance(path[1], int) and path[2] == 'image'):
             # The schema checks digest syntax; a digest is public image metadata.
@@ -159,9 +183,9 @@ def validate(kind, path):
     validator_type.check_schema(schema)
     errors = set()
     for error in validator_type(schema, format_checker=formats).iter_errors(value):
-        for parts, reason in error_fields(error):
+        for parts, reason in error_fields(error, value, schema):
             errors.add((field_path(parts), reason))
-    if kind in ('host-record', 'place-record', 'capabilities'):
+    if kind in ('host-record', 'place-record', 'capabilities', 'approval-record', 'plan-identity'):
         for parts in secret_fields(value):
             errors.add((field_path(parts), 'contains possible secret content; use a name or reference'))
     if errors:
@@ -171,7 +195,7 @@ def validate(kind, path):
     if kind == 'handover':
         for parts in unknown_fields(value, schema):
             print(f'{field_path(parts)}: unknown optional field; ignored')
-        print('valid: handover matches the provisional draft; upstream agreement is not checked')
+        print('valid: handover matches the vendored AI Build Kit schema; live behaviour is not checked')
     else:
         print(f'valid: {kind} structure; live behaviour is not checked')
     return 0

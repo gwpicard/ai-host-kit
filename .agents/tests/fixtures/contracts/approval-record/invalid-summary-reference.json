@@ -1,0 +1,35 @@
+{
+  "schema_version": "1.0",
+  "plan_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  "approved_at": "2026-11-05T12:00:00Z",
+  "words": "I approve the local fixture changes.",
+  "confirmation": "approve 0123-4567-89ab",
+  "method": "terminal-checksum",
+  "summary": {
+    "changes": [
+      "Fixture review."
+    ],
+    "internet": [
+      "See https://example.invalid/a#fragment"
+    ],
+    "access": [
+      "Fixture review."
+    ],
+    "irreversible": [
+      "Fixture review."
+    ]
+  },
+  "target": {
+    "project_root": "/synthetic/project",
+    "project_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "configuration_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "state_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "workspace": "default",
+    "backend_type": "local",
+    "backend_settings": {
+      "path": "/tmp/fixture/terraform.tfstate",
+      "workspace_dir": "/tmp/fixture/terraform.tfstate.d"
+    },
+    "environment": {}
+  }
+}

@@ -16,7 +16,9 @@ working conditions: maintainer instructions, generated command adapters,
 release allowlist, source checks, test runner, merged-tree rehearsal, issue
 forms and pull request checks. They are adapted to hosting, with build and
 project-founding behaviour left out. The commit hook was already present and
-is unchanged. No installable Build Kit skills are copied.
+is unchanged. The published handover schema is vendored unchanged under
+`contracts/ai-build-kit/`, with its origin in `upstream.json` and its MIT notice
+in [NOTICES](../NOTICES). No installable Build Kit skills are copied.
 
 The maintainer-only writing-review skill is copied from AI Build Kit with its
 MIT licence intact. Its pattern guidance comes from

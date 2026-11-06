@@ -68,7 +68,7 @@ python3 -m pip install -r .agents/tools/schema-requirements.txt
 
 On systems without `/private/tmp`, choose another temporary folder. CI installs
 the same requirements. [The contract guide](../contracts/README.md) describes
-the provisional handover, Host Kit records and the separate vendoring check.
+the published, vendored handover, Host Kit records and the separate vendoring check.
 
 The validator checks adapter drift, command consistency, configuration syntax,
 release boundaries, attribution, issue references and the beta notice. It
@@ -114,6 +114,27 @@ run both checks and the merged-tree rehearsal, then rehearse both install
 routes in disposable projects. Ask what an existing user must do to upgrade.
 Record missing checks and compatibility limits in the review. Publication,
 tags, release promotion and the `stable` ruleset need separate instructions.
+
+## Adopt an upstream handover commit
+
+Read the [pin format](../contracts/ai-build-kit/README.md). Fetch AI Build Kit's
+named branch and the candidate commit in a temporary repository. Confirm the
+commit is reachable from that branch, inspect `hosting/handover.schema.json`
+at the commit, and record its Git blob and SHA-256. A release tag is not needed.
+Copy the file byte for byte into `contracts/ai-build-kit/handover.schema.json`
+and save the six-field `upstream.json` pin beside it. Never edit the schema to
+make Host Kit's checks pass.
+
+Update fixtures, reader paths and any rules that rely on changed fields.
+Check whether Host Kit refuses a handover the published schema accepts;
+remove the extra rule or explain why it is needed. Refresh bundled resources
+with `build-adapters.sh`, run validation and the suite after each step, and
+run replay dry mode. Save the pin and schema together, then run
+`python3 .agents/tools/check-handover-vendor.py` with network access. The
+checker requires the pin in `HEAD`; an unsaved pin cannot produce a pass.
+Report a failed or unavailable real check as such. Finish with the saved-tree
+rehearsal. Review the commit, blob, hash, fixture and rule changes and all check
+results in the pull request before adopting the commit.
 
 ## Local host choice and replays
 
@@ -165,3 +186,43 @@ every need shown, recorded answers and wishes, and a single shortfall notice
 followed by dated acceptance with no further gate. A completed call is not a
 pass. Record the maintainer's verdict beside the evidence; deterministic checks
 and dry mode do not establish that a replay suggests the expected host.
+
+## Saved-plan approval checks
+
+Install the pinned OpenTofu outside this repository, then put that folder on
+`PATH` alongside the Python environment described above:
+
+```sh
+python3 .agents/tools/install-tofu.py /private/tmp/ai-host-kit-tofu
+export PATH="/private/tmp/ai-host-kit-tofu:$PATH"
+```
+
+Choose a new folder if that binary already exists. The installer downloads
+OpenTofu 1.13.2 from the official
+[release](https://github.com/opentofu/opentofu/releases/tag/v1.13.2), compares
+the published SHA-256 with the checked-in platform pin, then compares the
+archive bytes before extracting only the binary. CI uses the same installer
+for Linux amd64. This verifies checksums over HTTPS; it does not verify a
+release signature. The pins cover macOS and Linux on arm64 and amd64.
+
+`approval-gate.sh` builds real saved plans using only the built-in
+`terraform_data` resource in temporary folders. It runs `tofu validate` and
+`tofu test` offline. OpenTofu's
+[test command](https://opentofu.org/docs/v1.13/cli/commands/test/) supports
+mock providers in test files; the ordinary plan command has no mock-provider
+option. These tests need neither provider downloads nor mocks. The network
+summary case uses `network.show.json`, a constructed fixture in the shape of
+`tofu show -json`, because there is no cloud provider schema installed.
+Refusal tests use actual encrypted saved plans, not that JSON fixture.
+
+The suite creates synthetic terminal confirmations for local fixtures only.
+They are test data, never a person's approval. Protection removals run in
+throwaway copies and must fail the same outcome assertions. No test uses a
+host, model, cloud account or credential store.
+
+The runtime scripts are canonical in `setup-hosting/scripts/`. The builder
+bundles the canonical record reader, approval and plan-time identity schemas,
+and `tofu/encryption.tf`
+in `setup-hosting/resources/`. Regenerate and save those copies whenever their
+sources change. The released project settings are `.claude/settings.json`;
+installation must merge them into the user's project settings to take effect.

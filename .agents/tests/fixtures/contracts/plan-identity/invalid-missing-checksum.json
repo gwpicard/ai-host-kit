@@ -1,0 +1,16 @@
+{
+  "schema_version": "1.0",
+  "target": {
+    "project_root": "/synthetic/project",
+    "project_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "configuration_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "state_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "workspace": "default",
+    "backend_type": "local",
+    "backend_settings": {
+      "path": "/tmp/fixture/terraform.tfstate",
+      "workspace_dir": "/tmp/fixture/terraform.tfstate.d"
+    },
+    "environment": {}
+  }
+}

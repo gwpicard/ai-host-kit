@@ -27,30 +27,30 @@ def vendor_checks(work):
     vendor = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(vendor)
     fixtures = FIXTURES / 'vendoring'
-    draft = ROOT / SCHEMAS['handover']
+    schema_copy = ROOT / SCHEMAS['handover']
     duplicate = work / 'duplicate.json'
-    duplicate.write_bytes(draft.read_bytes())
-    for supplied in (draft, duplicate, fixtures / 'published-match.schema.json'):
+    duplicate.write_bytes(schema_copy.read_bytes())
+    for supplied in (schema_copy, duplicate, fixtures / 'published-match.schema.json'):
         refused = run(VENDOR + ['--published', supplied], expected=2)
         assert 'passed:' not in refused.stdout and 'matches the published copy' not in refused.stdout
-    assert vendor.same_bytes(draft.read_bytes(), duplicate.read_bytes())
+    assert vendor.same_bytes(schema_copy.read_bytes(), duplicate.read_bytes())
     assert vendor.same_bytes((fixtures / 'copy.schema.json').read_bytes(),
                              (fixtures / 'published-match.schema.json').read_bytes())
     assert not vendor.same_bytes((fixtures / 'copy.schema.json').read_bytes(),
                                  (fixtures / 'published-different.schema.json').read_bytes())
 
     repo = work / 'upstream'; repo.mkdir()
-    run(['git', 'init', '-q', repo])
+    run(['git', 'init', '-q', '-b', 'main', repo])
     upstream_file = repo / 'handover.schema.json'
-    upstream_file.write_bytes(draft.read_bytes())
+    upstream_file.write_bytes(schema_copy.read_bytes())
     run(['git', 'add', '.'], cwd=repo)
     run(['git', '-c', 'user.name=Guillaume Picard', '-c', 'user.email=rehearsal@example.invalid',
          '-c', 'commit.gpgsign=false', 'commit', '-qm', 'Save the schema fixture'], cwd=repo)
     commit = run(['git', 'rev-parse', 'HEAD'], cwd=repo).stdout.strip()
-    run(['git', '-c', 'user.name=Guillaume Picard', '-c', 'user.email=rehearsal@example.invalid',
-         'tag', '-a', 'v1.0.0', '-m', 'Schema fixture'], cwd=repo)
-    pin = dict(repository=vendor.REPOSITORY, tag='v1.0.0', commit=commit,
-               path='handover.schema.json', sha256=hashlib.sha256(draft.read_bytes()).hexdigest())
+    blob = run(['git', 'rev-parse', 'HEAD:handover.schema.json'], cwd=repo).stdout.strip()
+    assert run(['git', 'tag'], cwd=repo).stdout == ''
+    pin = dict(repository=vendor.REPOSITORY, ref='main', commit=commit, blob=blob,
+               path='handover.schema.json', sha256=hashlib.sha256(schema_copy.read_bytes()).hexdigest())
     # An inherited repository override must not redirect the vendor's Git calls.
     with patch.dict(vendor.os.environ, {'GIT_DIR': str(ROOT / '.git')}):
         observed = vendor.git(repo, 'rev-parse', 'HEAD').decode().strip()
@@ -60,7 +60,7 @@ def vendor_checks(work):
             'GIT_CONFIG_COUNT': '1',
             'GIT_CONFIG_KEY_0': 'url.' + str(work / 'absent') + '.insteadOf',
             'GIT_CONFIG_VALUE_0': str(repo)}):
-        assert vendor.confirmed_upstream(pin, _test_repository=repo) == draft.read_bytes()
+        assert vendor.confirmed_upstream(pin, _test_repository=repo) == schema_copy.read_bytes()
     print('Vendor Git environment filtering ignores repository and URL rewrite overrides.')
     confirmed = vendor.confirmed_upstream
     # Exercise main's status and messages, replacing only the pin reader and
@@ -82,23 +82,30 @@ def vendor_checks(work):
     check(pin, 0, 'matches the published copy byte for byte')
     duplicate.write_bytes(duplicate.read_bytes() + b'\n')
     check(pin, 1, 'differs')
-    duplicate.write_bytes(draft.read_bytes())
+    duplicate.write_bytes(schema_copy.read_bytes())
     check(pin, 2, 'could not check:', source=work / 'absent-repository')
+    check(dict(pin, blob='0' * 40), 2, 'blob')
     check(dict(pin, sha256='0' * 64), 2, 'SHA-256')
     check(dict(pin, commit='0' * 40), 2, 'pinned commit')
     check(dict(pin, path='absent.json'), 2, 'could not check:')
     check(dict(pin, repository=str(repo)), 2, 'must name the AI Build Kit repository')
     check(dict(pin, _test_repository=str(repo)), 2, 'unsupported fields')
     check({}, 2, 'incomplete')
-    # Lightweight tags work too; replacing a tag after pinning is refused.
-    run(['git', 'tag', 'v1.0.1'], cwd=repo)
-    check(dict(pin, tag='v1.0.1'), 0, 'matches the published copy')
-    upstream_file.write_bytes(draft.read_bytes() + b'\n')
+    # A fetched commit on a separate branch cannot claim membership of main.
+    run(['git', 'checkout', '-qb', 'side'], cwd=repo)
+    upstream_file.write_bytes(schema_copy.read_bytes() + b'\n')
     run(['git', 'add', '.'], cwd=repo)
     run(['git', '-c', 'user.name=Guillaume Picard', '-c', 'user.email=rehearsal@example.invalid',
          '-c', 'commit.gpgsign=false', 'commit', '-qm', 'Change the schema fixture'], cwd=repo)
-    run(['git', 'tag', '-f', 'v1.0.1'], cwd=repo)
-    check(dict(pin, tag='v1.0.1'), 2, 'pinned commit')
+    side = run(['git', 'rev-parse', 'HEAD'], cwd=repo).stdout.strip()
+    check(dict(pin, commit=side), 2, 'not reachable from the named ref')
+    run(['git', 'checkout', '-q', 'main'], cwd=repo)
+    # A later branch tip still confirms the original ancestor commit.
+    (repo / 'note').write_text('fixture')
+    run(['git', 'add', '.'], cwd=repo)
+    run(['git', '-c', 'user.name=Guillaume Picard', '-c', 'user.email=rehearsal@example.invalid',
+         '-c', 'commit.gpgsign=false', 'commit', '-qm', 'Advance the fixture branch'], cwd=repo)
+    check(pin, 0, 'matches the published copy')
     # A pin must be committed and unchanged in the working tree.
     pin_file = repo / vendor.PIN
     pin_file.parent.mkdir(parents=True)
@@ -132,7 +139,7 @@ def vendor_checks(work):
     missing = run(cli, expected=2)
     assert 'could not check: no published AI Build Kit schema is pinned' in missing.stdout
     assert 'passed:' not in missing.stdout
-    # The tracked format cannot enable local transport, even with a real tag.
+    # The tracked format cannot enable local transport, even with a real commit.
     pin_file.write_text(json.dumps(dict(pin, repository=str(repo))))
     run(['git', 'add', vendor.PIN], cwd=repo)
     run(['git', '-c', 'user.name=Guillaume Picard', '-c', 'user.email=rehearsal@example.invalid',
@@ -140,7 +147,7 @@ def vendor_checks(work):
     missing = run(cli, expected=2)
     assert 'must name the AI Build Kit repository' in missing.stdout
     assert 'passed:' not in missing.stdout
-    print('Caller files cannot establish publication; saved pin, tag, hash and byte checks passed without network access.')
+    print('Caller files cannot establish publication; saved pin, reachability, blob, hash and byte checks passed without network access.')
 
 
 def reference_checks(work):
@@ -178,6 +185,12 @@ def reference_checks(work):
                 output = run(VALIDATE + [kind, sample], expected=expected).stdout
                 if expected:
                     assert field_path(parts) + ':' in output
+    # Descriptions are published metadata, not an extra Host Kit refusal.
+    record = json.loads((FIXTURES / 'handover/valid.json').read_text())
+    record['config'][0]['description'] = 'Database connection supplied at runtime'
+    record['tool']['x' * 64] = {'optional_note': 'Future declaration'}
+    sample.write_text(json.dumps(record))
+    run(VALIDATE + ['handover', sample])
     # Both declaration kinds stay closed, even under future minor versions.
     for kind in ('secret', 'setting'):
         record = json.loads((FIXTURES / 'handover/valid.json').read_text())
@@ -248,7 +261,7 @@ def string_checks(work):
                 obj = obj[part]
             obj[parts[-1]] = reference
             sample.write_text(json.dumps(record))
-            expected = 0 if reference == '/api/health' else 1
+            expected = 0 if reference in ('/api/health', '//user:synthetic-secret-marker@example.invalid', '/api%3Fsynthetic-secret-marker', '/api\\synthetic-secret-marker', '/api\n') else 1
             output = check('handover', expected)
             if expected:
                 assert field_path(parts) + ':' in output and reference not in output
@@ -256,7 +269,7 @@ def string_checks(work):
     for kind, parts in (('handover', ('processes', 'web', 'command')),
                         ('host-record', ('gaps', 0, 'reason')),
                         ('place-record', ('network', 'private_access'))):
-        for suffix, expected in (('', 0), ('?synthetic-secret-marker', 1)):
+        for suffix, expected in (('', 1 if kind == 'handover' else 0), ('?synthetic-secret-marker', 1)):
             record = json.loads((FIXTURES / kind / 'valid.json').read_text())
             obj = record
             for part in parts[:-1]:
@@ -360,6 +373,8 @@ def main():
         vendor_checks(work)
         reference_checks(work)
         string_checks(work)
+        from integration_regressions import checks as integration_checks
+        integration_checks(work)
     print(f'All schemas, valid fixtures and {len(cases)} field-specific refusals passed.')
     print('Version handling, withheld values and match, drift and unavailable vendor outcomes passed.')
     return 0

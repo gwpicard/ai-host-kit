@@ -1,0 +1,164 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AI Host Kit approval record v1",
+  "description": "Owned by AI Host Kit. Binds a terminal confirmation and the displayed summary to saved plan bytes and a target project, configuration and state workspace. This is not proof of human identity.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "plan_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "approved_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "words": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?![\\s\\S]*[A-Za-z][A-Za-z0-9+.-]*://[^\\s]*[@?#%\\\\])[\\s\\S]*$",
+      "maxLength": 500
+    },
+    "confirmation": {
+      "type": "string",
+      "pattern": "^approve [0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}$"
+    },
+    "method": {
+      "const": "terminal-checksum"
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "changes": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^(?![\\s\\S]*[A-Za-z][A-Za-z0-9+.-]*://[^\\s]*[@?#%\\\\])[\\s\\S]*$",
+            "maxLength": 2000
+          }
+        },
+        "internet": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^(?![\\s\\S]*[A-Za-z][A-Za-z0-9+.-]*://[^\\s]*[@?#%\\\\])[\\s\\S]*$",
+            "maxLength": 2000
+          }
+        },
+        "access": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^(?![\\s\\S]*[A-Za-z][A-Za-z0-9+.-]*://[^\\s]*[@?#%\\\\])[\\s\\S]*$",
+            "maxLength": 2000
+          }
+        },
+        "irreversible": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^(?![\\s\\S]*[A-Za-z][A-Za-z0-9+.-]*://[^\\s]*[@?#%\\\\])[\\s\\S]*$",
+            "maxLength": 2000
+          }
+        }
+      },
+      "required": [
+        "changes",
+        "internet",
+        "access",
+        "irreversible"
+      ]
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "project_root": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^(?![\\s\\S]*[A-Za-z][A-Za-z0-9+.-]*://[^\\s]*[@?#%\\\\])[\\s\\S]*$",
+          "maxLength": 4096
+        },
+        "project_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "configuration_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "state_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "workspace": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^(?![\\s\\S]*[A-Za-z][A-Za-z0-9+.-]*://[^\\s]*[@?#%\\\\])[\\s\\S]*$",
+          "maxLength": 200
+        },
+        "backend_type": {
+          "const": "local"
+        },
+        "backend_settings": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "path": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^(?![\\s\\S]*[A-Za-z][A-Za-z0-9+.-]*://[^\\s]*[@?#%\\\\])[\\s\\S]*$",
+              "maxLength": 4096
+            },
+            "workspace_dir": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^(?![\\s\\S]*[A-Za-z][A-Za-z0-9+.-]*://[^\\s]*[@?#%\\\\])[\\s\\S]*$",
+              "maxLength": 4096
+            }
+          },
+          "required": [
+            "path",
+            "workspace_dir"
+          ]
+        },
+        "environment": {
+          "type": "object",
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "project_root",
+        "project_sha256",
+        "configuration_sha256",
+        "state_sha256",
+        "workspace",
+        "backend_type",
+        "backend_settings",
+        "environment"
+      ]
+    }
+  },
+  "required": [
+    "schema_version",
+    "plan_sha256",
+    "approved_at",
+    "words",
+    "confirmation",
+    "method",
+    "summary",
+    "target"
+  ]
+}

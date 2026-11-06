@@ -36,6 +36,23 @@ def fit_checks(m, work):
             actual = [x['line'] for x in m.fit(h, m.RECIPES / host)]
             assert actual == lines, (name, host, actual)
             assert sum(x.startswith('residency:') for x in actual) == 1
+    typed = json.loads((FIXTURES / 'handover/valid.json').read_text())
+    required_needs = {
+        'sign_in.staff_provider', 'sign_in.public_origin_env',
+        'sign_in.configuration.AUTH_BASE_URL', 'sign_in.secret_files[0].name',
+        'sign_in.secret_files[0].required_when', 'sign_in.secret_files[0].description',
+        'sign_in.host_setup.owner', 'sign_in.host_setup.request',
+        'sign_in.host_setup.microsoft', 'sign_in.host_setup.google',
+        'sign_in.host_setup.callbacks.microsoft', 'sign_in.host_setup.callbacks.google',
+        'sign_in.email_link.verification_path', 'sign_in.email_link.requires',
+        'postgres.roles.auth', 'postgres.sign_in.schema', 'postgres.sign_in.tables[0]',
+        'postgres.sign_in.owner', 'postgres.sign_in.migration',
+        'postgres.sign_in.runtime_role', 'postgres.sign_in.permissions',
+    }
+    for host in m.HOSTS:
+        rows = {row['line'].split(': ', 1)[0]: row for row in m.fit(typed, m.RECIPES / host)}
+        assert required_needs <= rows.keys(), required_needs - rows.keys()
+        assert all(rows[field]['status'] == 'unknown' for field in required_needs)
     # Every invalid handover is refused without producing a misleading fit report.
     for case in json.loads((FIXTURES / 'invalid-cases.json').read_text()):
         if case['kind'] != 'handover':
@@ -260,7 +277,14 @@ def future_need_checks(m, work):
 def path_checks(m, work):
     h = json.loads((FIXTURES / 'handover/valid.json').read_text())
     h['limits.memory_mb'] = 99999
-    m.checked('handover', h)
+    # Literal dots are refused by the published schema. The path renderer still
+    # distinguishes them when used internally with unvalidated structures.
+    try:
+        m.checked('handover', h)
+    except ValueError as exc:
+        assert 'limits.memory_mb: has the wrong form' in str(exc)
+    else:
+        raise AssertionError('unsafe extension name accepted')
     recipe = work / 'paths'; recipe.mkdir(exist_ok=True)
     (recipe / 'capabilities.json').write_text(json.dumps({'limits.memory_mb': {'*': {'status': 'met'}}}))
     rows = m.fit(h, recipe)
