@@ -144,7 +144,7 @@ def adapter_files():
             "Treat the following as the person's request (it may be empty): {{args}}\n" + '"""\n')
     # Bundle dependencies so a skill-only installation has the same reader and data.
     resources = '.agents/skills/host-fit/resources/'
-    for name in ('approval-record.schema.json', 'capabilities.schema.json', 'place-record.schema.json',
+    for name in ('plan-identity.schema.json', 'approval-record.schema.json', 'capabilities.schema.json', 'place-record.schema.json',
                  'host-record.schema.json', 'provisional-ai-build-kit/handover.schema.json'):
         result[resources + 'contracts/' + name] = (ROOT / 'contracts' / name).read_text()
     source = ROOT / '.agents/skills/recipes'
@@ -156,6 +156,7 @@ def adapter_files():
     resources = '.agents/skills/setup-hosting/resources/'
     for name in ('record_validation.py', 'schema-requirements.txt'):
         result[resources + name] = (ROOT / '.agents/tools' / name).read_text()
+    result[resources + 'contracts/plan-identity.schema.json'] = (ROOT / 'contracts/plan-identity.schema.json').read_text()
     result[resources + 'contracts/approval-record.schema.json'] = (ROOT / 'contracts/approval-record.schema.json').read_text()
     result[resources + 'encryption.tf'] = (ROOT / 'tofu/encryption.tf').read_text()
     return result

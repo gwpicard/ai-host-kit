@@ -230,6 +230,10 @@ python3 .agents/skills/host-fit/scripts/host_fit.py menu
 
 ## Saved-plan approval
 
+AI Host Kit also owns the checksum-bound [plan-time identity record](plan-identity.schema.json).
+The [usage guide](../.agents/skills/setup-hosting/approval-gate.md) defines its
+creation and comparison rules.
+
 AI Host Kit owns `approval-record.json`, described by
 [approval-record.schema.json](approval-record.schema.json). It holds the full
 saved plan SHA-256, approval time, typed short checksum, the person's

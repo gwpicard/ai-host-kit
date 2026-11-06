@@ -11,6 +11,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[2]
 SCHEMAS = {
+    'plan-identity': 'contracts/plan-identity.schema.json',
     'approval-record': 'contracts/approval-record.schema.json',
     'capabilities': 'contracts/capabilities.schema.json',
     'handover': 'contracts/provisional-ai-build-kit/handover.schema.json',
@@ -165,7 +166,7 @@ def validate(kind, path):
     for error in validator_type(schema, format_checker=formats).iter_errors(value):
         for parts, reason in error_fields(error):
             errors.add((field_path(parts), reason))
-    if kind in ('host-record', 'place-record', 'capabilities', 'approval-record'):
+    if kind in ('host-record', 'place-record', 'capabilities', 'approval-record', 'plan-identity'):
         for parts in secret_fields(value):
             errors.add((field_path(parts), 'contains possible secret content; use a name or reference'))
     if errors:

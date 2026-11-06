@@ -80,9 +80,9 @@ def backend_refusal(checks, skill, project, work):
     destination = work / 'drift-approval.json'
     destination.unlink(missing_ok=True)
     status, text = checks.terminal_run(skill, project, destination)
-    assert status != 0 and not destination.exists() and 'saved plan targets a different backend or workspace' in text, 'backend_changed_before_approval was accepted'
+    assert status != 0 and not destination.exists() and 'plan-time identity record' in text, 'backend_changed_before_approval was accepted'
     # Forge only the current target on the otherwise valid fixture record. Apply must
-    # independently compare the backend in the saved plan, not trust this record.
+    # independently compare the plan-time identity, not trust this approval record.
     forged = json.loads((work / 'original-approval.json').read_text())
     with checks.directory(project):
         forged['target'] = gate.target_identity()
@@ -96,7 +96,7 @@ def backend_refusal(checks, skill, project, work):
         return actual(*args)
     with checks.directory(project), patch.object(gate, 'tofu', side_effect=observe):
         error, output = checks.capture(lambda: gate.apply(project / 'first.plan', record))
-    assert error and 'saved plan targets a different backend or workspace' in error and not calls
+    assert error and 'plan-time identity record' in error and not calls
     assert not (project / 'old.tfstate').exists() and not (project / 'new.tfstate').exists()
 
 
@@ -147,17 +147,6 @@ def harness_errors(checks):
     raise AssertionError('missing replacement was not a harness error')
 
 
-def reader_refusals(checks, gate, project, work):
-    source = json.loads((project / 'first.plan').read_bytes())
-    for field, value in [('encrypted_data', 'invalid ciphertext'), ('meta', {}), ('encryption_version', 'unsupported')]:
-        changed = dict(source, **{field: value})
-        path = work / 'unreadable.plan'; path.write_text(json.dumps(changed))
-        error, output = checks.capture(lambda: gate.plan_destination(path))
-        assert error and 'saved plan destination could not be read' in error
-        assert checks.PASSPHRASE not in error + output
-    path.unlink()
-
-
 def run_checks(checks, work):
     work.mkdir()
     gate = checks.load()
@@ -168,9 +157,6 @@ def run_checks(checks, work):
     shutil.copy2(checks.ROOT / 'tofu/encryption.tf', project / 'encryption.tf')
     checks.tofu(project, 'init', '-input=false', '-backend-config=path=old.tfstate')
     checks.tofu(project, 'plan', '-input=false', '-out=first.plan')
-    with gate.saved_plan(project / 'first.plan') as (snapshot, sha):
-        assert gate.plan_destination(snapshot) == dict(type='local', config=dict(path='old.tfstate', workspace_dir=None), workspace='default')
-    reader_refusals(checks, gate, project, work)
     shown = json.loads(checks.tofu(project, 'show', '-json', 'first.plan').stdout)
     assert 'backend' not in shown and 'backend' not in shown['configuration']
     approval = work / 'original-approval.json'
@@ -182,8 +168,7 @@ def run_checks(checks, work):
     checks.tofu(project, 'workspace', 'new', 'alternate')
     backend_refusal(checks, checks.SKILL, project, work)
     checks.tofu(project, 'plan', '-input=false', '-out=workspace.plan')
-    with gate.saved_plan(project / 'workspace.plan') as (snapshot, sha):
-        assert gate.plan_destination(snapshot)['workspace'] == 'alternate'
+    assert gate.records.read_json(gate.identity_path(project / 'workspace.plan'))['target']['workspace'] == 'alternate'
     checks.tofu(project, 'workspace', 'select', 'default')
     print('Destination regression passed: workspace_changed_before_approval and saved non-default workspace')
     approval_recheck(checks, checks.SKILL, project, work)
@@ -194,7 +179,7 @@ def run_checks(checks, work):
     script = scratch / 'scripts/approval_gate.py'
     checks.tofu(project, 'init', '-reconfigure', '-input=false', '-backend-config=path=new.tfstate')
     mutations = [
-        ('saved destination comparison', '    if planned != current:', '    if False:', lambda module: backend_refusal(checks, scratch, project, work)),
+        ('plan-time destination comparison', "record['target'] != target_identity()", 'False', lambda module: backend_refusal(checks, scratch, project, work)),
         ('conservative network classification', 'if NETWORK.search(match_path):', 'if False:', network_checks),
         ('equivalent all-address ranges', 'and address.prefixlen == 0:', 'and False:', wildcard_checks),
         ('zero port context', 'if value == 0 and all_ports', 'if value == 0', zero_checks),
@@ -218,9 +203,9 @@ def run_checks(checks, work):
     for mutation in mutations:
         remove(*mutation)
     checks.tofu(project, 'init', '-reconfigure', '-input=false', '-backend-config=path=old.tfstate')
-    remove('post-confirmation target recheck', '        match_target(record, target_identity())\n        unchanged(path, sha)', '        unchanged(path, sha)',
+    remove('post-confirmation target recheck', '        match_target(record, planned_identity(path, sha))\n        unchanged(path, sha)', '        unchanged(path, sha)',
            lambda module: approval_recheck(checks, scratch, project, work))
-    remove('final apply target recheck', "        match_target(record, target_identity())\n        applied = tofu('apply', snapshot)", "        applied = tofu('apply', snapshot)",
+    remove('final apply target recheck', "        check_version()\n        require_encryption()\n        match_target(record, planned_identity(path, sha))\n        applied = tofu('apply', snapshot)", "        applied = tofu('apply', snapshot)",
            lambda module: apply_recheck(checks, module, project, approval))
     harness_errors(checks)
     harness = work / 'mutated_harness.py'

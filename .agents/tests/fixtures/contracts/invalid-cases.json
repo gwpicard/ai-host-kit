@@ -323,5 +323,20 @@
     "file": "approval-record/invalid-summary-reference.json",
     "kind": "approval-record",
     "field": "summary.internet[0]"
+  },
+  {
+    "file": "plan-identity/invalid-missing-checksum.json",
+    "kind": "plan-identity",
+    "field": "plan_sha256"
+  },
+  {
+    "file": "plan-identity/invalid-checksum.json",
+    "kind": "plan-identity",
+    "field": "plan_sha256"
+  },
+  {
+    "file": "plan-identity/invalid-target.json",
+    "kind": "plan-identity",
+    "field": "target.project_root"
   }
 ]

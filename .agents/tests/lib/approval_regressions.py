@@ -128,6 +128,11 @@ def secret_plan(checks, skill, project, work):
 
 
 def target_refusal(checks, gate, project, approval):
+    identity_path = gate.identity_path(project / 'first.plan')
+    saved_identity = identity_path.read_bytes()
+    identity = json.loads(saved_identity)
+    with checks.directory(project): identity['target'] = gate.target_identity()
+    identity_path.write_text(json.dumps(identity))
     actual = gate.tofu
     calls = []
     def observe(*args):
@@ -137,6 +142,7 @@ def target_refusal(checks, gate, project, approval):
         return actual(*args)
     with checks.directory(project), patch.object(gate, 'tofu', side_effect=observe):
         error, output = checks.capture(lambda: gate.apply(project / 'first.plan', approval))
+    identity_path.write_bytes(saved_identity)
     assert error and 'target' in error and not calls, 'copied approval reached apply in a different target'
 
 
@@ -173,8 +179,11 @@ def run_regressions(checks, work):
     assert status == 0
     record = json.loads(approval.read_text())
     assert record['target']['project_sha256'] == gate.digest(str(original.resolve()).encode())
-    for field in record['target'].values():
-        assert field in output, 'target identity missing from displayed approval'
+    for field in ('project_root', 'project_sha256', 'configuration_sha256', 'state_sha256', 'workspace'):
+        assert record['target'][field] in output, 'target identity missing from displayed approval'
+    assert 'State storage: local' in output
+    for value in record['target']['backend_settings'].values():
+        assert value in output, 'recorded state destination missing from approval'
     assert record['target']['project_sha256'] in checks.run(cli + ['summary', 'first.plan'], cwd=original, env=checks.ENV).stdout
     other = work / 'other-target'; shutil.copytree(original, other)
     copied = other / 'copied-approval.json'; shutil.copy2(approval, copied)
@@ -194,6 +203,7 @@ def run_regressions(checks, work):
         config.write_text(saved + '\nterraform {\n  backend "local" {}\n}\n')
         checks.tofu(original, 'init', '-reconfigure', '-input=false', '-backend-config=path=one.tfstate')
         original_plan = (original / 'first.plan').read_bytes()
+        original_identity = gate.identity_path(original / 'first.plan').read_bytes()
         checks.tofu(original, 'plan', '-input=false', '-out=first.plan')
         backend_record = checks.record_for(gate, original / 'first.plan')
         backend_approval = work / 'backend-approval.json'; backend_approval.write_text(json.dumps(backend_record))
@@ -201,6 +211,7 @@ def run_regressions(checks, work):
         target_refusal(checks, gate, original, backend_approval)
         config.write_text(saved)
         (original / 'first.plan').write_bytes(original_plan)
+        gate.identity_path(original / 'first.plan').write_bytes(original_identity)
         shutil.rmtree(original / '.terraform')
         checks.tofu(original, 'init', '-input=false')
         assert gate.target_identity() == initial

@@ -30,12 +30,31 @@ encrypted. Loss of the passphrase makes the state unreadable.
 
 The fragment is checked against the pinned version's
 [encryption documentation](https://opentofu.org/docs/v1.13/language/state/encryption/).
-The local checks also verify the syntax, encrypted state and plan files, and
-that the passphrase is absent from decrypted plan JSON.
+The gate requires a verbatim copy of the bundled fragment in a root `.tf`
+file before planning, showing a summary or applying. OpenTofu enforces the
+fragment's refusal of unencrypted state and plans and decrypts plans for
+`show -json`. The gate checks the encrypted envelope, but does not decrypt
+plans or inspect their internal format. Presence of the fragment does not establish that it is the only encryption
+configuration or restrict every effective encryption parameter. The local
+checks verify the fragment's syntax, encrypted state and plan files, and that
+the passphrase is absent from decrypted plan JSON.
 
 ## Summary and approval
 
-Save a plan outside the project repository with `tofu plan -out=<planfile>`.
+Save a plan outside the project repository with the controlled plan command:
+
+```sh
+sh <skill-folder>/scripts/plan.sh <new-planfile>
+```
+
+It runs `tofu plan -input=false -out <new-planfile>` and captures the destination
+immediately before and after planning. A changed identity refuses and removes
+only the new plan. The command refuses existing plan or identity paths. On
+success it creates `<new-planfile>.identity.json` with owner-only permissions,
+binding the identity to the full plan SHA-256. Keep this sidecar with the plan;
+a plan copied without it, or with another plan's record, cannot be approved.
+Plans saved directly with OpenTofu need to be saved again through this command.
+
 Then run:
 
 ```sh
@@ -90,34 +109,46 @@ workspace displayed above those sections. Records without a target must be
 replaced by running approval again. References and text use the shared record
 protections. The record is not signed and is not evidence of a person's identity.
 
-The target includes the resolved absolute project root and its SHA-256, a
-SHA-256 over the names and contents of the root `.tf` and `.tf.json` files,
-and the selected workspace. A state target SHA-256 combines that root,
-configuration digest, resolved OpenTofu data directory, workspace and a hash
-of the local backend metadata, or the default local backend marker when no
-metadata exists. Backend metadata is hashed without displaying its contents.
-Before showing a summary or accepting approval or apply, the gate also reads
-backend type, configuration and workspace from the saved plan itself and
-requires them to match the current metadata and selected workspace. This
-comparison works before a local state exists. The project
-path and workspace are withheld if unsafe to display; their complete values
-still contribute to the fingerprints. Copying a plan and record to another
-project cannot match the absolute project root fingerprint. Changing configuration,
-backend metadata, data directory or workspace requires fresh approval.
-OpenTofu still checks whether a saved plan is stale against the state.
+The plan-time identity and approval record use the same `target` fields:
 
-OpenTofu 1.13.2 stores this destination in the package's `tfplan` protobuf
-member, with backend configuration encoded as MessagePack. Its
-[`show -json` format](https://github.com/opentofu/opentofu/blob/v1.13.2/internal/command/jsonplan/plan.go)
-does not expose that destination. The gate decrypts the package in memory
-using the bundled PBKDF2 and AES-GCM settings and reads the destination from
-the same private copy used for the summary and apply. It writes no decrypted
-plan file and prints no backend configuration. Other encryption methods,
-key-provider names, encryption parameters and plan formats are refused.
-Install the bundled requirements, which include `cryptography` and `msgpack`.
-This reader and its destination comparisons are tested with local backends;
-remote backends and environment-based account selection are not established
-by these checks.
+- The resolved project root and its SHA-256.
+- A SHA-256 over the names and contents of root `.tf` and `.tf.json` files.
+- The selected workspace, backend type and resolved local state path and
+  workspace state folder.
+- A state target SHA-256 combining the complete root, configuration digest,
+  resolved OpenTofu data directory, complete backend metadata, resolved local
+  paths and workspace.
+- An empty `environment` object: state and workspace overrides must be unset.
+
+Only the `local` backend is supported. Phase 1 will add Hetzner's object storage
+when it is tested. An explicit local backend must have a non-empty `path` in
+its initialised metadata; a null or environment-selected destination refuses.
+With no backend metadata, OpenTofu's implicit local paths are used. A null
+`workspace_dir` uses the local backend's fixed default folder.
+
+The gate refuses all set `TF_*` variables except input variables (`TF_VAR_*`),
+logging variables (which it strips), `TF_INPUT`, `TF_IN_AUTOMATION` and
+`TF_CLI_CONFIG_FILE`. The last selects CLI configuration, not local state.
+This refuses `TF_WORKSPACE`, `TF_DATA_DIR`, every `TF_CLI_ARGS*` variable and
+backend-specific variables, including `TF_HTTP_ADDRESS`. It also refuses
+`TOFU_ENCRYPTION`, which can override encryption settings. Even an empty or
+unchanged override must be unset. The supported local backend has no additional
+backend-specific destination environment variable; the tests change
+`TF_WORKSPACE` and `TF_DATA_DIR` between planning and apply and require refusal.
+
+The summary shows the recorded destination above its four sections. Unsafe
+paths and workspace names are withheld; complete values still contribute to
+the fingerprints. Before summary, approval and apply, the gate validates the
+[plan-time identity record](resources/contracts/plan-identity.schema.json),
+checks its plan checksum and compares its identity with the current project.
+Missing, malformed or mismatched records require a newly saved and approved
+plan. Switching workspace refuses; returning to the recorded workspace permits
+the original plan. Copying the plan and records to another project cannot match
+the absolute root fingerprint. OpenTofu still checks saved plans for stale state.
+
+The gate checks the pinned OpenTofu version before `show -json` and immediately
+before apply. OpenTofu reads and decrypts the private plan copy used for the
+summary and apply. There is no in-gate decryption or internal plan reader.
 
 ## Apply
 
@@ -126,9 +157,10 @@ sh <skill-folder>/scripts/apply.sh <planfile> <approval-record.json>
 ```
 
 Apply checks the complete record, full SHA-256, short confirmation and freshly
-computed summary. It compares the target before reading the plan and again
-before apply. Approval also rechecks the target after terminal input. It checks
-the original plan again immediately before apply.
+computed summary. It compares the approval target and plan-time identity
+before reading the plan, then rechecks the identity record and current target immediately before apply.
+Approval also rechecks both after terminal input. Apply checks the original
+plan again immediately before passing its private copy to OpenTofu.
 It passes OpenTofu a private, read-only temporary copy of the exact checked
 bytes, then deletes that copy. Replacing the original path after that check
 cannot substitute another plan. It calls `tofu apply <private-plan-copy>`
@@ -137,10 +169,11 @@ withheld, including errors, because provider diagnostics may contain values.
 A refusal explains the next step. After an apply failure, inspect the state
 privately and save a fresh plan before approving again.
 
-The wrapper strips inherited logging and extra CLI-argument environment
-variables. It requires an encrypted plan envelope and lets OpenTofu verify
-and decrypt it. It does not establish that a configuration, provider binary,
-local executable, environment or backend is trustworthy. The
+The wrapper strips inherited logging variables and refuses extra CLI-argument
+environment variables. It requires an encrypted plan envelope; OpenTofu
+verifies and decrypts it and enforces the configured refusal of plaintext.
+The wrapper does not establish that a configuration, provider binary, local
+executable, environment or backend is trustworthy. The
 [approval limits](../../../docs/PROMISES.md#approval-gate-limits) define the
 boundary of these checks.
 

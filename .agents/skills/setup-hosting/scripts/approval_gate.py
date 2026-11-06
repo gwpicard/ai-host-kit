@@ -1,6 +1,5 @@
-"""Summarise, record terminal approval and apply the exact approved plan bytes."""
+"""Save a plan with its identity, summarise it, record approval and apply its bytes."""
 import argparse
-import base64
 from contextlib import contextmanager, redirect_stdout
 from datetime import datetime, timezone
 import hashlib
@@ -14,7 +13,6 @@ import subprocess
 import sys
 import tempfile
 import termios
-import zipfile
 from types import SimpleNamespace
 
 sys.dont_write_bytecode = True
@@ -81,16 +79,6 @@ def label(value):
     return '<name withheld>'
 
 
-def child(mask, key):
-    if mask is True:
-        return True
-    if isinstance(mask, dict):
-        return mask.get(key, False)
-    if isinstance(mask, list) and isinstance(key, int) and key < len(mask):
-        return mask[key]
-    return False
-
-
 def leaves(before, after, sensitive_before=False, sensitive_after=False, unknown=False, path=()):
     if sensitive_before is True or sensitive_after is True or unknown is True:
         yield path, before, after, True
@@ -103,14 +91,16 @@ def leaves(before, after, sensitive_before=False, sensitive_after=False, unknown
         for key in sorted(set().union(*(x.keys() for x in objects))):
             yield from leaves(before.get(key) if isinstance(before, dict) else None,
                               after.get(key) if isinstance(after, dict) else None,
-                              child(sensitive_before, key), child(sensitive_after, key),
-                              child(unknown, key), path + (key,))
+                              sensitive_before.get(key, False) if isinstance(sensitive_before, dict) else False,
+                              sensitive_after.get(key, False) if isinstance(sensitive_after, dict) else False,
+                              unknown.get(key, False) if isinstance(unknown, dict) else False, path + (key,))
     elif arrays:
         for key in range(max(map(len, arrays))):
             yield from leaves(before[key] if isinstance(before, list) and key < len(before) else None,
                               after[key] if isinstance(after, list) and key < len(after) else None,
-                              child(sensitive_before, key), child(sensitive_after, key),
-                              child(unknown, key), path + (key,))
+                              sensitive_before[key] if isinstance(sensitive_before, list) and key < len(sensitive_before) else False,
+                              sensitive_after[key] if isinstance(sensitive_after, list) and key < len(sensitive_after) else False,
+                              unknown[key] if isinstance(unknown, list) and key < len(unknown) else False, path + (key,))
     else:
         yield path, before, after, False
 
@@ -119,12 +109,15 @@ def all_ports_context(value, path, *masks):
     # Infer port scope only from an unmasked protocol in the same rule.
     field = next((i for i in range(len(path) - 1, -1, -1) if isinstance(path[i], str)), 0)
     for key in path[:field]:
-        value = child(value, key)
-        masks = [child(mask, key) for mask in masks]
+        value = (value.get(key) if isinstance(value, dict) else
+                 value[key] if isinstance(value, list) and isinstance(key, int) and key < len(value) else None)
+        masks = [(mask.get(key, False) if isinstance(mask, dict) else
+                  mask[key] if isinstance(mask, list) and isinstance(key, int) and key < len(mask) else False)
+                 for mask in masks]
     if not isinstance(value, dict):
         return False
     for name in ('protocol', 'ip_protocol'):
-        if any(child(mask, name) for mask in masks):
+        if any(mask is True or (isinstance(mask, dict) and mask.get(name)) for mask in masks):
             continue
         protocol = value.get(name)
         if isinstance(protocol, (str, int)) and str(protocol).lower() in ('-1', 'all', '*'):
@@ -267,7 +260,10 @@ def render(sha, summary, target=None):
                       'Project SHA-256: ' + target['project_sha256'],
                       'Configuration SHA-256: ' + target['configuration_sha256'],
                       'State target SHA-256: ' + target['state_sha256'],
-                      'Workspace: ' + target['workspace']])
+                      'Workspace: ' + target['workspace'],
+                      'State storage: ' + target['backend_type'],
+                      'Local state path: ' + target['backend_settings']['path'],
+                      'Workspace state folder: ' + target['backend_settings']['workspace_dir']])
     for key, heading in HEADINGS.items():
         lines.extend(['', heading] + ['- ' + line for line in summary[key]])
     return '\n'.join(lines) + '\n'
@@ -287,15 +283,42 @@ def tofu(*args):
         refuse('OpenTofu could not start. Install the pinned version and try again.')
 
 
+def safe_destination(value):
+    if list(records.secret_fields(value)) or any(ord(c) < 32 for c in value) or re.search(r'[@?#%\\]', value):
+        return '<destination path withheld>'
+    return value
+
+
 def target_identity():
-    # Hash configuration and backend metadata without rendering their contents.
+    # Hash configuration and complete backend metadata; show only safe local paths.
     # The absolute root binds even the first plan, before a state lineage exists.
     root = Path.cwd().resolve()
     configuration = [(p.name, digest(p.read_bytes())) for p in sorted(root.iterdir())
                      if p.is_file() and p.name.endswith(('.tf', '.tf.json'))]
-    data_dir = Path(os.environ.get('TF_DATA_DIR', '.terraform')).resolve()
+    data_dir = Path('.terraform').resolve()
     metadata = data_dir / 'terraform.tfstate'
-    backend = digest(metadata.read_bytes()) if metadata.exists() else 'default local backend'
+    backend_record = records.read_json(metadata)['backend'] if metadata.exists() else dict(
+        type='local', config=dict(path='terraform.tfstate', workspace_dir='terraform.tfstate.d'))
+    backend = digest(json.dumps(backend_record, sort_keys=True).encode())
+    if backend_record['type'] != 'local':
+        refuse('This state backend is not supported. Use local state storage, then save and approve a new plan.')
+    redirecting = {key for key in os.environ if
+                   (key.startswith('TF_') and not key.startswith(('TF_VAR_', 'TF_LOG'))
+                    and key not in ('TF_INPUT', 'TF_IN_AUTOMATION', 'TF_CLI_CONFIG_FILE'))
+                   or key == 'TOFU_ENCRYPTION'}
+    if redirecting:
+        refuse('A state or workspace override environment variable is set. Unset it, then save and approve a new plan.')
+    settings = backend_record['config']
+    if (not isinstance(settings, dict) or set(settings) - {'path', 'workspace_dir'}
+            or not isinstance(settings.get('path'), str) or not settings['path']
+            or (settings.get('workspace_dir') is not None and
+                (not isinstance(settings['workspace_dir'], str) or not settings['workspace_dir']))):
+        refuse('The local backend destination is missing or unsupported. Set an explicit state path, then save and approve a new plan.')
+    backend_settings = dict(path=str((root / settings['path']).resolve()),
+                            workspace_dir=str((root / (settings.get('workspace_dir') or 'terraform.tfstate.d')).resolve()))
+    settings_sha = digest(json.dumps(backend_settings, sort_keys=True).encode())
+    backend_settings = {key: safe_destination(value) for key, value in backend_settings.items()}
+    redirecting = {}
     selected = tofu('workspace', 'show')
     if selected.returncode:
         refuse('The target workspace could not be read. Initialise the configuration and review the plan again. Raw diagnostics are withheld.')
@@ -303,13 +326,71 @@ def target_identity():
     if not workspace:
         refuse('The target workspace is empty. Select a workspace and review the plan again.')
     configuration_sha = digest(json.dumps(configuration).encode())
-    state_sha = digest(json.dumps([str(root), str(data_dir), backend, workspace, configuration_sha]).encode())
+    state_sha = digest(json.dumps([str(root), str(data_dir), backend, settings_sha, workspace, configuration_sha]).encode())
     root_text = str(root)
     if list(records.secret_fields(root_text)) or any(ord(c) < 32 for c in root_text) or re.search(r'[@?#%\\]', root_text):
         root_text = '<project path withheld>'
     return dict(project_root=root_text, project_sha256=digest(str(root).encode()),
                 configuration_sha256=configuration_sha, state_sha256=state_sha,
-                workspace=label(workspace))
+                workspace=label(workspace), backend_type=backend_record['type'],
+                backend_settings=backend_settings, environment=redirecting)
+
+
+def identity_path(path):
+    return Path(str(path) + '.identity.json')
+
+
+def check_version():
+    version = tofu('version', '-json')
+    if version.returncode or json.loads(version.stdout).get('terraform_version') != VERSION:
+        refuse('The OpenTofu version differs from the pin. Install OpenTofu ' + VERSION + ' and save a new plan.')
+
+
+def require_encryption():
+    fragment = (RESOURCES / 'encryption.tf').read_bytes()
+    if not any(p.is_file() and p.read_bytes() == fragment for p in Path.cwd().glob('*.tf')):
+        refuse('The bundled encryption fragment is missing. Include it, then save and approve a new plan.')
+
+
+def plan(path):
+    path = Path(path).resolve()
+    record_path = identity_path(path)
+    if path.exists() or record_path.exists():
+        refuse('The plan or identity record already exists. Choose a new plan path.')
+    check_version()
+    require_encryption()
+    before = target_identity()
+    try:
+        result = tofu('plan', '-input=false', '-out', path)
+        if result.returncode:
+            refuse('OpenTofu could not save the plan. Check the configuration privately, then save and approve a new plan. Raw diagnostics are withheld.')
+        after = target_identity()
+        if before != after:
+            refuse('The target changed during planning. Save and approve a new plan.')
+        record = dict(schema_version='1.0', plan_sha256=digest(path.read_bytes()), target=before)
+        with os.fdopen(os.open(record_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'w') as output:
+            json.dump(record, output, indent=2)
+            output.write('\n')
+    except (OSError, ValueError, KeyError, TypeError):
+        path.unlink(missing_ok=True)
+        raise
+    print('Saved the plan and its plan-time identity record. Review the summary before approval.')
+
+
+def planned_identity(path, sha):
+    message = 'The plan-time identity record is missing, malformed or does not match this plan or target. Save and approve a new plan.'
+    try:
+        record_path = identity_path(path)
+        with redirect_stdout(io.StringIO()):
+            status = records.validate('plan-identity', record_path)
+        if status:
+            refuse(message)
+        record = records.read_json(record_path)
+        if record['plan_sha256'] != sha or record['target'] != target_identity():
+            refuse(message)
+        return record['target']
+    except (OSError, ValueError, KeyError, TypeError):
+        refuse(message)
 
 
 def match_target(record, target):
@@ -335,103 +416,14 @@ def saved_plan(path):
         yield snapshot, sha
 
 
-def protobuf_fields(data):
-    """Read wire fields without interpreting resource values or importing a schema."""
-    position = 0
-    fields = {}
-    def integer():
-        nonlocal position
-        value = 0
-        for shift in range(0, 70, 7):
-            byte = data[position]
-            position += 1
-            value |= (byte & 127) << shift
-            if byte < 128:
-                return value
-        raise ValueError('Invalid wire integer')
-    while position < len(data):
-        tag = integer()
-        wire = tag & 7
-        if not tag >> 3:
-            raise ValueError('Invalid wire field')
-        if wire == 0:
-            value = integer()
-        elif wire in (1, 2, 5):
-            size = integer() if wire == 2 else (8 if wire == 1 else 4)
-            value = data[position:position + size]
-            position += size
-            if position > len(data):
-                raise ValueError('Incomplete wire field')
-        else:
-            raise ValueError('Unsupported wire type')
-        fields.setdefault(tag >> 3, []).append(value)
-    return fields
-
-
-def single(fields, key):
-    values = fields[key]
-    if len(values) != 1:
-        raise ValueError('Repeated identity field')
-    return values[0]
-
-
-def plan_destination(snapshot):
-    # No plaintext files: decrypt only in memory, then read the backend submessage.
-    # Only the bundled PBKDF2/AES-GCM fragment and pinned package format are supported.
-    try:
-        import msgpack
-        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-        from cryptography.exceptions import InvalidTag
-    except ImportError:
-        refuse('Install the bundled requirements to read the saved plan destination.')
-    try:
-        envelope = json.loads(snapshot.read_bytes())
-        metadata = json.loads(base64.b64decode(envelope['meta']['key_provider.pbkdf2.host'], validate=True))
-        if (envelope['encryption_version'] != 'v0' or metadata['hash_function'] != 'sha512'
-                or metadata['iterations'] != 600000 or metadata['key_length'] != 32):
-            raise ValueError('Unsupported encryption settings')
-        key = hashlib.pbkdf2_hmac('sha512', os.environ['TF_VAR_host_state_passphrase'].encode(),
-                                  base64.b64decode(metadata['salt'], validate=True), 600000, 32)
-        encrypted = base64.b64decode(envelope['encrypted_data'], validate=True)
-        plaintext = AESGCM(key).decrypt(encrypted[:12], encrypted[12:], None)
-        with zipfile.ZipFile(io.BytesIO(plaintext)) as package:
-            if package.namelist().count('tfplan') != 1:
-                raise ValueError('Ambiguous plan member')
-            fields = protobuf_fields(package.read('tfplan'))
-        if single(fields, 1) != 3 or single(fields, 14) != VERSION.encode():
-            raise ValueError('Unsupported plan format')
-        backend = protobuf_fields(single(fields, 13))
-        config = protobuf_fields(single(backend, 2))
-        return dict(type=single(backend, 1).decode(),
-                    config=msgpack.unpackb(single(config, 1), raw=False),
-                    workspace=single(backend, 3).decode())
-    except (ValueError, KeyError, TypeError, IndexError, UnicodeError, zipfile.BadZipFile, InvalidTag):
-        refuse('The saved plan destination could not be read. Use the pinned OpenTofu version and bundled encryption fragment, then save and review a new plan. Values are withheld.')
-
-
-def match_plan_destination(snapshot):
-    planned = plan_destination(snapshot)
-    metadata = Path(os.environ.get('TF_DATA_DIR', '.terraform')) / 'terraform.tfstate'
-    backend = json.loads(metadata.read_bytes())['backend'] if metadata.exists() else dict(
-        type='local', config=dict(path=None, workspace_dir=None))
-    selected = tofu('workspace', 'show')
-    if selected.returncode:
-        refuse('The current target workspace could not be read. Initialise the project and review a new plan.')
-    current = dict(type=backend['type'], config=backend['config'], workspace=selected.stdout.decode().strip())
-    if planned != current:
-        refuse('The saved plan targets a different backend or workspace from this project. Return to the plan destination or save a new plan and approve it.')
-
-
 def read_plan(snapshot, require_complete=True):
-    version = tofu('version', '-json')
-    if version.returncode or json.loads(version.stdout).get('terraform_version') != VERSION:
-        refuse('The OpenTofu version differs from the pin. Install OpenTofu ' + VERSION + ' and save a new plan.')
+    check_version()
+    require_encryption()
     shown = tofu('show', '-json', snapshot)
     if shown.returncode:
         refuse('OpenTofu could not read the saved plan. Check the encryption passphrase and configuration, then save and review a new plan. Raw diagnostics are withheld.')
     plan = json.loads(shown.stdout)
     summary = summarise(plan)
-    match_plan_destination(snapshot)
     if require_complete and (plan.get('deferred_changes') or plan.get('complete') is False):
         refuse('The plan is incomplete or has deferred changes. Resolve them, save a complete plan and review it before approval.')
     return summary
@@ -496,8 +488,8 @@ def typed(tty, prompt):
 
 def approve(path, destination):
     with terminal() as tty, saved_plan(path) as (snapshot, sha):
+        target = planned_identity(path, sha)
         summary = read_plan(snapshot)
-        target = target_identity()
         tty.write(render(sha, summary, target))
         tty.flush()
         # Discard pre-fed terminal input: confirmation follows the displayed summary.
@@ -518,7 +510,7 @@ def approve(path, destination):
         schema = records.read_json(RESOURCES / 'contracts/approval-record.schema.json')
         if list(validator(schema, format_checker=formats).iter_errors(record)) or list(records.secret_fields(record)):
             refuse('The approval text is empty, malformed or may contain a secret. Run approve again using plain words without secrets or signed links.')
-        match_target(record, target_identity())
+        match_target(record, planned_identity(path, sha))
         unchanged(path, sha)
         descriptor = os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(descriptor, 'w') as output:
@@ -534,12 +526,15 @@ def apply(path, record_path):
     target = target_identity()
     match_target(record, target)
     with saved_plan(path) as (snapshot, sha):
+        match_target(record, planned_identity(path, sha))
         summary = read_plan(snapshot)
         match_record(record, sha, summary)
         unchanged(path, sha)
         if digest(snapshot.read_bytes()) != sha:
             refuse('The private plan copy changed. Save a new plan, review it and run approve again.')
-        match_target(record, target_identity())
+        check_version()
+        require_encryption()
+        match_target(record, planned_identity(path, sha))
         applied = tofu('apply', snapshot)
         if applied.returncode:
             refuse('OpenTofu could not apply the approved plan. Check the state privately and save a fresh plan before approving again. Raw diagnostics are withheld.')
@@ -548,23 +543,28 @@ def apply(path, record_path):
 
 class Arguments(argparse.ArgumentParser):
     def error(self, message):
-        self.exit(2, 'Use summary <plan>, or approve/apply <plan> <record>. Unexpected argument values are withheld.\n')
+        self.exit(2, 'Use plan/summary <plan>, or approve/apply <plan> <record>. Unexpected argument values are withheld.\n')
 
 
 def main():
     parser = Arguments(description=__doc__)
-    parser.add_argument('command', choices=('summary', 'approve', 'apply'))
+    parser.add_argument('command', choices=('plan', 'summary', 'approve', 'apply'))
     parser.add_argument('plan')
     parser.add_argument('record', nargs='?')
     args = parser.parse_args()
     try:
-        if args.command == 'summary':
+        if args.command == 'plan':
+            if args.record:
+                refuse('Plan accepts only a new saved plan path.')
+            plan(args.plan)
+        elif args.command == 'summary':
             if args.record:
                 refuse('Summary accepts only a saved plan path.')
             with saved_plan(args.plan) as (snapshot, sha):
+                target = planned_identity(args.plan, sha)
                 summary = read_plan(snapshot, require_complete=False)
                 unchanged(args.plan, sha)
-                print(render(sha, summary, target_identity()), end='')
+                print(render(sha, summary, target), end='')
         elif not args.record:
             refuse('Supply the approval record path after the saved plan path.')
         elif args.command == 'approve':

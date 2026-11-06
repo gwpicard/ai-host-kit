@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AI Host Kit plan-time identity record v1",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "plan_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "project_root": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^(?![\\s\\S]*[A-Za-z][A-Za-z0-9+.-]*://[^\\s]*[@?#%\\\\])[\\s\\S]*$",
+          "maxLength": 4096
+        },
+        "project_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "configuration_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "state_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "workspace": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^(?![\\s\\S]*[A-Za-z][A-Za-z0-9+.-]*://[^\\s]*[@?#%\\\\])[\\s\\S]*$",
+          "maxLength": 200
+        },
+        "backend_type": {
+          "const": "local"
+        },
+        "backend_settings": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "path": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^(?![\\s\\S]*[A-Za-z][A-Za-z0-9+.-]*://[^\\s]*[@?#%\\\\])[\\s\\S]*$",
+              "maxLength": 4096
+            },
+            "workspace_dir": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^(?![\\s\\S]*[A-Za-z][A-Za-z0-9+.-]*://[^\\s]*[@?#%\\\\])[\\s\\S]*$",
+              "maxLength": 4096
+            }
+          },
+          "required": [
+            "path",
+            "workspace_dir"
+          ]
+        },
+        "environment": {
+          "type": "object",
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "project_root",
+        "project_sha256",
+        "configuration_sha256",
+        "state_sha256",
+        "workspace",
+        "backend_type",
+        "backend_settings",
+        "environment"
+      ]
+    }
+  },
+  "required": [
+    "schema_version",
+    "plan_sha256",
+    "target"
+  ]
+}

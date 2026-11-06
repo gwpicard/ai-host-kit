@@ -200,7 +200,8 @@ throwaway copies and must fail the same outcome assertions. No test uses a
 host, model, cloud account or credential store.
 
 The runtime scripts are canonical in `setup-hosting/scripts/`. The builder
-bundles the canonical record reader, approval schema and `tofu/encryption.tf`
+bundles the canonical record reader, approval and plan-time identity schemas,
+and `tofu/encryption.tf`
 in `setup-hosting/resources/`. Regenerate and save those copies whenever their
 sources change. The released project settings are `.claude/settings.json`;
 installation must merge them into the user's project settings to take effect.

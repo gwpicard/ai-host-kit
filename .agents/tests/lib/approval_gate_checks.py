@@ -57,6 +57,20 @@ def directory(path):
 
 
 def tofu(project, *args, expected=0, env=None):
+    output = next((str(arg).split('=', 1)[1] for arg in args if str(arg).startswith('-out=')), None)
+    fragment = project / 'encryption.tf'
+    if args[0] == 'plan' and output and expected == 0 and fragment.exists() and fragment.read_bytes() == (ROOT / 'tofu/encryption.tf').read_bytes():
+        # Fixture-only flags make replacement and destroy plans. The production
+        # command accepts only the plan path and adds no caller-supplied flags.
+        gate = load()
+        actual = gate.tofu
+        path = project / output
+        path.unlink(missing_ok=True); gate.identity_path(path).unlink(missing_ok=True)
+        def planned(*command):
+            return actual(*args) if command[0] == 'plan' else actual(*command)
+        with directory(project), patch.dict(os.environ, dict(ENV, **(env or {}))), patch.object(gate, 'tofu', side_effect=planned):
+            gate.plan(path)
+        return subprocess.CompletedProcess(args, 0, '', '')
     result = run(['tofu', *args], cwd=project, env=dict(ENV, **(env or {})), expected=None)
     assert result.returncode == expected, 'OpenTofu fixture command failed; raw values withheld: ' + args[0]
     return result
@@ -177,6 +191,7 @@ def apply_case(gate, project, case):
     current = project / 'current.plan'
     current.write_bytes(first.read_bytes())
     record = record_for(gate, first)
+    identity = json.loads(gate.identity_path(first).read_text())
     approval = project / 'approval.json'
     if approval.exists(): approval.unlink()
     if case == 'missing':
@@ -190,6 +205,8 @@ def apply_case(gate, project, case):
         approval.write_text(json.dumps(record))
     if case == 'replaced': current.write_bytes((project / 'second.plan').read_bytes())
     if case == 'appended': current.write_bytes(current.read_bytes() + b' ')
+    identity['plan_sha256'] = gate.digest(current.read_bytes())
+    gate.identity_path(current).write_text(json.dumps(identity))
     calls = []
     actual = gate.tofu
     def observed(*args):
@@ -205,7 +222,7 @@ def apply_case(gate, project, case):
         with patch.object(gate, 'match_record', side_effect=race) if case == 'race' else contextlib.nullcontext():
             error, output = capture(lambda: gate.apply(current, approval))
     if case == 'valid':
-        assert error is None and len(calls) == 1, 'matching approval did not apply'
+        assert error is None and len(calls) == 1, 'matching approval did not apply: ' + str(error)
         args, data = calls[0]
         assert len(args) == 2, 'apply supplied extra arguments or re-planned'
         assert data == first.read_bytes(), 'applied different bytes'
@@ -252,6 +269,13 @@ def terminal_run(skill, project, destination, piped=False, wrong=False, words='I
                 os.write(fd, (words + '\n').encode()); sent_words = True
             done, status = os.waitpid(pid, os.WNOHANG)
             if done:
+                while select.select([fd], [], [], 0)[0]:
+                    try:
+                        chunk = os.read(fd, 65536)
+                    except OSError:
+                        break
+                    if not chunk: break
+                    output += chunk
                 return os.waitstatus_to_exitcode(status), output.decode(errors='replace')
         os.kill(pid, 9); os.waitpid(pid, 0)
         raise AssertionError('terminal approval fixture timed out')
@@ -441,7 +465,7 @@ def mutations(work, project):
         finally: schema_path.write_text(schema_original)
     reader = scratch / 'resources/record_validation.py'
     reader_original = reader.read_text()
-    reader.write_text(mutate_text(reader_original, "'capabilities', 'approval-record'):", "'capabilities'):", 'record secret scanner'))
+    reader.write_text(mutate_text(reader_original, "'capabilities', 'approval-record', 'plan-identity'):", "'capabilities', 'plan-identity'):", 'record secret scanner'))
     try:
         record_checks(load(scratch), work)
     except AssertionError:
@@ -540,6 +564,8 @@ def main():
             installer_checks(work)
             from approval_regressions import run_regressions
             run_regressions(sys.modules[__name__], work / 'review-regressions')
+            from plan_identity_checks import run_checks as identity_checks
+            identity_checks(sys.modules[__name__], work / 'identity-regressions')
             from approval_destination_checks import run_checks
             run_checks(sys.modules[__name__], work / 'destination-regressions')
     print('Approval gate checks passed. All fixtures are local; no provider, cloud, model or person approval was used.')
