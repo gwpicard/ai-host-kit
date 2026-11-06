@@ -120,8 +120,9 @@ The plan-time identity and approval record use the same `target` fields:
   paths and workspace.
 - An empty `environment` object: state and workspace overrides must be unset.
 
-Only the `local` backend is supported. Phase 1 will add Hetzner's object storage
-when it is tested. An explicit local backend must have a non-empty `path` in
+The supported backends are `local` and a restricted `s3` configuration for
+Hetzner Object Storage. The latter has loopback stand-in evidence only; its
+real locking and bucket versioning checks are pending. An explicit local backend must have a non-empty `path` in
 its initialised metadata; a null or environment-selected destination refuses.
 With no backend metadata, OpenTofu's implicit local paths are used. A null
 `workspace_dir` uses the local backend's fixed default folder.
@@ -132,7 +133,7 @@ logging variables (which it strips), `TF_INPUT`, `TF_IN_AUTOMATION` and
 This refuses `TF_WORKSPACE`, `TF_DATA_DIR`, every `TF_CLI_ARGS*` variable and
 backend-specific variables, including `TF_HTTP_ADDRESS`. It also refuses
 `TOFU_ENCRYPTION`, which can override encryption settings. Even an empty or
-unchanged override must be unset. The supported local backend has no additional
+unchanged override must be unset. The local backend has no additional
 backend-specific destination environment variable; the tests change
 `TF_WORKSPACE` and `TF_DATA_DIR` between planning and apply and require refusal.
 
@@ -188,3 +189,72 @@ Rules cover literal command forms and wildcard matches from Claude Code's
 The tests inspect these rules without starting Claude Code. They do not prove
 its permission engine or cover other coding agents. Keep prompts enabled;
 never grant the agent unattended approval or bypass permissions.
+
+## Hetzner Object Storage
+
+Use `recipes/coolify-hetzner/tofu/backend.example.json` from the installed
+host-fit resources as the settings template. Change the bucket and key to the
+person's destination. The endpoint and region must be a matching pair for
+`fsn1`, `nbg1` or `hel1`; only HTTPS Hetzner Object Storage endpoints are
+accepted. Set an explicit workspace prefix. All safety switches and null-file
+credential paths in that template are required. Extra non-null settings,
+credential fields, profiles, alternative endpoints and credential chains refuse.
+The shared encryption fragment is still required. The bucket already exists;
+these tools do not create it or silently fall back to another backend.
+
+For a reviewed root configuration with an empty `backend "s3" {}` block:
+
+```sh
+python3 <skill-folder>/scripts/init-s3.py <public-backend-settings.json>
+```
+
+The person runs this themselves in a foreground terminal. Both storage key
+fields are read with echo disabled and kept only in process memory and the
+OpenTofu child environment. The kit saves neither field to a file. Provider
+credentials are separate. Never put storage keys in backend settings or use
+`-backend-config` to supply them. Initialisation changes local backend metadata;
+it is not a cloud resource creation command. Review any state migration as a
+separate change; this wrapper supplies no automatic migration approval.
+
+Plan, summary, approval and apply ask for the same storage key pair each time.
+Their identity includes a digest incorporating the credentials as well as the
+endpoint, bucket, key, region, prefix, workspace and every backend setting.
+Changing the pair requires a new saved and approved plan. The digest is an
+identity check, not secret storage or proof of the key's owner. No key is
+rendered in the target. Inherited `AWS_*` variables and `TOFU_*` overrides
+other than stripped logging variables refuse, even when empty. Proxy and TLS
+certificate-file environment overrides also refuse for S3. The child
+receives only the prompted pair, null shared-config paths and disabled metadata
+credential discovery. Existing `TF_*` override refusals still apply.
+
+Local S3 checks cover encrypted state and plans, the lock lifecycle and
+workspace identity. They do not prove the remote service's conditional-write
+or versioning semantics. Confirm those before a real place uses the backend.
+
+## Effects and retirement
+
+For an action without a saved plan, prepare an effect document that names its
+exact change and binds its arguments and place-record digest. The person runs:
+
+```sh
+python3 <skill-folder>/scripts/approval_gate.py approve-effect <effect.json> <new-approval.json>
+```
+
+The gate displays the effect, asks for its checksum and the person's words
+through its hidden foreground-terminal prompt, and refuses existing output
+paths. A lane write regenerates the effect and compares the full checksum
+before it calls the cloud adapter. This has the same trusted-local-process
+limit as saved-plan approval. An agent must never answer the prompt or make
+a real approval record. Synthetic approval records belong to offline tests only.
+The docktail library accepts this gate but its complete MCP transport is not
+yet built. An approval record alone does not perform the action.
+
+A destroy plan is saved through the same controlled identity command:
+
+```sh
+python3 <skill-folder>/scripts/approval_gate.py plan-destroy <new-destroy-plan>
+```
+
+Review and approve it through the ordinary summary and approve commands. The
+recipe's retire wrapper additionally checks the three owned deletions and the
+typed place name before calling apply. It never calls an unplanned `tofu destroy`.

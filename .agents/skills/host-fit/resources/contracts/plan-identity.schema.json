@@ -40,28 +40,78 @@
           "maxLength": 200
         },
         "backend_type": {
-          "const": "local"
+          "enum": [
+            "local",
+            "s3"
+          ]
         },
         "backend_settings": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "path": {
-              "type": "string",
-              "minLength": 1,
-              "pattern": "^(?![\\s\\S]*[A-Za-z][A-Za-z0-9+.-]*://[^\\s]*[@?#%\\\\])[\\s\\S]*$",
-              "maxLength": 4096
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "^(?![\\s\\S]*[A-Za-z][A-Za-z0-9+.-]*://[^\\s]*[@?#%\\\\])[\\s\\S]*$",
+                  "maxLength": 4096
+                },
+                "workspace_dir": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "^(?![\\s\\S]*[A-Za-z][A-Za-z0-9+.-]*://[^\\s]*[@?#%\\\\])[\\s\\S]*$",
+                  "maxLength": 4096
+                }
+              },
+              "required": [
+                "path",
+                "workspace_dir"
+              ]
             },
-            "workspace_dir": {
-              "type": "string",
-              "minLength": 1,
-              "pattern": "^(?![\\s\\S]*[A-Za-z][A-Za-z0-9+.-]*://[^\\s]*[@?#%\\\\])[\\s\\S]*$",
-              "maxLength": 4096
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "endpoint": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096,
+                  "pattern": "^(?![\\s\\S]*[A-Za-z][A-Za-z0-9+.-]*://[^\\s]*[@?#%\\\\])[\\s\\S]*$"
+                },
+                "bucket": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096,
+                  "pattern": "^(?![\\s\\S]*[A-Za-z][A-Za-z0-9+.-]*://[^\\s]*[@?#%\\\\])[\\s\\S]*$"
+                },
+                "key": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096,
+                  "pattern": "^(?![\\s\\S]*[A-Za-z][A-Za-z0-9+.-]*://[^\\s]*[@?#%\\\\])[\\s\\S]*$"
+                },
+                "region": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096,
+                  "pattern": "^(?![\\s\\S]*[A-Za-z][A-Za-z0-9+.-]*://[^\\s]*[@?#%\\\\])[\\s\\S]*$"
+                },
+                "workspace_key_prefix": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096,
+                  "pattern": "^(?![\\s\\S]*[A-Za-z][A-Za-z0-9+.-]*://[^\\s]*[@?#%\\\\])[\\s\\S]*$"
+                }
+              },
+              "required": [
+                "endpoint",
+                "bucket",
+                "key",
+                "region",
+                "workspace_key_prefix"
+              ]
             }
-          },
-          "required": [
-            "path",
-            "workspace_dir"
           ]
         },
         "environment": {
@@ -78,6 +128,90 @@
         "backend_type",
         "backend_settings",
         "environment"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "backend_type": {
+                "const": "local"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "backend_settings": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "path": {
+                    "type": "string",
+                    "minLength": 1,
+                    "pattern": "^(?![\\s\\S]*[A-Za-z][A-Za-z0-9+.-]*://[^\\s]*[@?#%\\\\])[\\s\\S]*$",
+                    "maxLength": 4096
+                  },
+                  "workspace_dir": {
+                    "type": "string",
+                    "minLength": 1,
+                    "pattern": "^(?![\\s\\S]*[A-Za-z][A-Za-z0-9+.-]*://[^\\s]*[@?#%\\\\])[\\s\\S]*$",
+                    "maxLength": 4096
+                  }
+                },
+                "required": [
+                  "path",
+                  "workspace_dir"
+                ]
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "backend_settings": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "endpoint": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 4096,
+                    "pattern": "^(?![\\s\\S]*[A-Za-z][A-Za-z0-9+.-]*://[^\\s]*[@?#%\\\\])[\\s\\S]*$"
+                  },
+                  "bucket": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 4096,
+                    "pattern": "^(?![\\s\\S]*[A-Za-z][A-Za-z0-9+.-]*://[^\\s]*[@?#%\\\\])[\\s\\S]*$"
+                  },
+                  "key": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 4096,
+                    "pattern": "^(?![\\s\\S]*[A-Za-z][A-Za-z0-9+.-]*://[^\\s]*[@?#%\\\\])[\\s\\S]*$"
+                  },
+                  "region": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 4096,
+                    "pattern": "^(?![\\s\\S]*[A-Za-z][A-Za-z0-9+.-]*://[^\\s]*[@?#%\\\\])[\\s\\S]*$"
+                  },
+                  "workspace_key_prefix": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 4096,
+                    "pattern": "^(?![\\s\\S]*[A-Za-z][A-Za-z0-9+.-]*://[^\\s]*[@?#%\\\\])[\\s\\S]*$"
+                  }
+                },
+                "required": [
+                  "endpoint",
+                  "bucket",
+                  "key",
+                  "region",
+                  "workspace_key_prefix"
+                ]
+              }
+            }
+          }
+        }
       ]
     }
   },
