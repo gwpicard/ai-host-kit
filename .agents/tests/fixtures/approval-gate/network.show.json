@@ -1,0 +1,251 @@
+{
+  "format_version": "1.2",
+  "terraform_version": "1.13.2",
+  "resource_changes": [
+    {
+      "address": "hcloud_firewall.web",
+      "mode": "managed",
+      "type": "hcloud_firewall",
+      "name": "web",
+      "change": {
+        "actions": [
+          "update"
+        ],
+        "before": {
+          "rule": [
+            {
+              "port": "443",
+              "protocol": "tcp",
+              "direction": "in",
+              "source_ips": [
+                "10.0.0.0/8"
+              ]
+            }
+          ]
+        },
+        "after": {
+          "rule": [
+            {
+              "port": "443",
+              "protocol": "tcp",
+              "direction": "in",
+              "source_ips": [
+                "0.0.0.0/0",
+                "::/0"
+              ]
+            },
+            {
+              "port": "8080",
+              "protocol": "tcp",
+              "source_ips": [
+                "0.0.0.0/0"
+              ]
+            }
+          ]
+        },
+        "before_sensitive": false,
+        "after_sensitive": false,
+        "after_unknown": false
+      }
+    },
+    {
+      "address": "hcloud_volume.old",
+      "mode": "managed",
+      "type": "hcloud_volume",
+      "name": "old",
+      "change": {
+        "actions": [
+          "delete"
+        ],
+        "before": {
+          "size": 10
+        },
+        "after": null,
+        "before_sensitive": false,
+        "after_sensitive": false,
+        "after_unknown": false
+      }
+    },
+    {
+      "address": "aws_s3_bucket.archive",
+      "mode": "managed",
+      "type": "aws_s3_bucket",
+      "name": "archive",
+      "change": {
+        "actions": [
+          "create",
+          "delete"
+        ],
+        "before": {
+          "bucket": "private archive"
+        },
+        "after": {
+          "bucket": "new archive"
+        },
+        "before_sensitive": false,
+        "after_sensitive": false,
+        "after_unknown": false
+      }
+    },
+    {
+      "address": "aws_s3_bucket_acl.public",
+      "mode": "managed",
+      "type": "aws_s3_bucket_acl",
+      "name": "public",
+      "change": {
+        "actions": [
+          "update"
+        ],
+        "before": {
+          "acl": "private"
+        },
+        "after": {
+          "acl": "public-read"
+        },
+        "before_sensitive": false,
+        "after_sensitive": false,
+        "after_unknown": false
+      }
+    },
+    {
+      "address": "aws_eip.web",
+      "mode": "managed",
+      "type": "aws_eip",
+      "name": "web",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "before": null,
+        "after": {
+          "public_ip": "198.51.100.10"
+        },
+        "before_sensitive": false,
+        "after_sensitive": false,
+        "after_unknown": false
+      }
+    },
+    {
+      "address": "azuread_application.staff",
+      "mode": "managed",
+      "type": "azuread_application",
+      "name": "staff",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "before": null,
+        "after": {
+          "owners": [
+            "synthetic owner"
+          ],
+          "password": "synthetic-unmarked-password"
+        },
+        "before_sensitive": false,
+        "after_sensitive": false,
+        "after_unknown": false
+      }
+    },
+    {
+      "address": "future_unknown.widget",
+      "mode": "managed",
+      "type": "future_unknown",
+      "name": "widget",
+      "change": {
+        "actions": [
+          "future-action"
+        ],
+        "before": null,
+        "after": {
+          "nested": {
+            "port": 9999,
+            "token": "synthetic-future-secret"
+          }
+        },
+        "before_sensitive": false,
+        "after_sensitive": {
+          "nested": true
+        },
+        "after_unknown": false
+      }
+    },
+    {
+      "address": "hcloud_firewall.protected",
+      "mode": "managed",
+      "type": "hcloud_firewall",
+      "name": "protected",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "before": null,
+        "after": {
+          "rule": [
+            {
+              "port": 65432,
+              "source_ips": [
+                "192.0.2.89/32"
+              ],
+              "note": "synthetic-marked-secret"
+            }
+          ]
+        },
+        "before_sensitive": false,
+        "after_sensitive": {
+          "rule": [
+            true
+          ]
+        },
+        "after_unknown": false
+      }
+    },
+    {
+      "address": "hcloud_firewall.unknown",
+      "mode": "managed",
+      "type": "hcloud_firewall",
+      "name": "unknown",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "before": null,
+        "after": {
+          "port": 65431
+        },
+        "before_sensitive": false,
+        "after_sensitive": false,
+        "after_unknown": {
+          "port": true
+        }
+      }
+    },
+    {
+      "address": "terraform_data.sensitive",
+      "mode": "managed",
+      "type": "terraform_data",
+      "name": "sensitive",
+      "change": {
+        "actions": [
+          "update"
+        ],
+        "before": {
+          "port": 65430,
+          "input": "synthetic-before-secret"
+        },
+        "after": {
+          "port": 65430,
+          "input": "synthetic-after-secret"
+        },
+        "before_sensitive": true,
+        "after_sensitive": false,
+        "after_unknown": false
+      }
+    }
+  ],
+  "output_changes": {
+    "private_output": {
+      "after": "synthetic-output-secret",
+      "after_sensitive": true
+    }
+  }
+}

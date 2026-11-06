@@ -298,5 +298,45 @@
     "kind": "capabilities",
     "file": "capabilities/invalid-check-reference.json",
     "field": "jobs.runner.worker.check"
+  },
+  {
+    "file": "approval-record/invalid-missing-checksum.json",
+    "kind": "approval-record",
+    "field": "plan_sha256"
+  },
+  {
+    "file": "approval-record/invalid-date.json",
+    "kind": "approval-record",
+    "field": "approved_at"
+  },
+  {
+    "file": "approval-record/invalid-reference.json",
+    "kind": "approval-record",
+    "field": "words"
+  },
+  {
+    "file": "approval-record/invalid-secret.json",
+    "kind": "approval-record",
+    "field": "words"
+  },
+  {
+    "file": "approval-record/invalid-summary-reference.json",
+    "kind": "approval-record",
+    "field": "summary.internet[0]"
+  },
+  {
+    "file": "plan-identity/invalid-missing-checksum.json",
+    "kind": "plan-identity",
+    "field": "plan_sha256"
+  },
+  {
+    "file": "plan-identity/invalid-checksum.json",
+    "kind": "plan-identity",
+    "field": "plan_sha256"
+  },
+  {
+    "file": "plan-identity/invalid-target.json",
+    "kind": "plan-identity",
+    "field": "target.project_root"
   }
 ]

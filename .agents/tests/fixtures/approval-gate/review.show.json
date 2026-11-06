@@ -1,0 +1,157 @@
+{
+  "public_server": {
+    "format_version": "1.2",
+    "resource_changes": [
+      {
+        "address": "hcloud_server.web",
+        "type": "hcloud_server",
+        "mode": "managed",
+        "change": {
+          "actions": [
+            "create"
+          ],
+          "before": null,
+          "after": {
+            "ipv4_address": "198.51.100.10",
+            "ipv6_address": "2001:db8::10",
+            "public_net": []
+          },
+          "before_sensitive": false,
+          "after_sensitive": false,
+          "after_unknown": false
+        }
+      }
+    ]
+  },
+  "public_server_unknown": {
+    "format_version": "1.2",
+    "resource_changes": [
+      {
+        "address": "hcloud_server.web",
+        "type": "hcloud_server",
+        "mode": "managed",
+        "change": {
+          "actions": [
+            "create"
+          ],
+          "before": null,
+          "after": {
+            "public_net": []
+          },
+          "before_sensitive": false,
+          "after_sensitive": false,
+          "after_unknown": {
+            "ipv4_address": true,
+            "ipv6_address": true
+          }
+        }
+      }
+    ]
+  },
+  "all_protocols": {
+    "format_version": "1.2",
+    "resource_changes": [
+      {
+        "address": "aws_security_group_rule.all",
+        "type": "aws_security_group_rule",
+        "mode": "managed",
+        "change": {
+          "actions": [
+            "create"
+          ],
+          "before": null,
+          "after": {
+            "type": "ingress",
+            "protocol": "-1",
+            "from_port": 0,
+            "to_port": 0,
+            "cidr_blocks": [
+              "0.0.0.0/0"
+            ]
+          },
+          "before_sensitive": false,
+          "after_sensitive": false,
+          "after_unknown": false
+        }
+      }
+    ]
+  },
+  "wildcard_sources": {
+    "format_version": "1.2",
+    "resource_changes": [
+      {
+        "address": "azurerm_network_security_rule.web",
+        "type": "azurerm_network_security_rule",
+        "mode": "managed",
+        "change": {
+          "actions": [
+            "update"
+          ],
+          "before": {
+            "source_address_prefix": "10.0.0.0/8",
+            "destination_port_range": "443"
+          },
+          "after": {
+            "source_address_prefix": "*",
+            "destination_port_range": "443"
+          },
+          "before_sensitive": false,
+          "after_sensitive": false,
+          "after_unknown": false
+        }
+      }
+    ]
+  },
+  "empty_nested_block": {
+    "format_version": "1.2",
+    "resource_changes": [
+      {
+        "address": "terraform_data.nested",
+        "type": "terraform_data",
+        "mode": "managed",
+        "change": {
+          "actions": [
+            "update"
+          ],
+          "before": {
+            "input": null
+          },
+          "after": {
+            "input": {
+              "synthetic_nested_block": {}
+            }
+          },
+          "before_sensitive": false,
+          "after_sensitive": false,
+          "after_unknown": false
+        }
+      }
+    ]
+  },
+  "output_delete": {
+    "format_version": "1.2",
+    "resource_changes": [],
+    "output_changes": {
+      "endpoint": {
+        "actions": [
+          "delete"
+        ],
+        "before": "https://example.invalid",
+        "after": null
+      }
+    }
+  },
+  "output_create": {
+    "format_version": "1.2",
+    "resource_changes": [],
+    "output_changes": {
+      "endpoint": {
+        "actions": [
+          "create"
+        ],
+        "before": null,
+        "after": "https://example.invalid"
+      }
+    }
+  }
+}

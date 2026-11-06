@@ -11,6 +11,8 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[2]
 SCHEMAS = {
+    'plan-identity': 'contracts/plan-identity.schema.json',
+    'approval-record': 'contracts/approval-record.schema.json',
     'capabilities': 'contracts/capabilities.schema.json',
     'handover': 'contracts/provisional-ai-build-kit/handover.schema.json',
     'host-record': 'contracts/host-record.schema.json',
@@ -25,7 +27,7 @@ def field_path(parts):
             result += f'[{part}]'
         else:
             # Unknown keys are input too. Do not print arbitrary strings as field names.
-            safe = part if part in ('host-tick', 'in-app', '*') or re.fullmatch(r'[a-z][a-z0-9_]{0,47}(?:\.(?:[a-z][a-z0-9_]{0,47}|\*))*', part) else '<unknown field>'
+            safe = part if not list(secret_fields(part)) and (part in ('host-tick', 'in-app', '*') or re.fullmatch(r'[a-z][a-z0-9_]{0,47}(?:\.(?:[a-z][a-z0-9_]{0,47}|\*))*', part)) else '<unknown field>'
             result += ('.' if result else '') + safe
     return result or '$'
 
@@ -127,6 +129,9 @@ def secret_fields(value, path=()):
         for index, child in enumerate(value):
             yield from secret_fields(child, path + (index,))
     elif isinstance(value, str):
+        if (path == ('plan_sha256',) or (len(path) == 2 and path[0] == 'target' and
+                path[1] in {'project_sha256', 'configuration_sha256', 'state_sha256'})) and re.fullmatch(r'[0-9a-f]{64}', value):
+            return
         if (len(path) == 3 and path[0] == 'rollback_targets' and
                 isinstance(path[1], int) and path[2] == 'image'):
             # The schema checks digest syntax; a digest is public image metadata.
@@ -161,7 +166,7 @@ def validate(kind, path):
     for error in validator_type(schema, format_checker=formats).iter_errors(value):
         for parts, reason in error_fields(error):
             errors.add((field_path(parts), reason))
-    if kind in ('host-record', 'place-record', 'capabilities'):
+    if kind in ('host-record', 'place-record', 'capabilities', 'approval-record', 'plan-identity'):
         for parts in secret_fields(value):
             errors.add((field_path(parts), 'contains possible secret content; use a name or reference'))
     if errors:

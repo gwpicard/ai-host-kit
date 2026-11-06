@@ -1,7 +1,7 @@
 # Hosting promises and their mechanisms
 
-AI Host Kit is beta. Only the local host choice is built. The hosting promises below
-have no mechanism yet and are not guarantees. Add a mechanism and a test that
+AI Host Kit is beta. Local host choice and saved-plan approval tools are built.
+The hosting promises below still lack complete mechanisms and are not guarantees. Add a mechanism and a test that
 fails when it is removed before changing a row from "none yet".
 
 | Hosting promise | Mechanism today | Check today |
@@ -44,3 +44,38 @@ the hosting promises above.
 | Local choice records preserve accepted shortfalls and suppress their subsequent warning for the same host. | `host_fit.py record` and `warnings`; `host-fit.sh` checks exact words and dates, preserved place details, and no warning after acceptance. Mutations remove retention and warning suppression. This does not establish a person's consent or prove conversation behaviour. |
 | Capability entries and choice acceptance reject invalid declarations by field. | The schemas and shared reader; `contracts.sh` checks invalid fixtures, including URL and secret text. `host-fit.sh` removes condition, reason, date, words, accepted status, proof and text protections in disposable copies and detects the removals. |
 | Replay dry mode assembles runnable local projects without calling a model. | `replay-host-choice.py --dry`; each scripted case validates, resolves its bundled dependencies and runs local choice checks. `host-fit.sh` checks malformed turns and removes that protection in a copy. A model run and maintainer judgement are still required for replay evidence. |
+
+## Approval gate limits
+
+The saved-plan gate is built and tested locally. The hosting commands still
+create no infrastructure. The broad promises above remain unproven: future
+host scripts, API writes and directory changes must use an approval mechanism
+before they can back those promises.
+
+| Local approval promise | Mechanism and evidence |
+|---|---|
+| Apply uses the approved saved bytes. | `setup-hosting/scripts/approval_gate.py` requires a valid record, matching full SHA-256, short confirmation and regenerated summary. It checks the original again and applies a private copy of the same bytes. `approval-gate.sh` exercises real encrypted saved plans, including missing and malformed records, changed bytes, a replacement at the same path and a change during apply. It detects removed record, checksum, summary and final-check protections. |
+| Approval and apply require a matching plan-time destination identity. | The controlled plan command captures project, configuration, workspace, backend settings and environment identity before and after planning, refuses changes and binds the record to the saved plan SHA-256. Summary, approval and apply validate that record and compare the current identity; approval and apply recheck it after review. Only local state storage is accepted, with explicit paths for configured backends and no state or workspace environment overrides. Tests refuse missing, malformed and substituted records, different state paths, workspace switches, changed environments, unsupported backends and identity changes during planning. Returning to the recorded workspace permits the original plan. Protection removals fail their outcome assertions. OpenTofu retains responsibility for stale-state checks. The [usage guide](../.agents/skills/setup-hosting/approval-gate.md) owns the supported-storage list and identity fields. |
+| The tested summaries put destruction first and name network changes without showing fixture secrets. | The same check covers real built-in destroy and replacement plans and a saved JSON network fixture. It checks ports, widened sources, public addresses and buckets, directory changes, nested sensitive and unknown masks, unknown resource types and the key-loss warning. Regressions cover secret-shaped map keys through summary, approval, records, apply and refusals; explicit address and protocol fields; wildcard sources; empty structures; and output actions. Removing the relevant protections fails these checks. This does not prove every provider schema or establish live reachability. |
+| Approval input comes from a foreground terminal. | The approve command reads the typed checksum and words from the controlling terminal, with echo disabled. `approval-gate.sh` refuses piped input, wrong confirmation and unsafe words, then exercises a synthetic terminal and a successful local apply. Removing the terminal check fails the pipe case even when a controlling terminal exists. |
+| Approval records reject the tested malformed records and unsafe text. | `approval-record.schema.json` and the shared reader check required fields, references and secret-shaped text. Contract fixtures and approval tests check refusals without printing the input values. Schema and secret-scan removals fail. These text checks can still miss disguised secrets. |
+| The gate requires the bundled encryption fragment; OpenTofu enforces its refusal of unencrypted state and plans. | The gate checks for a verbatim fragment in a root `.tf` file and an encrypted plan envelope. OpenTofu decrypts the private saved plan for `show -json` and apply; the gate does not decrypt or parse its internal format. Fragment presence does not establish that it is the only encryption configuration or restrict every effective encryption parameter. Offline tests check encrypted state and plans, a wrong passphrase, plaintext refusal and absence of the ephemeral passphrase from plan JSON. Removing fragment presence, either enforcement flag or the ephemeral declaration fails its check. The pinned executable version is checked before show and immediately before apply. |
+| The OpenTofu test installer verifies downloaded bytes before extraction. | It compares the official published checksum with a platform pin, then hashes the archive. Local transport tests refuse altered checksums and archives; removing either comparison fails. The checks verify integrity against the fetched release and pin, not a release signature. |
+| The shipped Claude Code settings request confirmation for the listed command forms. | The tests match direct and path-qualified OpenTofu calls and the approval and apply wrappers against the shipped ask rules; removing the rules fails. No agent or permission engine runs in these tests. Plugin and skill-only installation does not install project settings automatically. |
+
+A terminal is an input boundary, not proof of human identity. There is no
+cryptographic signature or separate approval service. An agent with arbitrary
+shell or file access can manufacture a terminal, forge a record, alter the
+scripts or invoke OpenTofu directly. The synthetic terminal test demonstrates
+why the terminal alone cannot authenticate a person. The gate prevents the
+tested unattended input and accidental plan substitution when the scripts,
+records and execution environment are trusted. It cannot prevent a hostile
+process with the same access as the person.
+
+The person must run approval themselves, review unresolved effects, keep the
+passphrase, and leave agent permission prompts enabled. Agent settings are
+another prompt, not a security boundary against arbitrary code or a bypass
+mode. A stronger guarantee needs a signer or execution boundary outside the
+agent's control. No such boundary is claimed here. The
+[usage guide](../.agents/skills/setup-hosting/approval-gate.md) owns the commands,
+recording flow, encryption setup and output limits.

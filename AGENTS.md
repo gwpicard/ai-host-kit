@@ -75,7 +75,7 @@ Nothing changes real infrastructure without a plan summary the person approves.
 The summary names what changes, what becomes reachable, who gains or loses
 access, and what cannot be undone. Approval covers the specific change;
 permission to investigate an incident is not approval to change the host.
-The mechanical approval gate is not built yet, as `docs/PROMISES.md` records.
+The local saved-plan gate and its limits are recorded in `docs/PROMISES.md`.
 
 Publishing releases and changing external data or access need explicit approval.
 The current work adds no hosting behaviour and changes no real infrastructure.
