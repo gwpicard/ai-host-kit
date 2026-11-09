@@ -148,7 +148,7 @@ def exercise(work, checks):
         mutated_work=work/'setup-receipt-removal';mutated_work.mkdir()
         receipt=mutated_work/'receipt.json';receipt.write_text('{}')
         with patch.object(flow,'start_attempt',return_value=receipt):
-            try: cli(mutated_work,flow,gate,reader,config,choice,facts)
+            try: cli(mutated_work,flow,gate,reader,config,choice,facts,journal_probes=False)
             except AssertionError as error:
                 assert 'Reused named effects' in str(error),str(error)
                 print('Protection removal detected: '+str(error))
@@ -171,7 +171,7 @@ def exercise(work, checks):
     finally: sys.path.pop(0)
 
 
-def cli(work,flow,gate,reader,config,choice,facts):
+def cli(work,flow,gate,reader,config,choice,facts,journal_probes=True):
     from contextlib import contextmanager
     folder=work/'cli';folder.mkdir()
     choice_path=folder/'hosting/place-record.json';choice_path.parent.mkdir();choice_path.write_text(json.dumps(choice))
@@ -216,6 +216,29 @@ def cli(work,flow,gate,reader,config,choice,facts):
             value=json.loads(effect.read_text())
             approval.write_text(json.dumps(dict(effect_sha256=gate.effect_sha(value),effect=value['effect'],words='Synthetic fixture approval',approved_at='2026-11-09T12:00:00Z',method='foreground-terminal')))
             before=json.loads(progress.read_text());choice_before=choice_path.read_text()
+            if journal_probes:
+                # Crash after the receipt but before progress is saved. The old
+                # approval stays consumed even if the journal is absent or replaced.
+                original_save=flow.save
+                def crash(path,value):
+                    if value.get('uncertain')==step:raise OSError('Synthetic crash before progress save')
+                    return original_save(path,value)
+                with patch.object(flow,'save',side_effect=crash):
+                    assert command('run','--step',step,'--effect',str(effect),'--approval',str(approval),'--mcp-package',str(folder/'package.json'))!=0
+                assert json.loads(progress.read_text())==before
+                journal=choice_path.parent/'place-attempts';parked=folder/'parked-receipts'
+                count_before=len(writes)
+                assert command('run','--step',step,'--effect',str(effect),'--approval',str(approval),'--mcp-package',str(folder/'package.json'))!=0
+                journal.rename(parked)
+                for replacement in ('missing','empty','copied'):
+                    if replacement!='missing':journal.mkdir()
+                    if replacement=='copied':shutil.copyfile(parked/'generation',journal/'generation')
+                    assert command('run','--step',step,'--effect',str(effect),'--approval',str(approval),'--mcp-package',str(folder/'package.json'))!=0
+                    assert len(writes)==count_before
+                    if journal.exists():shutil.rmtree(journal)
+                parked.rename(journal)
+                # Restore the stand-in fixture only, retaining the original directory.
+                (journal/(flow.fingerprint(value)+'.json')).unlink()
             assert command('run','--step',step,'--effect',str(effect),'--approval',str(approval),'--mcp-package',str(folder/'package.json'))==0
             after=json.loads(progress.read_text());choice_after=choice_path.read_text();count=len(writes)
             flow.save(progress,before);choice_path.write_text(choice_before)
@@ -227,6 +250,7 @@ def cli(work,flow,gate,reader,config,choice,facts):
         assert all(passed for step,passed in reuse_results),'Reused named effects: '+', '.join(step for step,passed in reuse_results if not passed)
         final=json.loads(choice_path.read_text());flow.validate_record(reader,final)
         assert final['choice']==choice['choice'] and final['infrastructure']['plumbing']['docktail_uuid']=='created-service'
+        assert final['infrastructure']['journal']==json.loads(progress.read_text())['journal']
         assert len(writes)==7
         state=json.loads(progress.read_text());state['done']=[];flow.save(progress,state)
         effect=folder/'bad-effect.json';assert command('prepare','--step','claim','--effect',str(effect))==0

@@ -14,7 +14,7 @@ def approval(gate, effect, path):
 
 
 def lanes(ops, gate, work):
-    shutil.rmtree('hosting/place-attempts',ignore_errors=True)
+    shutil.rmtree('hosting',ignore_errors=True)
     record=json.loads((FIXTURE/'place-record.json').read_text()); owned=resources(record)
     api=StandIn()
     def prepare(lane, ports):
@@ -61,7 +61,7 @@ def lanes(ops, gate, work):
 
 
 def docktail(ops, work):
-    shutil.rmtree('hosting/place-attempts',ignore_errors=True)
+    shutil.rmtree('hosting',ignore_errors=True)
     record=json.loads((FIXTURE/'place-record.json').read_text());api=StandIn()
     path=work/'docktail-reuse.json'
     effect=ops.docktail_effect(record,'canary',80,None)

@@ -6,7 +6,7 @@ from pathlib import Path
 import sys
 from api import API, approval_gate, hidden_value
 from check import load_reader
-from place import lane_effect, set_lane, write_record, attempt_effect, journal_identity
+from place import OperationRefused, lane_effect, set_lane, write_record, attempt_effect, journal_identity
 
 
 def main():
@@ -27,8 +27,9 @@ def main():
         api=API(record,hidden_value(gate,'Hetzner project token'),hidden_value(gate,'Coolify read token'))
         effect=lane_effect(record,args.lane,args.port)
         if args.command=='prepare':
-            effect=attempt_effect(effect,api.firewall_rules(record['infrastructure']['firewall_id']))
-            effect['journal']=journal_identity(Path(args.record).resolve().parent/'place-attempts')
+            effect=attempt_effect(effect,api.firewall_rules(record['infrastructure']['firewall_id']),Path(args.record).resolve().parent/'place-attempts')
+            if record['infrastructure'].get('journal',effect['journal']) != effect['journal']:
+                raise ValueError('Receipt journal is missing or replaced. Inspect the live state and approve afresh.')
             print('Observed firewall rules: '+json.dumps(effect['observed'],sort_keys=True))
             with open(args.effect,'x') as out: json.dump(effect,out,indent=2)
             print(effect['effect'])
@@ -42,6 +43,7 @@ def main():
         if Path(args.new_record).exists(): raise ValueError('The new record already exists.')
         set_lane(record,api.owned_resources(),args.lane,args.port,args.approval,api,gate.match_effect,effect,Path(args.record).resolve().parent/'place-attempts')
         updated=copy.deepcopy(record)
+        updated['infrastructure']['journal']=effect['journal']
         updated['firewall']['rules']=[dict(protocol='tcp',ports=[p],sources=['0.0.0.0/0'],purpose='Approved public web access') for p in sorted(args.port)]
         def validate(value):
             loaded=reader.dependencies()
@@ -53,7 +55,8 @@ def main():
         write_record(updated,args.new_record,validate)
         print('Applied the approved lane and saved a new record for review.')
         return 0
-    except (OSError,ValueError,KeyError,TypeError):
+    except (OSError,ValueError,KeyError,TypeError) as error:
+        if isinstance(error,OperationRefused): print(str(error),file=sys.stderr)
         print('Refused: lane inputs, approval or transport failed. Read the live rules, prepare a new effect and obtain fresh approval before retrying; values are withheld.',file=sys.stderr)
         return 1
 

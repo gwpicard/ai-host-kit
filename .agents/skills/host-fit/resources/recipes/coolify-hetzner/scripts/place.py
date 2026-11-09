@@ -2,6 +2,9 @@
 # Launch order, port probes and retirement checks adapted from coolify-launchpad.
 # Lanes and docktail port checks adapted from coolify-devops; see docs/SOURCES.md.
 import os
+import fcntl
+from contextlib import contextmanager, ExitStack
+from functools import wraps
 import uuid
 import hashlib
 import ipaddress
@@ -15,28 +18,50 @@ SCOPES = {"read", "read:sensitive", "write", "deploy"}
 PROBE_PORTS = {22, 80, 443, 8000, 8080, 6001, 6002}
 
 
+class OperationRefused(ValueError):
+    pass
+
+
 def require(condition, message):
     if not condition:
-        raise ValueError(message)
+        raise OperationRefused(message) if message == JOURNAL_MESSAGE else ValueError(message)
 
 
 def fingerprint(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
-def attempt_effect(effect, observed):
-    return dict(effect, observed=observed, attempt=uuid.uuid4().hex)
+JOURNAL_MESSAGE = 'Receipt journal is missing or replaced. Inspect the live state and approve afresh.'
 
 
-def journal_identity(journal):
-    # Numeric digest bytes bind the directory without retaining private paths.
-    return list(bytes.fromhex(fingerprint(str(Path(journal).resolve()))))
+def journal_identity(journal=None, create=True):
+    path = Path(journal or 'hosting/place-attempts').absolute()
+    anchor = path.with_name(path.name + '-generation.json')
+    try:
+        if create and not anchor.exists() and not path.exists():
+            path.mkdir(parents=True)
+            generation = list(uuid.uuid4().bytes)
+            write_record(generation, path / 'generation', lambda value: None)
+            stat = path.stat()
+            write_record(dict(generation=generation, device=stat.st_dev, inode=stat.st_ino),
+                         anchor, lambda value: None)
+        saved = json.loads(anchor.read_text())
+        stat = path.stat()
+        require(not path.is_symlink() and stat.st_dev == saved['device'] and stat.st_ino == saved['inode']
+                and json.loads((path / 'generation').read_text()) == saved['generation'], JOURNAL_MESSAGE)
+        return list(bytes.fromhex(fingerprint([str(path.resolve()), saved])))
+    except (OSError, ValueError, KeyError, TypeError):
+        raise OperationRefused(JOURNAL_MESSAGE) from None
+
+
+def attempt_effect(effect, observed, journal=None, create=True):
+    return dict(effect, observed=observed, attempt=uuid.uuid4().hex, journal=journal_identity(journal, create=create))
 
 
 def start_attempt(effect, approval, journal=None):
-    # An exclusive, durable receipt consumes this approval before any write.
+    # Apply never creates a journal. Its identity survives outside the directory.
+    require(effect.get('journal') == journal_identity(journal, create=False), JOURNAL_MESSAGE)
     path = Path(journal or 'hosting/place-attempts') / (fingerprint(effect) + '.json')
-    path.parent.mkdir(parents=True,exist_ok=True)
     with os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'w') as out:
         json.dump(dict(effect_sha256=fingerprint(effect), status='uncertain'), out)
         out.flush()
@@ -45,6 +70,35 @@ def start_attempt(effect, approval, journal=None):
     try: os.fsync(descriptor)
     finally: os.close(descriptor)
     return path
+
+
+@contextmanager
+def place_lock(record):
+    # Local processes share locks even when callers use different receipt paths.
+    directory = Path('/tmp') / ('ai-host-kit-locks-' + str(os.getuid()))
+    directory.mkdir(mode=0o700, exist_ok=True)
+    require(not directory.is_symlink() and directory.stat().st_uid == os.getuid()
+            and directory.stat().st_mode & 0o077 == 0, 'Use a private local lock directory.')
+    infra = record['infrastructure']
+    keys = [('place', record['place']['name'], infra.get('server_id')),
+            ('firewall', infra.get('firewall_id'))]
+    with ExitStack() as stack:
+        for key in keys:
+            descriptor = os.open(directory / fingerprint(key), os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+            stream = stack.enter_context(os.fdopen(descriptor, 'r+'))
+            try:
+                fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                raise OperationRefused('Another operation is changing this place or firewall. Wait, then read the live state and prepare fresh approval.') from None
+        yield
+
+
+def locked(operation):
+    @wraps(operation)
+    def run(record, *args, **kwargs):
+        with place_lock(record):
+            return operation(record, *args, **kwargs)
+    return run
 
 
 def finish_attempt(path):
@@ -92,7 +146,9 @@ def lane_effect(record, lane, ports):
                 + ". SSH and Coolify administration stay on the tailnet.")
 
 
+@locked
 def set_lane(record, resources, lane, ports, approval, api, gate, effect=None, journal=None):
+    require(record['infrastructure'].get('journal',effect.get('journal') if effect else None) == (effect.get('journal') if effect else None), JOURNAL_MESSAGE)
     ownership(record, resources)
     # An authenticated tailnet read proves there is an account. It does not
     # prove that the intended person was the first administrator.
@@ -104,8 +160,8 @@ def set_lane(record, resources, lane, ports, approval, api, gate, effect=None, j
     require(effect is not None and effect.get('observed') == observed
             and {k:v for k,v in effect.items() if k not in ('observed','attempt','journal')} == lane_effect(record,lane,ports)
             and bool(effect.get('attempt')), 'Read and prepare a fresh lane effect before applying.')
-    require(journal is None or effect.get('journal') == journal_identity(journal),
-            'Use the record directory bound to this prepared lane attempt.')
+    require(journal is None or effect.get('journal') == journal_identity(journal, create=False),
+            JOURNAL_MESSAGE)
     gate(effect, approval)
     receipt = start_attempt(effect, approval, journal)
     api.set_firewall(effect["firewall_id"], effect["rules"])
@@ -121,21 +177,23 @@ def docktail_labels(name, container_port):
             "docktail.service.port": str(container_port), "docktail.service.service-port": "443"}
 
 
-def docktail_effect(record, name, container_port, observed):
+def docktail_effect(record, name, container_port, observed, journal=None, create=True):
     labels = docktail_labels(name, container_port)
     return attempt_effect(dict(action="register-docktail", place_sha256=fingerprint(record), labels=labels,
                   image="ghcr.io/marvinvr/docktail:" + PINS["docktail"],
-                  effect="Register internal docktail service " + name + " on tailnet TCP 443 to container port " + str(container_port) + ", with no published ports."), observed)
+                  effect="Register internal docktail service " + name + " on tailnet TCP 443 to container port " + str(container_port) + ", with no published ports."), observed, journal, create)
 
 
+@locked
 def register_docktail(record, name, container_port, approval, api, gate, effect=None, journal=None):
+    require(effect is not None and effect.get('journal') == journal_identity(journal,create=False), JOURNAL_MESSAGE)
     labels = docktail_labels(name, container_port)
     before = api.service_definition(name)
     require(before is None or before.get("ports") == ["tcp:443"],
             "Existing service has different write-once ports. Repair requires a separate approval.")
     require(effect is not None and effect.get('observed') == before and bool(effect.get('attempt')),
             'Read and prepare a fresh docktail effect before applying.')
-    expected=docktail_effect(record,name,container_port,before)
+    expected=docktail_effect(record,name,container_port,before,journal,create=False)
     require({k:v for k,v in effect.items() if k not in ('attempt',)} ==
             {k:v for k,v in expected.items() if k not in ('attempt',)}, 'The docktail effect differs.')
     gate(effect, approval)
@@ -191,9 +249,12 @@ def retire(record, resources, saved_destroy, approval, api, gate, confirm, parti
     # plan-time destination identity and the exact encrypted destroy-plan bytes.
     gate(saved_destroy, approval)
     def inventory(kind):
-        try: return api.inventory(kind)
+        try:
+            items = api.inventory(kind)
+            require(isinstance(items, list) and all(isinstance(item, dict) and 'id' in item for item in items),
+                    'Inventory category could not be read.')
+            return items
         except (OSError,ValueError,KeyError,TypeError):
-            if kind != 'images': raise
             return None
     return {kind: inventory(kind) for kind in (
         "servers", "firewalls", "ssh_keys", "volumes", "networks", "floating_ips",
@@ -209,6 +270,10 @@ def write_record(record, destination, validate):
     with os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "w") as out:
         json.dump(record, out, indent=2)
         out.write("\n")
+        out.flush(); os.fsync(out.fileno())
+    descriptor = os.open(path.parent, os.O_RDONLY)
+    try: os.fsync(descriptor)
+    finally: os.close(descriptor)
 
 
 def destroy_plan_matches(record, plan, partial=False):

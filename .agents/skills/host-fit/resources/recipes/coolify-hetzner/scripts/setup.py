@@ -1,6 +1,7 @@
 """Create an empty place in explicit, separately approved stages."""
 # Launch order and the person-led admin claim adapted from coolify-launchpad.
 import argparse
+from contextlib import ExitStack
 import copy
 import json
 import importlib.util
@@ -15,7 +16,7 @@ from api import API, approval_gate, hidden_value as prompt
 from check import load_reader
 from mcp import MCP
 from node import bootstrap, read_node
-from place import PINS, SCOPES, fingerprint, require, scoped_mcp, tailnet_address, write_record, start_attempt, finish_attempt, partial_record
+from place import OperationRefused, PINS, SCOPES, fingerprint, require, scoped_mcp, tailnet_address, write_record, start_attempt, finish_attempt, partial_record, journal_identity, place_lock
 
 STEPS = ['claim', 'project', 'docktail', 'oauth-id', 'oauth-secret', 'start-docktail',
          'register', 'start-register', 'record']
@@ -137,7 +138,7 @@ def prepare_root(config, choice_path, directory, progress_path, reader, gate):
         output={name:{'value':'${module.place.'+name+'}'} for name in ('server_id','firewall_id','ssh_key_id','ipv4_address')})
     save(directory/'main.tf.json',root); save(directory/'backend.json',config['backend'])
     save(progress_path,dict(config=config,choice_path=str(Path(choice_path).resolve()),
-        choice_sha256=fingerprint(choice),root=str(directory),done=[],uncertain=None))
+        choice_sha256=fingerprint(choice),root=str(directory),done=[],uncertain=None, journal=journal_identity(Path(choice_path).resolve().parent/'place-attempts')))
     print('Prepared the local root. No provider was contacted. Review it before initialising or planning.')
 
 
@@ -148,7 +149,7 @@ def effect_for(state, step):
     require(step=='claim' or all(key in state for key in ('server_uuid','destination_uuid')),
             'Read and select the localhost server and destination before preparing a Coolify write.')
     record=state['record']; config=state['config']; name=record['place']['name']
-    common=dict(action='place-'+step,progress_sha256=fingerprint(state),place_sha256=fingerprint(record))
+    common=dict(journal=state['journal'],action='place-'+step,progress_sha256=fingerprint(state),place_sha256=fingerprint(record))
     args={}; tool=None
     if step=='claim':
         description='Let the person create the first Coolify administrator for '+name+' over the tailnet. That account owns this Coolify instance. No public ports open. The person supplies their password in Coolify and confirms the claim here.'
@@ -238,7 +239,7 @@ def main():
     parser.add_argument('--plan'); parser.add_argument('--approval'); parser.add_argument('--effect')
     parser.add_argument('--step',choices=STEPS); parser.add_argument('--address'); parser.add_argument('--mcp-package')
     parser.add_argument('--server-uuid'); parser.add_argument('--destination-uuid'); parser.add_argument('--canary-url')
-    args=parser.parse_args(); client=None; state=None; previous_directory=Path.cwd()
+    args=parser.parse_args(); locks=ExitStack(); client=None; state=None; previous_directory=Path.cwd()
     for field in ('plan','approval','effect','choice','mcp_package'):
         value=getattr(args,field)
         if value: setattr(args,field,str(Path(value).resolve()))
@@ -249,6 +250,11 @@ def main():
             prepare_root(reader.read_json(args.config),args.choice,args.directory,args.progress,reader,gate); return 0
         progress=Path(args.progress).resolve(); state=reader.read_json(progress)
         root=Path(state['root']); record=state.get('record')
+        if args.command=='run':
+            locks.enter_context(place_lock(record))
+            state=reader.read_json(progress); record=state.get('record')
+            require(state['journal']==journal_identity(Path(state['choice_path']).parent/'place-attempts',create=False),
+                    'Receipt journal is missing or replaced. Inspect the live state and approve afresh.')
         if args.command=='prepare':
             require(args.step and args.effect, 'Name the stage and new effect path.')
             effect=effect_for(state,args.step)
@@ -328,7 +334,7 @@ def main():
                 network=dict(cidrs=['100.64.0.0/10'],private_access='Tailscale'),firewall=dict(default_inbound='deny',rules=[]),
                 tools=[],encrypted_state=config['encrypted_state'],infrastructure=dict(
                     server_id=int(outputs['server_id']),firewall_id=int(outputs['firewall_id']),ssh_key_id=int(outputs['ssh_key_id']),
-                    public_ipv4=outputs['ipv4_address'],tailnet_ipv4=tailnet_address(args.address),versions=PINS))
+                    journal=state['journal'],public_ipv4=outputs['ipv4_address'],tailnet_ipv4=tailnet_address(args.address),versions=PINS))
             validate_record(reader,record)
             facts=read_node(record['infrastructure']['tailnet_ipv4'])
             bootstrap(record,lambda address:facts)
@@ -405,7 +411,8 @@ def main():
         finish_attempt(receipt)
         print('Completed '+args.step+'. The place remains empty; use /check-live to read it.')
         return 0
-    except (OSError,ValueError,KeyError,TypeError,subprocess.TimeoutExpired):
+    except (OSError,ValueError,KeyError,TypeError,subprocess.TimeoutExpired) as error:
+        if isinstance(error,OperationRefused): print(str(error),file=sys.stderr)
         if isinstance(state,dict):
             infra=state.get('record',{}).get('infrastructure',{})
             if all(type(infra.get(key)) is int and infra[key]>0 for key in ('server_id','firewall_id','ssh_key_id')):
@@ -420,6 +427,7 @@ def main():
         print('Stopped: setup inputs, approval or transport failed; values withheld. Before apply, no provider resources are expected. After an attempted apply, the server, firewall and SSH key may exist. Keep the progress file and encrypted state. Export a candidate record if bootstrap passed, then use retire.py with an approved destroy plan. For a partial apply, use plan-destroy --partial and retire --partial with a fresh saved-plan approval. Do not retry an uncertain write or remove console leftovers without separate approval.',file=sys.stderr)
         return 1
     finally:
+        locks.close()
         os.chdir(previous_directory)
         if client is not None: client.close()
         for key in ('TF_VAR_host_state_passphrase','TF_VAR_hcloud_token','TF_VAR_tailnet_auth_key'):

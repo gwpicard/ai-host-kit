@@ -56,15 +56,15 @@ def resources(record):
 
 
 def outcomes(ops, gate, work):
+    shutil.rmtree('hosting',ignore_errors=True)
     record = json.loads((FIXTURE / 'place-record.json').read_text())
     owned = resources(record)
     api = StandIn()
     def lane(*args):
-        # Each independent guard probe starts with a fresh local attempt journal.
-        shutil.rmtree('hosting/place-attempts',ignore_errors=True)
+        # Independent guard probes share a generation but no consumed effect.
+        for receipt in Path('hosting/place-attempts').glob('*.json'): receipt.unlink()
         return ops.set_lane(*args)
     effect = ops.attempt_effect(ops.lane_effect(record, 'public', [80, 443]), [])
-    shutil.rmtree('hosting/place-attempts',ignore_errors=True)
     no_approval = work / 'missing-effect.json'
     refused(lambda: lane(record, owned, 'public', [80, 443], no_approval, api, gate.match_effect, effect))
     assert not api.writes
@@ -111,7 +111,6 @@ def outcomes(ops, gate, work):
     assert destroyed == ['destroy-plan'] and remaining['volumes'] == [{'id':901}]
     # Positive and negative registration read-back paths.
     api.definition = None
-    shutil.rmtree('hosting/place-attempts',ignore_errors=True)
     registered = []
     effect = ops.register_docktail(record,'canary',8080,work/'docktail-approval',api,lambda e,a:registered.append(e),ops.docktail_effect(record,'canary',8080,None))
     assert registered == [effect] and effect['labels']['docktail.service.service-port'] == '443'
@@ -360,6 +359,9 @@ def main():
         from place_fix_checks import exercise as fix_checks
         with checks.directory(work):
             fix_checks(work, checks)
+        from place_review_checks import exercise as review_checks
+        with checks.directory(work):
+            review_checks(work, checks)
         module(work)
         summary_removal(work)
         record_checks(work)

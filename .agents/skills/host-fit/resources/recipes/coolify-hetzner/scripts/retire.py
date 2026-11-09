@@ -48,13 +48,19 @@ def main():
                 destroy_plan_matches(record,json.loads(shown.stdout),partial)
             gate.apply(plan,approval)
         remaining=retire(record,api.owned_resources(partial=True) if partial else api.owned_resources(),args.plan,args.approval,api,apply,confirm,partial)
+        print('Destruction completed. Review every inventory category and the later console checks before completing retirement.')
         for kind,items in remaining.items():
-            print(kind+': '+('unchecked; review snapshot and backup images in the Hetzner console' if items is None else ', '.join(str(item['id']) for item in items) or 'none'))
+            status='unchecked; review in the Hetzner console' if items is None else ('listed: '+', '.join(str(item['id']) for item in items) if items else 'empty')
+            print(kind+': '+status)
+        print('Images: review snapshot and backup images in the Hetzner console, including retained copies.')
         print('Object Storage and DNS are outside this inventory. Review them in the Hetzner console.')
         plumbing=record['infrastructure'].get('plumbing',{})
         if plumbing:
             print('Tailscale Services > svc:'+plumbing['tailnet_service_name']+' may remain. Review its advertising devices before a separately approved removal.')
         print('Tailscale admin console > Machines > this place > Remove remains a separate approved action.')
+        if any(items is None for items in remaining.values()):
+            print('Retirement incomplete: destruction completed, but inventory checks remain unchecked.')
+            return 2
         return 0
     except (OSError,ValueError,KeyError,TypeError):
         print('Refused: retirement inputs, ownership, approval or transport failed. Inspect the place privately; values are withheld.',file=sys.stderr)

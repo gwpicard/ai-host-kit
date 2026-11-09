@@ -170,8 +170,16 @@ created place, not invented in advance.
 
 9. A public-lane test has a separate effect approval naming the selected ports.
    Preparation reads and shows the current firewall rules. Approval binds those
-   rules, the requested ports and one attempt. Keep `hosting/place-attempts/`:
-   its receipts consume approvals before writes and retain uncertain results.
+   rules, the requested ports, the receipt generation and one attempt. Keep
+   `hosting/place-attempts/` and `hosting/place-attempts-generation.json`:
+   receipts consume approvals before writes and retain uncertain results.
+   The generation also lives in setup progress and the created place record.
+   Apply refuses a missing or replaced journal, including a copied directory.
+   Inspect the live state and obtain fresh approval through reviewed recovery;
+   deleting or replacing that directory never revives an old approval. Local operations hold
+   exclusive place and firewall locks through observation, comparison, write
+   and read-back. A competing operation refuses plainly. These locks cover
+   cooperating kit processes on this computer, not console or remote writers.
    After closure or a failed read-back, inspect the live rules, prepare a new
    effect at a new path and obtain fresh approval before applying again.
 
@@ -215,10 +223,12 @@ types the exact place name at retirement. Destruction loses the server disk
 and its containers. The wrapper accepts only the three owned deletions,
 checks live ownership and applies those exact encrypted saved bytes. It lists
 remaining Cloud resources, including snapshot and backup images and resources
-it did not own. Review Object
-Storage, DNS, the tailnet machine and the recorded Tailscale service definition
-separately. No leftover is removed automatically. Keep the state and its key
-until recovery and retained copies have been reviewed. Each further console
+it did not own. Review Object Storage, DNS, the tailnet machine and the recorded Tailscale service definition
+separately. After destruction, every category is reported as listed, empty or
+unchecked. An unreadable category leaves retirement incomplete with exit status
+2; the later console checks are still printed. No leftover is removed
+automatically. Keep the state and its key until recovery and retained copies
+have been reviewed. Each further console
 removal needs its own approval naming the data or access it removes.
 
 ## If a stage fails
