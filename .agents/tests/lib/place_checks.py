@@ -1,4 +1,5 @@
 """Offline place rehearsals and protection removals. No provider API calls."""
+from concurrent.futures import ThreadPoolExecutor
 import copy
 import importlib.util
 import json
@@ -58,35 +59,41 @@ def outcomes(ops, gate, work):
     record = json.loads((FIXTURE / 'place-record.json').read_text())
     owned = resources(record)
     api = StandIn()
-    effect = ops.lane_effect(record, 'public', [80, 443])
+    def lane(*args):
+        # Each independent guard probe starts with a fresh local attempt journal.
+        shutil.rmtree('hosting/place-attempts',ignore_errors=True)
+        return ops.set_lane(*args)
+    effect = ops.attempt_effect(ops.lane_effect(record, 'public', [80, 443]), [])
+    shutil.rmtree('hosting/place-attempts',ignore_errors=True)
     no_approval = work / 'missing-effect.json'
-    refused(lambda: ops.set_lane(record, owned, 'public', [80, 443], no_approval, api, gate.match_effect))
+    refused(lambda: lane(record, owned, 'public', [80, 443], no_approval, api, gate.match_effect, effect))
     assert not api.writes
     # Synthetic approval applies only to stand-ins. Never a person's approval.
     approval = work / 'effect.json'
     approval.write_text(json.dumps(dict(effect_sha256=gate.effect_sha(effect),effect=effect['effect'],words='Synthetic fixture approval',approved_at='2026-11-06T12:00:00Z',method='foreground-terminal')))
-    ops.set_lane(record, owned, 'public', [80, 443], approval, api, gate.match_effect)
+    lane(record, owned, 'public', [80, 443], approval, api, gate.match_effect, effect)
     assert api.rules == ops.lane_rules('public', [80, 443])
-    refused(lambda: ops.set_lane(record, owned, 'public', [443], approval, api, gate.match_effect))
+    api.rules=[]
+    refused(lambda: lane(record, owned, 'public', [443], approval, api, gate.match_effect, effect))
     for kind in owned:
         bad = copy.deepcopy(owned); bad[kind]['id'] += 1
-        refused(lambda: ops.set_lane(record, bad, 'public', [80, 443], approval, api, gate.match_effect))
+        refused(lambda: lane(record, bad, 'public', [80, 443], approval, api, gate.match_effect, effect))
     for kind in owned:
         for field in ('name','labels'):
             bad=copy.deepcopy(owned)
             bad[kind][field]='wrong' if field=='name' else {'purpose':'other','place':'other'}
-            refused(lambda:ops.set_lane(record,bad,'public',[80,443],approval,api,gate.match_effect))
+            refused(lambda:lane(record,bad,'public',[80,443],approval,api,gate.match_effect,effect))
     api.coolify_team=lambda:None
-    refused(lambda:ops.set_lane(record,owned,'public',[80,443],approval,api,gate.match_effect))
+    refused(lambda:lane(record,owned,'public',[80,443],approval,api,gate.match_effect,effect))
     api.coolify_team=lambda:{'id':1}
     api.registration_closed=lambda:False
-    refused(lambda:ops.set_lane(record,owned,'public',[80,443],approval,api,gate.match_effect))
+    refused(lambda:lane(record,owned,'public',[80,443],approval,api,gate.match_effect,effect))
     api.registration_closed=lambda:True
     refused(lambda: ops.lane_rules('public', [8080]))
     refused(lambda: ops.lane_rules('internal', [443]))
     refused(lambda: ops.lane_rules('public', [True]))
     api.definition = {'ports': ['tcp:80']}
-    refused(lambda: ops.register_docktail(record, 'canary', 8080, approval, api, lambda e,a: None))
+    refused(lambda: ops.register_docktail(record, 'canary', 8080, approval, api, lambda e,a: None,ops.docktail_effect(record,'canary',8080,api.definition)))
     assert len(api.writes) == 1
     calls = []
     rows = ops.check_place(record, lambda host, port: calls.append(port) or False,
@@ -104,8 +111,9 @@ def outcomes(ops, gate, work):
     assert destroyed == ['destroy-plan'] and remaining['volumes'] == [{'id':901}]
     # Positive and negative registration read-back paths.
     api.definition = None
+    shutil.rmtree('hosting/place-attempts',ignore_errors=True)
     registered = []
-    effect = ops.register_docktail(record,'canary',8080,None,api,lambda e,a:registered.append(e))
+    effect = ops.register_docktail(record,'canary',8080,work/'docktail-approval',api,lambda e,a:registered.append(e),ops.docktail_effect(record,'canary',8080,None))
     assert registered == [effect] and effect['labels']['docktail.service.service-port'] == '443'
     destroy = {'resource_changes':[dict(type=kind,change={'actions':['delete'],'before':owned[label]})
                for kind,label in [('hcloud_server','server'),('hcloud_firewall','firewall'),('hcloud_ssh_key','ssh_key')]]}
@@ -129,13 +137,13 @@ def mutations(work):
         ('ownership name','resource["name"] == ("coolify" if kind == "firewall" else name)','True'),
         ('closed registration','api.registration_closed()','True'),
         ('claimed account read','api.coolify_team() is not None','True'),
-        ('lane approval','    gate(effect, approval)\n    api.set_firewall','    api.set_firewall'),
+        ('lane approval','    gate(effect, approval)\n    receipt = start_attempt','    receipt = start_attempt'),
         ('typed place name','confirm(name) == name','True'),
         ('root refusal','set(scopes) == SCOPES and len(scopes) == len(SCOPES)','True'),
         ('MCP pin','version == PINS["mcp"]','True'),
         ('write-once ports','before is None or before.get("ports") == ["tcp:443"]','True'),
         ('outside probe','PROBE_PORTS = {22, 80, 443, 8000, 8080, 6001, 6002}','PROBE_PORTS = {22, 80, 443, 8000, 6001, 6002}'),
-        ('destroy ownership','    ownership(record, found)','    pass'),
+        ('destroy ownership','    ownership(record, found, partial)','    pass'),
         ('check result','status = "passed" if type(observed) is bool and observed == (port in approved) else "failed"','status = "passed"'),
     ]
     for name, old, new in cases:
@@ -179,45 +187,51 @@ def module(work):
         ('IPv6 coverage','ipv6_enabled = false','ipv6_enabled = true'),
         ('placeholder','cloud_init = replace(replace(file("${path.module}/cloud-init.sh"), "{{TAILSCALE_KEY_B64}}", base64encode(var.tailnet_auth_key)), "{{PLACE_NAME}}", var.place_name)','cloud_init = "{{UNSET_1}}"'),
     ]
-    for name, old, new in changes:
-        assert old in source, name
-        (target/'main.tf').write_text(source.replace(old,new,1))
-        result = subprocess.run(['tofu','test','-no-color'],cwd=target,stdout=subprocess.PIPE,stderr=subprocess.STDOUT)
-        assert result.returncode != 0, name
-        print('Module protection removal detected: ' + name)
-    (target/'main.tf').write_text(source)
     original_test=(target/'tests/fresh.tftest.hcl').read_text()
-    for name, old, new in [('reusable key','reusable = false','reusable = true'),
-                           ('ephemeral key','ephemeral = false','ephemeral = true'),
-                           ('untagged key','tags = ["tag:server"]','tags = []'),
-                           ('unapproved key','preauthorised = true','preauthorised = false'),
-                           ('shortest available expiry','shortest_available = true','shortest_available = false')]:
-        (target/'tests/fresh.tftest.hcl').write_text(original_test.replace(old,new,1))
-        result=subprocess.run(['tofu','test','-no-color'],cwd=target,stdout=subprocess.PIPE,stderr=subprocess.STDOUT)
-        assert result.returncode != 0,name
-        mutated=source.replace('!var.tailnet_key_settings.reusable && !var.tailnet_key_settings.ephemeral && var.tailnet_key_settings.preauthorised && var.tailnet_key_settings.tags == toset(["tag:server"]) && var.tailnet_key_settings.expiry_seconds > 0 && var.tailnet_key_settings.shortest_available','var.tailnet_key_settings.expiry_seconds > 0')
-        assert mutated != source
-        (target/'main.tf').write_text(mutated)
-        result=subprocess.run(['tofu','test','-no-color'],cwd=target,stdout=subprocess.PIPE,stderr=subprocess.STDOUT)
-        assert result.returncode == 0,name
-        (target/'main.tf').write_text(source)
-        print('Module protection removal detected: '+name)
-    (target/'tests/fresh.tftest.hcl').write_text(original_test)
-    # The pinned provider cannot consume a genuinely ephemeral bootstrap key.
+    boot=(target/'cloud-init.sh').read_text()
+    jobs=[]
+    for name,old,new in changes:
+        assert old in source,name
+        jobs.append((name,source.replace(old,new,1),original_test,boot,False))
+    settings='!var.tailnet_key_settings.reusable && !var.tailnet_key_settings.ephemeral && var.tailnet_key_settings.preauthorised && var.tailnet_key_settings.tags == toset(["tag:server"]) && var.tailnet_key_settings.expiry_seconds > 0 && var.tailnet_key_settings.shortest_available'
+    assert settings in source
+    for name,old,new in [('reusable key','reusable = false','reusable = true'),
+                         ('ephemeral key','ephemeral = false','ephemeral = true'),
+                         ('untagged key','tags = ["tag:server"]','tags = []'),
+                         ('unapproved key','preauthorised = true','preauthorised = false'),
+                         ('shortest available expiry','shortest_available = true','shortest_available = false')]:
+        assert old in original_test,name
+        test=original_test.replace(old,new,1)
+        jobs.append((name,source,test,boot,False))
+        jobs.append((name+' removal',source.replace(settings,'var.tailnet_key_settings.expiry_seconds > 0'),test,boot,True))
     ephemeral=source.replace('cloud_init = replace(replace(file("${path.module}/cloud-init.sh"), "{{TAILSCALE_KEY_B64}}", base64encode(var.tailnet_auth_key)), "{{PLACE_NAME}}", var.place_name)',
              'cloud_init = "${file("${path.module}/cloud-init.sh")}${var.bootstrap_key}"')
     ephemeral+='\nvariable "bootstrap_key" {\n type = string\n sensitive = true\n ephemeral = true\n default = "synthetic-only"\n}\n'
-    (target/'main.tf').write_text(ephemeral)
-    result=subprocess.run(['tofu','test','-no-color'],cwd=target,stdout=subprocess.PIPE,stderr=subprocess.STDOUT)
-    assert result.returncode != 0 and b'ephemeral' in result.stdout.lower()
-    (target/'main.tf').write_text(source)
-    print('Pinned provider refuses an ephemeral user-data value; the agreed one-off key is retained only under the documented encrypted-state boundary.')
-    boot = target/'cloud-init.sh'; original=boot.read_text()
-    for name, old, new in [('IPv4 apt','Acquire::ForceIPv4','Acquire::Alternate'),('tailnet order','tailscale ip -4','true')]:
-        boot.write_text(original.replace(old,new))
-        assert subprocess.run(['tofu','test','-no-color'],cwd=target,stdout=subprocess.PIPE,stderr=subprocess.STDOUT).returncode != 0, name
-        boot.write_text(original)
-        print('Module protection removal detected: ' + name)
+    jobs.append(('ephemeral user data',ephemeral,original_test,boot,False))
+    for name,old,new in [('IPv4 apt','Acquire::ForceIPv4','Acquire::Alternate'),('tailnet order','tailscale ip -4','true')]:
+        assert old in boot,name
+        jobs.append((name,source,original_test,boot.replace(old,new),False))
+    def exercise(job):
+        index,(name,main,test,cloud,accepted)=job
+        isolated=work/('module-mutation-'+str(index))
+        shutil.copytree(target,isolated,ignore=shutil.ignore_patterns('.terraform','*.tfstate*'))
+        # Workers share only immutable provider binaries, never mutable roots.
+        (isolated/'.terraform').mkdir()
+        (isolated/'.terraform/providers').symlink_to(target/'.terraform/providers',target_is_directory=True)
+        (isolated/'main.tf').write_text(main)
+        (isolated/'tests/fresh.tftest.hcl').write_text(test)
+        (isolated/'cloud-init.sh').write_text(cloud)
+        result=subprocess.run(['tofu','test','-no-color'],cwd=isolated,stdout=subprocess.PIPE,stderr=subprocess.STDOUT)
+        assert (result.returncode==0)==accepted,name
+        if name=='ephemeral user data': assert b'ephemeral' in result.stdout.lower()
+        # Restore every throwaway mutation after checking its outcome.
+        (isolated/'main.tf').write_text(source)
+        (isolated/'tests/fresh.tftest.hcl').write_text(original_test)
+        (isolated/'cloud-init.sh').write_text(boot)
+        return name
+    with ThreadPoolExecutor(max_workers=4) as workers:
+        for name in workers.map(exercise,enumerate(jobs)):
+            print('Module protected outcome checked: '+name)
 
 
 def record_checks(work):
@@ -266,8 +280,10 @@ def adapter_checks():
         with tempfile.TemporaryDirectory(prefix='ai-host-kit-place-cli-') as tmp:
             folder=Path(tmp)
             effect=folder/'effect.json'; approval=folder/'approval.json'; new_record=folder/'record.json'
-            command=['lane','prepare','--record',str(FIXTURE/'place-record.json'),'--lane','public','--port','443','--effect',str(effect)]
-            with patch.object(sys,'argv',command): assert lane_cli.main()==0
+            input_record=folder/'input-record.json';shutil.copyfile(FIXTURE/'place-record.json',input_record)
+            command=['lane','prepare','--record',str(input_record),'--lane','public','--port','443','--effect',str(effect)]
+            fake=StandIn(); fake.owned_resources=lambda:resources(record)
+            with patch.object(sys,'argv',command), patch.object(lane_cli,'API',return_value=fake), patch.object(lane_cli,'hidden_value',return_value='synthetic-only'): assert lane_cli.main()==0
             gate=checks.load(); value=json.loads(effect.read_text())
             approval.write_text(json.dumps(dict(effect_sha256=gate.effect_sha(value),effect=value['effect'],words='Synthetic fixture approval',approved_at='2026-11-06T12:00:00Z',method='foreground-terminal')))
             fake=StandIn(); fake.owned_resources=lambda:resources(record)
@@ -275,6 +291,14 @@ def adapter_checks():
             with patch.object(sys,'argv',command), patch.object(lane_cli,'API',return_value=fake), patch.object(lane_cli,'hidden_value',return_value='synthetic-only'):
                 assert lane_cli.main()==0
                 assert new_record.is_file() and len(fake.writes)==1
+                assert lane_cli.main()!=0 and len(fake.writes)==1
+                fake.rules=[]
+                command[command.index('--new-record')+1]=str(folder/'other-record.json')
+                other=folder/'other-cwd';other.mkdir()
+                with checks.directory(other):
+                    assert lane_cli.main()!=0 and len(fake.writes)==1
+                copied=other/'copied-record.json';shutil.copyfile(input_record,copied)
+                command[command.index('--record')+1]=str(copied)
                 assert lane_cli.main()!=0 and len(fake.writes)==1
             # The retire adapter is rehearsed with a fake saved-plan reader;
             # the shared gate suite separately uses real encrypted saved plans.
@@ -329,14 +353,21 @@ def main():
         assert bundled.is_file() and bundled.read_bytes()==(RECIPE/relative).read_bytes(),relative
     with tempfile.TemporaryDirectory(prefix='ai-host-kit-place-checks-') as temporary:
         work=Path(temporary)
-        outcomes(load(RECIPE/'scripts/place.py'),checks.load(),work)
-        mutations(work)
+        with checks.directory(work):
+            outcomes(load(RECIPE/'scripts/place.py'),checks.load(),work)
+        with checks.directory(work):
+            mutations(work)
+        from place_fix_checks import exercise as fix_checks
+        with checks.directory(work):
+            fix_checks(work, checks)
         module(work)
         summary_removal(work)
         record_checks(work)
-        adapter_checks()
+        with checks.directory(work):
+            adapter_checks()
         from place_setup_checks import exercise as setup_checks
-        setup_checks(work, checks)
+        with checks.directory(work):
+            setup_checks(work, checks)
         from place_s3_checks import exercise, protection_removals
         exercise(work, checks)
         protection_removals(work, checks)

@@ -6,7 +6,7 @@ from pathlib import Path
 import sys
 from api import API, approval_gate, hidden_value
 from check import load_reader
-from place import lane_effect, set_lane, write_record
+from place import lane_effect, set_lane, write_record, attempt_effect
 
 
 def main():
@@ -23,20 +23,24 @@ def main():
         reader=load_reader()
         if reader.validate('place-record',args.record): return 1
         record=reader.read_json(args.record)
+        gate=approval_gate()
+        api=API(record,hidden_value(gate,'Hetzner project token'),hidden_value(gate,'Coolify read token'))
         effect=lane_effect(record,args.lane,args.port)
         if args.command=='prepare':
+            effect=attempt_effect(effect,api.firewall_rules(record['infrastructure']['firewall_id']))
+            effect['journal']=str(Path(args.record).resolve().parent/'place-attempts')
+            print('Observed firewall rules: '+json.dumps(effect['observed'],sort_keys=True))
             with open(args.effect,'x') as out: json.dump(effect,out,indent=2)
             print(effect['effect'])
             return 0
         if not args.approval or not args.new_record:
             raise ValueError('Apply requires effect approval and a new record path.')
         gate=approval_gate()
+        effect=reader.read_json(args.effect)
         gate.match_effect(effect,args.approval)
-        if reader.read_json(args.effect)!=effect: raise ValueError('The prepared effect differs.')
         # Refuse an existing destination before a cloud write.
         if Path(args.new_record).exists(): raise ValueError('The new record already exists.')
-        api=API(record,hidden_value(gate,'Hetzner project token'),hidden_value(gate,'Coolify read token'))
-        set_lane(record,api.owned_resources(),args.lane,args.port,args.approval,api,gate.match_effect)
+        set_lane(record,api.owned_resources(),args.lane,args.port,args.approval,api,gate.match_effect,effect,Path(args.record).resolve().parent/'place-attempts')
         updated=copy.deepcopy(record)
         updated['firewall']['rules']=[dict(protocol='tcp',ports=[p],sources=['0.0.0.0/0'],purpose='Approved public web access') for p in sorted(args.port)]
         def validate(value):
@@ -50,7 +54,7 @@ def main():
         print('Applied the approved lane and saved a new record for review.')
         return 0
     except (OSError,ValueError,KeyError,TypeError):
-        print('Refused: lane inputs, approval or transport failed. Read the place before retrying; values are withheld.',file=sys.stderr)
+        print('Refused: lane inputs, approval or transport failed. Read the live rules, prepare a new effect and obtain fresh approval before retrying; values are withheld.',file=sys.stderr)
         return 1
 
 

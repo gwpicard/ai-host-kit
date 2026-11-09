@@ -42,10 +42,11 @@ class API:
     def cloud(self, method, path, body=None):
         return self.request(method,'https://api.hetzner.cloud/v1/'+path,self.hcloud_token,body)
 
-    def owned_resources(self):
+    def owned_resources(self, partial=False):
         infra=self.record['infrastructure']
         return {kind:self.cloud('GET',plural+'/'+str(infra[kind+'_id']))[kind]
-                for kind,plural in [('server','servers'),('firewall','firewalls'),('ssh_key','ssh_keys')]}
+                for kind,plural in [('server','servers'),('firewall','firewalls'),('ssh_key','ssh_keys')]
+                if not partial or kind+'_id' in infra}
 
     def coolify_team(self):
         address=tailnet_address(self.record['infrastructure']['tailnet_ipv4'])
@@ -92,7 +93,8 @@ class API:
         rows=[]
         page=1
         while True:
-            response=self.cloud('GET',kind+'?page='+str(page)+'&per_page=50')
+            query='&type=snapshot&type=backup' if kind=='images' else ''
+            response=self.cloud('GET',kind+'?page='+str(page)+'&per_page=50'+query)
             rows.extend({'id':item['id']} for item in response[kind])
             page=response.get('meta',{}).get('pagination',{}).get('next_page')
             if page is None: return rows

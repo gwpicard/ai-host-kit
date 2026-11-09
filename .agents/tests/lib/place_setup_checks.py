@@ -144,6 +144,15 @@ def exercise(work, checks):
         path.write_text(json.dumps(choice))
         print('Protection removal detected: changed choice is never overwritten')
         cli(work,flow,gate,reader,config,choice,facts)
+        # Remove only receipt consumption and rerun every named-effect reuse probe.
+        mutated_work=work/'setup-receipt-removal';mutated_work.mkdir()
+        receipt=mutated_work/'receipt.json';receipt.write_text('{}')
+        with patch.object(flow,'start_attempt',return_value=receipt):
+            try: cli(mutated_work,flow,gate,reader,config,choice,facts)
+            except AssertionError as error:
+                assert 'Reused named effects' in str(error),str(error)
+                print('Protection removal detected: '+str(error))
+            else: raise AssertionError('Setup receipt removal escaped')
         saved=work/'provider.plan';saved.write_bytes(b'synthetic encrypted-plan stand-in')
         binding={};flow.bind_provider(binding,saved,'synthetic-project-one',gate,remember=True)
         flow.bind_provider(binding,saved,'synthetic-project-one',gate)
@@ -199,14 +208,23 @@ def cli(work,flow,gate,reader,config,choice,facts):
         def call(self,tool,args):writes.append((tool,args));return {'uuid':'created-'+tool}
         def close(self):pass
     def prompt(g,label):return 'claimed test-place' if 'type claimed' in label else 'synthetic-only'
+    reuse_results=[]
     with patch.object(flow,'API',API),patch.object(flow,'MCP',MCP),patch.object(flow,'prompt',side_effect=prompt):
         for step in flow.STEPS:
             effect=folder/(step+'.json');approval=folder/(step+'-approval.json')
             assert command('prepare','--step',step,'--effect',str(effect))==0
             value=json.loads(effect.read_text())
             approval.write_text(json.dumps(dict(effect_sha256=gate.effect_sha(value),effect=value['effect'],words='Synthetic fixture approval',approved_at='2026-11-09T12:00:00Z',method='foreground-terminal')))
+            before=json.loads(progress.read_text());choice_before=choice_path.read_text()
             assert command('run','--step',step,'--effect',str(effect),'--approval',str(approval),'--mcp-package',str(folder/'package.json'))==0
+            after=json.loads(progress.read_text());choice_after=choice_path.read_text();count=len(writes)
+            flow.save(progress,before);choice_path.write_text(choice_before)
+            status=command('run','--step',step,'--effect',str(effect),'--approval',str(approval),'--mcp-package',str(folder/'package.json'))
+            reuse_results.append((step,status!=0 and len(writes)==count))
+            # Restore fixture progress and observed write count for the next stage.
+            del writes[count:];flow.save(progress,after);choice_path.write_text(choice_after)
             if step=='claim':assert command('discover','--server-uuid','server-one','--destination-uuid','destination-one')==0
+        assert all(passed for step,passed in reuse_results),'Reused named effects: '+', '.join(step for step,passed in reuse_results if not passed)
         final=json.loads(choice_path.read_text());flow.validate_record(reader,final)
         assert final['choice']==choice['choice'] and final['infrastructure']['plumbing']['docktail_uuid']=='created-service'
         assert len(writes)==7

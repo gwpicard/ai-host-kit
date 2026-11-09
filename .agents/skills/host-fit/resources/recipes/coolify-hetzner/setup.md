@@ -101,8 +101,9 @@ created place, not invented in advance.
    completed cloud-init. A missing read stops the flow.
 
 5. Prepare and approve the first-administrator effect. The person runs the
-   approval command, then opens the displayed tailnet `/register` address
-   themselves. They create the first administrator, enable two-factor
+   approval command, then the run command. The runner records that the attempt
+   has started before displaying the tailnet `/register` address. The person
+   opens that address themselves. They create the first administrator, enable two-factor
    authentication and create a team token with exactly `read`, `read:sensitive`,
    `write`, `deploy`, never `root`. Nothing is public. The password goes only
    into Coolify. An HTTP 429 is not a completed claim; wait ten minutes before
@@ -168,6 +169,12 @@ created place, not invented in advance.
    ```
 
 9. A public-lane test has a separate effect approval naming the selected ports.
+   Preparation reads and shows the current firewall rules. Approval binds those
+   rules, the requested ports and one attempt. Keep `hosting/place-attempts/`:
+   its receipts consume approvals before writes and retain uncertain results.
+   After closure or a failed read-back, inspect the live rules, prepare a new
+   effect at a new path and obtain fresh approval before applying again.
+
    This example opens TCP 80 and 443 to the internet, with no tool deployed.
    Approve that reachability explicitly. Other ports are refused. The command
    prompts for the project token and Coolify read token and saves a new record.
@@ -207,7 +214,8 @@ The person reviews and approves the exact destroy summary themselves, then
 types the exact place name at retirement. Destruction loses the server disk
 and its containers. The wrapper accepts only the three owned deletions,
 checks live ownership and applies those exact encrypted saved bytes. It lists
-remaining Cloud resources, including ones it did not own. Review Object
+remaining Cloud resources, including snapshot and backup images and resources
+it did not own. Review Object
 Storage, DNS, the tailnet machine and the recorded Tailscale service definition
 separately. No leftover is removed automatically. Keep the state and its key
 until recovery and retained copies have been reviewed. Each further console
@@ -229,11 +237,20 @@ python3 "$SETUP" candidate --progress "$PROGRESS" --config "$PLACE/hosting/place
 ```
 
 Use the retire sequence with `--choice` pointing to that candidate. If apply
-was partial and bootstrap never passed, use `plan-destroy`, `summary` and
-`approve` above. Review the partial resource list, then run the shared apply
-gate on that exact approved destroy plan from `hosting/tofu/`, with the
-passphrase, project token and storage pair supplied through the person's
-hidden-entry process. The three-resource retire wrapper deliberately refuses
-an incomplete resource set. Keep the state and request a reviewed recovery
-step if those credentials or the state are unavailable. Never infer that a
-failed command removed what it had already created.
+was partial and bootstrap never passed, use the partial retirement mode:
+
+```sh
+python3 "$SETUP" plan-destroy --partial --progress "$PROGRESS" --plan "$DESTROY"
+python3 "$SETUP" summary --progress "$PROGRESS" --plan "$DESTROY"
+python3 "$SETUP" approve --progress "$PROGRESS" --plan "$DESTROY" --approval "$PLACE/retire-approval.json"
+python3 "$SETUP" retire --partial --progress "$PROGRESS" --plan "$DESTROY" --approval "$PLACE/retire-approval.json"
+```
+
+These commands request the state passphrase, project token and storage pair
+through hidden terminal prompts. Partial mode reads the encrypted state into
+a recovery record in the progress file. It accepts only resources at the kit's
+three generated addresses, checks their live identities, names and ownership
+labels against that record, requires the typed place name and applies only
+the deletions in the approved saved plan. A resource outside those addresses
+is refused. Keep the state and request a reviewed recovery step if credentials
+or state are unavailable. A failed command may have created resources.

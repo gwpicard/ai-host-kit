@@ -5,19 +5,26 @@ from pathlib import Path
 import sys
 from api import API, approval_gate, hidden_value
 from check import load_reader
-from place import destroy_plan_matches, retire
+from place import destroy_plan_matches, retire, fingerprint
 
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--partial-progress')
     parser.add_argument('--record',default='hosting/place-record.json')
     parser.add_argument('--plan',required=True)
     parser.add_argument('--approval',required=True)
     args=parser.parse_args()
     try:
         reader=load_reader()
-        if reader.validate('place-record',args.record): return 1
-        record=reader.read_json(args.record)
+        partial=bool(args.partial_progress)
+        if partial:
+            progress=reader.read_json(args.partial_progress)
+            if Path(progress['root']).resolve()!=Path.cwd().resolve(): raise ValueError('Use the recorded root for partial retirement.')
+            record=progress['recovery_record']
+        else:
+            if reader.validate('place-record',args.record): return 1
+            record=reader.read_json(args.record)
         gate=approval_gate()
         # Read only the same encrypted bytes that the saved-plan gate will apply.
         gate.require_encryption(); gate.check_version()
@@ -25,8 +32,11 @@ def main():
             gate.planned_identity(args.plan,sha)
             shown=gate.tofu('show','-json',snapshot)
             if shown.returncode: raise ValueError('Destroy plan could not be read.')
-            destroy_plan_matches(record,json.loads(shown.stdout))
-        api=API(record,hidden_value(gate,'Hetzner project token'))
+            destroy_plan_matches(record,json.loads(shown.stdout),partial)
+        token=hidden_value(gate,'Hetzner project token')
+        if partial and progress.get('provider_plans',{}).get(sha)!=fingerprint(token):
+            raise ValueError('The project token differs from the saved plan.')
+        api=API(record,token)
         def confirm(name):
             with gate.terminal() as tty:
                 return gate.typed(tty,'This destroys the place and its disk. Type '+name+': ')
@@ -35,11 +45,11 @@ def main():
             with gate.saved_plan(plan) as (snapshot,sha):
                 shown=gate.tofu('show','-json',snapshot)
                 if shown.returncode: raise ValueError('Destroy plan could not be read.')
-                destroy_plan_matches(record,json.loads(shown.stdout))
+                destroy_plan_matches(record,json.loads(shown.stdout),partial)
             gate.apply(plan,approval)
-        remaining=retire(record,api.owned_resources(),args.plan,args.approval,api,apply,confirm)
+        remaining=retire(record,api.owned_resources(partial=True) if partial else api.owned_resources(),args.plan,args.approval,api,apply,confirm,partial)
         for kind,items in remaining.items():
-            print(kind+': '+(', '.join(str(item['id']) for item in items) or 'none'))
+            print(kind+': '+('unchecked; review snapshot and backup images in the Hetzner console' if items is None else ', '.join(str(item['id']) for item in items) or 'none'))
         print('Object Storage and DNS are outside this inventory. Review them in the Hetzner console.')
         plumbing=record['infrastructure'].get('plumbing',{})
         if plumbing:

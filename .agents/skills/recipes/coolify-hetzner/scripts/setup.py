@@ -15,7 +15,7 @@ from api import API, approval_gate, hidden_value as prompt
 from check import load_reader
 from mcp import MCP
 from node import bootstrap, read_node
-from place import PINS, SCOPES, fingerprint, require, scoped_mcp, tailnet_address, write_record
+from place import PINS, SCOPES, fingerprint, require, scoped_mcp, tailnet_address, write_record, start_attempt, finish_attempt, partial_record
 
 STEPS = ['claim', 'project', 'docktail', 'oauth-id', 'oauth-secret', 'start-docktail',
          'register', 'start-register', 'record']
@@ -232,6 +232,7 @@ def bind_provider(state, plan, token, gate, remember=False):
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('command',choices=['root','init','plan','summary','approve','apply','bootstrap','prepare','run','candidate','discover','plan-destroy','retire'])
+    parser.add_argument('--partial',action='store_true')
     parser.add_argument('--config'); parser.add_argument('--choice',default='hosting/place-record.json')
     parser.add_argument('--directory',default='hosting/tofu'); parser.add_argument('--progress',default='hosting/place-progress.json')
     parser.add_argument('--plan'); parser.add_argument('--approval'); parser.add_argument('--effect')
@@ -252,7 +253,7 @@ def main():
             require(args.step and args.effect, 'Name the stage and new effect path.')
             effect=effect_for(state,args.step)
             write_record(effect,args.effect,lambda value:None); print(effect['effect'])
-            if args.step=='claim': print('After this effect is approved, open http://'+state['record']['infrastructure']['tailnet_ipv4']+':8000/register yourself, create the first administrator, enable two-factor authentication, then create the scoped team token for the run command.')
+            if args.step=='claim': print('After approval, run this stage. It records the attempt before guiding the administrator claim.')
             return 0
         if args.command=='retire':
             require(args.plan and args.approval, 'Supply the saved destroy plan and its approval.')
@@ -264,6 +265,7 @@ def main():
             previous=sys.argv
             try:
                 sys.argv=['retire','--record',str(Path(args.choice).resolve()),'--plan',args.plan,'--approval',args.approval]
+                if args.partial: sys.argv += ['--partial-progress',str(progress)]
                 return retire.main()
             finally: sys.argv=previous
         if args.command in ('init','plan','plan-destroy','summary','approve','apply'):
@@ -286,6 +288,10 @@ def main():
                 # Destroy does not enrol a node. Satisfy the required input with
                 # an inert synthetic marker rather than request the spent key.
                 os.environ['TF_VAR_tailnet_auth_key']='tskey-auth-unused-destroy-only'
+                if args.partial:
+                    shown=gate.tofu('show','-json')
+                    require(shown.returncode==0, 'Read the encrypted partial state before recovery.')
+                    state['recovery_record']=partial_record(state,json.loads(shown.stdout)['values'])
                 gate.plan(args.plan,destroy=True)
                 bind_provider(state,args.plan,os.environ['TF_VAR_hcloud_token'],gate,remember=True); save(progress,state)
             elif args.command=='summary':
@@ -352,6 +358,11 @@ def main():
         effect=effect_for(state,args.step)
         require(reader.read_json(args.effect)==effect,'The prepared effect differs from the current stage.')
         gate.match_effect(effect,args.approval)
+        if args.step=='claim':
+            state_before=copy.deepcopy(state)
+            receipt=start_attempt(effect,args.approval,Path(state['choice_path']).parent/'place-attempts')
+            state['uncertain']=args.step; save(progress,state)
+            print('Open http://'+record['infrastructure']['tailnet_ipv4']+':8000/register yourself, create the first administrator and enable two-factor authentication. Then create the scoped team token for the hidden prompt. This attempt has started; inspect any uncertain claim before recovery.')
         token=prompt(gate,'Coolify token with read, read:sensitive, write and deploy, never root')
         api=API(record,'',token)
         observed=api.token_abilities()
@@ -383,12 +394,15 @@ def main():
             with api.opener.open(url.geturl(),timeout=45) as response: return response.status==200
         if args.step=='record':
             require(fingerprint(reader.read_json(state['choice_path']))==state['choice_sha256'],'The choice changed; do not overwrite it.')
-        state_before=copy.deepcopy(state)
         # Writes are not retried automatically if the process or read-back fails.
-        state['uncertain']=args.step; save(progress,state)
+        if args.step!='claim':
+            state_before=copy.deepcopy(state)
+            receipt=start_attempt(effect,args.approval,Path(state['choice_path']).parent/'place-attempts')
+            state['uncertain']=args.step; save(progress,state)
         update=run_stage(state_before,args.step,args.approval,gate,api,client,confirm,definition,reachable)
         if args.step=='record': state['record']=record_created(state,reader)
         state.update(update); state['done'].append(args.step); state['uncertain']=None; save(progress,state)
+        finish_attempt(receipt)
         print('Completed '+args.step+'. The place remains empty; use /check-live to read it.')
         return 0
     except (OSError,ValueError,KeyError,TypeError,subprocess.TimeoutExpired):
@@ -403,7 +417,7 @@ def main():
                 print('Uncertain result: '+uncertain+'. Its change may exist. Inspect it before any retry.',file=sys.stderr)
             if any(step in done for step in ('project','docktail','register')) or uncertain in ('project','docktail','register','start-register'):
                 print('Coolify plumbing may exist on the server. Retirement removes its disk and containers; a Tailscale service definition can remain for separate review.',file=sys.stderr)
-        print('Stopped: setup inputs, approval or transport failed; values withheld. Before apply, no provider resources are expected. After an attempted apply, the server, firewall and SSH key may exist. Keep the progress file and encrypted state. Export a candidate record if bootstrap passed, then use retire.py with an approved destroy plan. For a partial apply, review and approve the saved destroy plan through the gate. Do not retry an uncertain write or remove console leftovers without separate approval.',file=sys.stderr)
+        print('Stopped: setup inputs, approval or transport failed; values withheld. Before apply, no provider resources are expected. After an attempted apply, the server, firewall and SSH key may exist. Keep the progress file and encrypted state. Export a candidate record if bootstrap passed, then use retire.py with an approved destroy plan. For a partial apply, use plan-destroy --partial and retire --partial with a fresh saved-plan approval. Do not retry an uncertain write or remove console leftovers without separate approval.',file=sys.stderr)
         return 1
     finally:
         os.chdir(previous_directory)
