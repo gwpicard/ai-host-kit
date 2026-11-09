@@ -175,8 +175,11 @@ created place, not invented in advance.
    receipts consume approvals before writes and retain uncertain results.
    The generation also lives in setup progress and the created place record.
    Apply refuses a missing or replaced journal, including a copied directory.
-   Inspect the live state and obtain fresh approval through reviewed recovery;
-   deleting or replacing that directory never revives an old approval. Local operations hold
+   Inspect the live state and obtain fresh approval through reviewed recovery.
+   Deleting or replacing that directory does not revive an old approval, but
+   restoring its earlier contents in place does: the receipts are local files,
+   so anyone who can rewrite them can undo their record. Keep them as they are
+   and never restore them from a backup. Local operations hold
    exclusive place and firewall locks through observation, comparison, write
    and read-back. A competing operation refuses plainly. These locks cover
    cooperating kit processes on this computer, not console or remote writers.

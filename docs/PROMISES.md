@@ -71,6 +71,12 @@ tested unattended input and accidental plan substitution when the scripts,
 records and execution environment are trusted. It cannot prevent a hostile
 process with the same access as the person.
 
+The Place receipts that mark an approval as used have the same limit. A
+missing or replaced receipt journal is refused, but restoring its earlier
+contents in place makes a used approval valid again. A counter kept on the
+live firewall and server, which no local file can roll back, is planned
+before the Coolify recipe joins the menu.
+
 The person must run approval themselves, review unresolved effects, keep the
 passphrase, and leave agent permission prompts enabled. Agent settings are
 another prompt, not a security boundary against arbitrary code or a bypass
