@@ -255,3 +255,18 @@ The [limits](../docs/PROMISES.md#approval-gate-limits) explain that boundary.
 ```sh
 python3 .agents/tools/record_validation.py approval-record path/to/approval-record.json
 ```
+
+## Empty places
+
+A created but empty place can use `phase: place` with `infrastructure`, the
+place, network, firewall, empty tools list and encrypted-state description.
+Infrastructure records the server, firewall and SSH key IDs, public and tailnet
+IPv4 addresses and pinned versions. This stage records no backup storage or
+alert address, because those are not built in the Place slice. It cannot hold
+tools. The complete existing format still requires backup and alert fields.
+Choice-only drafts remain at `hosting/place-record.json`. A fixture of the
+new stage is in `.agents/tests/fixtures/place/place-record.json`; validation
+checks its shape, not whether the place exists or the addresses belong to it.
+Optional `infrastructure.plumbing` records the created Coolify project,
+docktail and canary identities and the tailnet service name. It contains no
+credentials or claim that the service is ready.

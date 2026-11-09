@@ -47,15 +47,14 @@ the hosting promises above.
 
 ## Approval gate limits
 
-The saved-plan gate is built and tested locally. The hosting commands still
-create no infrastructure. The broad promises above remain unproven: future
+The saved-plan gate is built and tested locally. The experimental empty-Place scripts have offline checks only. The broad promises above remain unproven: future
 host scripts, API writes and directory changes must use an approval mechanism
 before they can back those promises.
 
 | Local approval promise | Mechanism and evidence |
 |---|---|
 | Apply uses the approved saved bytes. | `setup-hosting/scripts/approval_gate.py` requires a valid record, matching full SHA-256, short confirmation and regenerated summary. It checks the original again and applies a private copy of the same bytes. `approval-gate.sh` exercises real encrypted saved plans, including missing and malformed records, changed bytes, a replacement at the same path and a change during apply. It detects removed record, checksum, summary and final-check protections. |
-| Approval and apply require a matching plan-time destination identity. | The controlled plan command captures project, configuration, workspace, backend settings and environment identity before and after planning, refuses changes and binds the record to the saved plan SHA-256. Summary, approval and apply validate that record and compare the current identity; approval and apply recheck it after review. Only local state storage is accepted, with explicit paths for configured backends and no state or workspace environment overrides. Tests refuse missing, malformed and substituted records, different state paths, workspace switches, changed environments, unsupported backends and identity changes during planning. Returning to the recorded workspace permits the original plan. Protection removals fail their outcome assertions. OpenTofu retains responsibility for stale-state checks. The [usage guide](../.agents/skills/setup-hosting/approval-gate.md) owns the supported-storage list and identity fields. |
+| Approval and apply require a matching plan-time destination identity. | The controlled plan command captures project, configuration, workspace, backend settings and environment identity before and after planning, refuses changes and binds the record to the saved plan SHA-256. Summary, approval and apply validate that record and compare the current identity; approval and apply recheck it after review. Local state storage and a restricted Hetzner S3 backend are accepted, with explicit destinations and no inherited state, workspace or AWS overrides. The S3 path prompts for storage keys and incorporates their digest into the target identity; keys are passed only to the child environment. Loopback S3 tests cover encrypted state, locks and workspace identity, not the live service. Tests refuse missing, malformed and substituted records, different state paths, workspace switches, changed environments, unsupported backends and identity changes during planning. Returning to the recorded workspace permits the original plan. Protection removals fail their outcome assertions. OpenTofu retains responsibility for stale-state checks. The [usage guide](../.agents/skills/setup-hosting/approval-gate.md) owns the supported-storage list and identity fields. |
 | The tested summaries put destruction first and name network changes without showing fixture secrets. | The same check covers real built-in destroy and replacement plans and a saved JSON network fixture. It checks ports, widened sources, public addresses and buckets, directory changes, nested sensitive and unknown masks, unknown resource types and the key-loss warning. Regressions cover secret-shaped map keys through summary, approval, records, apply and refusals; explicit address and protocol fields; wildcard sources; empty structures; and output actions. Removing the relevant protections fails these checks. This does not prove every provider schema or establish live reachability. |
 | Approval input comes from a foreground terminal. | The approve command reads the typed checksum and words from the controlling terminal, with echo disabled. `approval-gate.sh` refuses piped input, wrong confirmation and unsafe words, then exercises a synthetic terminal and a successful local apply. Removing the terminal check fails the pipe case even when a controlling terminal exists. |
 | Approval records reject the tested malformed records and unsafe text. | `approval-record.schema.json` and the shared reader check required fields, references and secret-shaped text. Contract fixtures and approval tests check refusals without printing the input values. Schema and secret-scan removals fail. These text checks can still miss disguised secrets. |
@@ -72,6 +71,12 @@ tested unattended input and accidental plan substitution when the scripts,
 records and execution environment are trusted. It cannot prevent a hostile
 process with the same access as the person.
 
+The Place receipts that mark an approval as used have the same limit. A
+missing or replaced receipt journal is refused, but restoring its earlier
+contents in place makes a used approval valid again. A counter kept on the
+live firewall and server, which no local file can roll back, is planned
+before the Coolify recipe joins the menu.
+
 The person must run approval themselves, review unresolved effects, keep the
 passphrase, and leave agent permission prompts enabled. Agent settings are
 another prompt, not a security boundary against arbitrary code or a bypass
@@ -79,3 +84,22 @@ mode. A stronger guarantee needs a signer or execution boundary outside the
 agent's control. No such boundary is claimed here. The
 [usage guide](../.agents/skills/setup-hosting/approval-gate.md) owns the commands,
 recording flow, encryption setup and output limits.
+
+## Offline Place checks
+
+The Coolify on Hetzner recipe remains off the menu. `place.sh` exercises the
+provider-mocked module, one-off key rendering, a local S3 stand-in, named-effect
+approval, claim confirmation and registration read-back, lanes, ownership,
+node reads, sampled ports including 8080, the MCP protocol, scope declarations,
+docktail port definitions, staged record assembly, destroy membership and
+leftovers. A generated root validates with the pinned provider. The complete
+setup command sequence uses stand-ins and synthetic approvals. The unmodified
+MCP pin has also created and started a synthetic service against a loopback
+API. Tests remove the corresponding guards in throwaway copies.
+
+These checks do not prove who claimed a real administrator, real tailnet
+policy, token abilities unavailable through the pinned API, actual docktail
+reconciliation, Hetzner locking or versioning, or either real-run outcome.
+The recipe owns the key-retention warning and approval sequence. A one-off
+key is still a secret while unused and unexpired. No broad hosting promise
+above changes to a guarantee.

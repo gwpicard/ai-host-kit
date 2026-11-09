@@ -1,6 +1,6 @@
 # GENERATED from .agents/skills/check-live/SKILL.md. Do not edit.
 # Run .agents/tools/build-adapters.sh to regenerate.
-description = "Read-only health and recovery checks for a live tool."
+description = "Read-only place checks and planned health and recovery checks for a live tool."
 prompt = """
 Load and follow `.agents/skills/check-live/SKILL.md`.
 Treat the following as the person's request (it may be empty): {{args}}

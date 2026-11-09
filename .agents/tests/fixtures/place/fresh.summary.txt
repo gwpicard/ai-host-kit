@@ -1,0 +1,85 @@
+Plan SHA-256: 0000000000000000000000000000000000000000000000000000000000000000
+Read-back checksum: 0000-0000-0000
+
+What will be destroyed, created or changed
+- Create: hcloud_firewall.coolify.
+- hcloud_firewall.coolify: apply_to: structural change (empty container added, removed or changed); values withheld.
+- hcloud_firewall.coolify: id: not set -> value withheld.
+- hcloud_firewall.coolify: labels.place: not set -> value withheld.
+- hcloud_firewall.coolify: labels.purpose: not set -> value withheld.
+- hcloud_firewall.coolify: name: not set -> value withheld.
+- hcloud_firewall.coolify: rule: structural change (empty container added, removed or changed); values withheld.
+- Create: hcloud_server.place.
+- hcloud_server.place: allow_deprecated_images: not set -> not set.
+- hcloud_server.place: backup_window: not set -> value withheld.
+- hcloud_server.place: backups: not set -> not set.
+- hcloud_server.place: datacenter: not set -> value withheld.
+- hcloud_server.place: delete_protection: not set -> not set.
+- hcloud_server.place: firewall_ids[0]: not set -> value withheld.
+- hcloud_server.place: id: not set -> value withheld.
+- hcloud_server.place: ignore_remote_firewall_ids: not set -> not set.
+- hcloud_server.place: image: not set -> value withheld.
+- hcloud_server.place: ipv4_address: not set -> value withheld.
+- hcloud_server.place: ipv6_address: not set -> value withheld.
+- hcloud_server.place: ipv6_network: not set -> value withheld.
+- hcloud_server.place: iso: not set -> not set.
+- hcloud_server.place: keep_disk: not set -> not set.
+- hcloud_server.place: labels.place: not set -> value withheld.
+- hcloud_server.place: labels.purpose: not set -> value withheld.
+- hcloud_server.place: location: not set -> value withheld.
+- hcloud_server.place: name: not set -> value withheld.
+- hcloud_server.place: network: structural change (empty container added, removed or changed); values withheld.
+- hcloud_server.place: placement_group_id: not set -> not set.
+- hcloud_server.place: primary_disk_size: not set -> value withheld.
+- hcloud_server.place: public_net[0].ipv4: not set -> value withheld.
+- hcloud_server.place: public_net[0].ipv4_enabled: not set -> value withheld.
+- hcloud_server.place: public_net[0].ipv6: not set -> value withheld.
+- hcloud_server.place: public_net[0].ipv6_enabled: not set -> value withheld.
+- hcloud_server.place: rebuild_protection: not set -> not set.
+- hcloud_server.place: rescue: not set -> not set.
+- hcloud_server.place: server_type: not set -> value withheld.
+- hcloud_server.place: shutdown_before_deletion: not set -> not set.
+- hcloud_server.place: ssh_keys[0]: not set -> value withheld.
+- hcloud_server.place: status: not set -> value withheld.
+- hcloud_server.place: timeouts: not set -> not set.
+- hcloud_server.place: user_data: withheld (sensitive or unknown) -> withheld (sensitive or unknown).
+- Create: hcloud_ssh_key.place.
+- hcloud_ssh_key.place: fingerprint: not set -> value withheld.
+- hcloud_ssh_key.place: id: not set -> value withheld.
+- hcloud_ssh_key.place: labels.place: not set -> value withheld.
+- hcloud_ssh_key.place: labels.purpose: not set -> value withheld.
+- hcloud_ssh_key.place: name: not set -> value withheld.
+- hcloud_ssh_key.place: public_key: not set -> value withheld.
+- Output cloud_init: created; value withheld; output changes do not create resources.
+- Output firewall_id: created; value withheld; output changes do not create resources.
+- Output ipv4_address: created; value withheld; output changes do not create resources.
+- Output server_id: created; value withheld; output changes do not create resources.
+- Output ssh_key_id: created; value withheld; output changes do not create resources.
+
+What will become reachable from the internet
+- hcloud_firewall.coolify: network or public-access change; check the ports, addresses and source ranges below.
+- hcloud_firewall.coolify: no public inbound ports are opened by these firewall rules.
+- hcloud_server.place: firewall_ids[0]: not set -> value withheld. Possibly affects who can reach the tool. Treat new or wider sources as possible internet access; unknown sources need review.
+- hcloud_server.place: ignore_remote_firewall_ids: not set -> not set. Possibly affects who can reach the tool. Treat new or wider sources as possible internet access; unknown sources need review.
+- hcloud_server.place: ipv4_address: not set -> value withheld. Possibly affects who can reach the tool. Treat new or wider sources as possible internet access; unknown sources need review.
+- hcloud_server.place: ipv6_address: not set -> value withheld. Possibly affects who can reach the tool. Treat new or wider sources as possible internet access; unknown sources need review.
+- hcloud_server.place: ipv6_network: not set -> value withheld. Possibly affects who can reach the tool. Treat new or wider sources as possible internet access; unknown sources need review.
+- hcloud_server.place: network: structural change (empty container added, removed or changed); values withheld. Possibly affects who can reach the tool. Treat new or wider sources as possible internet access; unknown sources need review.
+- hcloud_server.place: public_net[0].ipv4: not set -> value withheld. Possibly affects who can reach the tool. Treat new or wider sources as possible internet access; unknown sources need review.
+- hcloud_server.place: public_net[0].ipv4_enabled: not set -> value withheld. Possibly affects who can reach the tool. Treat new or wider sources as possible internet access; unknown sources need review.
+- hcloud_server.place: public_net[0].ipv6: not set -> value withheld. Possibly affects who can reach the tool. Treat new or wider sources as possible internet access; unknown sources need review.
+- hcloud_server.place: public_net[0].ipv6_enabled: not set -> value withheld. Possibly affects who can reach the tool. Treat new or wider sources as possible internet access; unknown sources need review.
+- hcloud_ssh_key.place: public_key: not set -> value withheld. Possibly affects who can reach the tool. Treat new or wider sources as possible internet access; unknown sources need review.
+
+What changes who can get in
+- hcloud_firewall.coolify: access, identity or directory registration changes; check who gains or loses access.
+- hcloud_server.place: firewall_ids[0]: not set -> value withheld.
+- hcloud_server.place: ignore_remote_firewall_ids: not set -> not set.
+- hcloud_server.place: ssh_keys[0]: not set -> value withheld.
+- hcloud_server.place: user_data: withheld (sensitive or unknown) -> withheld (sensitive or unknown).
+- hcloud_ssh_key.place: access, identity or directory registration changes; check who gains or loses access.
+- hcloud_ssh_key.place: public_key: not set -> value withheld.
+
+What cannot be undone
+- hcloud_server.place: the one-off tailnet auth key is sent in user data to Hetzner and retained in encrypted OpenTofu plans and state. Server cloud-init copies can remain. These copies cannot be recalled. The key is single use, uses the shortest available expiry that covers apply (aim for one hour) and is worthless once used or expired. Only tag:server joins are intended; tailnet policy controls access.
+- A lost passphrase means the state cannot be read. Keep it in your password manager; the kit keeps no copy.

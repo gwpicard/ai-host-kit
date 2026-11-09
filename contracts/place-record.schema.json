@@ -357,6 +357,105 @@
         "accepted_shortfalls"
       ],
       "additionalProperties": false
+    },
+    "phase": {
+      "const": "place"
+    },
+    "infrastructure": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "server_id": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "firewall_id": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "ssh_key_id": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "public_ipv4": {
+          "type": "string",
+          "format": "ipv4"
+        },
+        "tailnet_ipv4": {
+          "type": "string",
+          "format": "ipv4"
+        },
+        "versions": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "coolify": {
+              "const": "4.3.23"
+            },
+            "mcp": {
+              "const": "3.9.0"
+            },
+            "docktail": {
+              "const": "1.8.6"
+            },
+            "hcloud": {
+              "const": "1.70.2"
+            }
+          },
+          "required": [
+            "coolify",
+            "mcp",
+            "docktail",
+            "hcloud"
+          ]
+        },
+        "plumbing": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "project_uuid": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9-]+$"
+            },
+            "docktail_uuid": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9-]+$"
+            },
+            "canary_uuid": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9-]+$"
+            },
+            "tailnet_service_name": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9-]+$"
+            }
+          },
+          "required": [
+            "project_uuid",
+            "docktail_uuid",
+            "canary_uuid",
+            "tailnet_service_name"
+          ]
+        },
+        "journal": {
+          "type": "array",
+          "minItems": 32,
+          "maxItems": 32,
+          "items": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 255
+          }
+        }
+      },
+      "required": [
+        "server_id",
+        "firewall_id",
+        "ssh_key_id",
+        "public_ipv4",
+        "tailnet_ipv4",
+        "versions"
+      ]
     }
   },
   "additionalProperties": false,
@@ -372,6 +471,17 @@
         "firewall",
         "backup_storage",
         "alert_addresses",
+        "tools",
+        "encrypted_state"
+      ]
+    },
+    {
+      "required": [
+        "phase",
+        "infrastructure",
+        "place",
+        "network",
+        "firewall",
         "tools",
         "encrypted_state"
       ]
@@ -416,8 +526,48 @@
             "required": [
               "encrypted_state"
             ]
+          },
+          {
+            "required": [
+              "phase"
+            ]
+          },
+          {
+            "required": [
+              "infrastructure"
+            ]
           }
         ]
+      }
+    }
+  ],
+  "allOf": [
+    {
+      "if": {
+        "required": [
+          "phase"
+        ]
+      },
+      "then": {
+        "properties": {
+          "tools": {
+            "maxItems": 0
+          }
+        },
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "backup_storage"
+              ]
+            },
+            {
+              "required": [
+                "alert_addresses"
+              ]
+            }
+          ]
+        }
       }
     }
   ]

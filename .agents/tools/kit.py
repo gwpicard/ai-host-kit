@@ -149,7 +149,7 @@ def adapter_files():
         result[resources + 'contracts/' + name] = (ROOT / 'contracts' / name).read_text()
     source = ROOT / '.agents/skills/recipes'
     for path in sorted(source.rglob('*')):
-        if path.is_file() and path.suffix in ('.json', '.md'):
+        if path.is_file() and '.terraform' not in path.parts and path.suffix in ('.json', '.md', '.py', '.sh', '.tf', '.hcl'):
             result[resources + 'recipes/' + str(path.relative_to(source))] = path.read_text()
     for name in ('record_validation.py', 'schema-requirements.txt'):
         result[resources + name] = (ROOT / '.agents/tools' / name).read_text()
@@ -185,6 +185,8 @@ def build_adapters(args):
             p = ROOT / path
             p.parent.mkdir(parents=True, exist_ok=True)
             p.write_text(text)
+            if p.suffix == '.sh':
+                p.chmod(0o755)
         print('Generated Claude Code, Cursor and Gemini CLI adapters for 4 commands.')
 
 

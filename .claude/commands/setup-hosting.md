@@ -1,5 +1,5 @@
 ---
-description: Choose a host and record its fit. Creating the place is not built yet; checking is /check-live.
+description: Choose a host, record its fit and prepare an approved empty Place; checking is /check-live.
 ---
 <!-- GENERATED from .agents/skills/setup-hosting/. Do not edit; run .agents/tools/build-adapters.sh -->
 

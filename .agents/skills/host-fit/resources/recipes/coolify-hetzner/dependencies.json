@@ -1,0 +1,19 @@
+{
+  "coolify": "4.3.23",
+  "hcloud": "1.70.2",
+  "mcp": {
+    "package": "@masonator/coolify-mcp",
+    "version": "3.9.0",
+    "integrity": "sha512-tjCqT2oa0v8+oD4rgaMtRXfORFsSnB0CWdX+vphcEfT+xu6ZsOT/ZyIHkumLM6qecx8oWZhiZbSpcaoHOxdwiQ==",
+    "licence": "MIT"
+  },
+  "docktail": {
+    "image": "ghcr.io/marvinvr/docktail:1.8.6",
+    "licence": "AGPL-3.0",
+    "modified": false
+  },
+  "canary": {
+    "image": "traefik/whoami:v1.11.0",
+    "purpose": "Empty-place tailnet connectivity check"
+  }
+}

@@ -273,7 +273,7 @@ def run_checks(checks, work):
         ('late approval identity', '        match_target(record, planned_identity(path, sha))\n        unchanged(path, sha)', '        unchanged(path, sha)', lambda m: late_identity(checks, m, project, work, approval=True, skill=scratch)),
         ('late apply identity', "        match_target(record, planned_identity(path, sha))\n        applied", '        applied', lambda m: late_identity(checks, m, project, work)),
         ('redirecting environment', '    if redirecting:', '    if False:', lambda m: backend_restrictions(checks, m, project, work, 'TF_WORKSPACE')),
-        ('unsupported backend', "    if backend_record['type'] != 'local':", '    if False:', lambda m: backend_restrictions(checks, m, project, work, 'unsupported-shaped')),
+        ('unsupported backend', "    if backend_record['type'] not in ('local', 's3'):", '    if False:', lambda m: backend_restrictions(checks, m, project, work, 'unsupported-shaped')),
         ('explicit local destination', "not isinstance(settings.get('path'), str) or not settings['path']", 'False', lambda m: backend_restrictions(checks, m, project, work, 'empty')),
         ('bundled encryption fragment', '    if not any(p.is_file()', '    if False and not any(p.is_file()', lambda m: fragment_presence(checks, m, project, work)),
         ('final apply version check', '        check_version()\n        require_encryption()\n        match_target', '        require_encryption()\n        match_target', lambda m: apply_version_recheck(checks, m, project, work)),

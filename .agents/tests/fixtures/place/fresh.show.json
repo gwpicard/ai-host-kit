@@ -1,0 +1,689 @@
+{
+  "format_version": "1.2",
+  "terraform_version": "1.13.2",
+  "variables": {
+    "location": {
+      "value": "fsn1"
+    },
+    "place_name": {
+      "value": "test-place"
+    },
+    "server_type": {
+      "value": "cx23"
+    },
+    "ssh_public_key": {
+      "value": "ssh-ed25519 c3ludGhldGlj test"
+    },
+    "tailnet_auth_key": {
+      "value": "tskey-auth-synthetic-only"
+    },
+    "tailnet_key_settings": {
+      "value": {
+        "ephemeral": false,
+        "expiry_seconds": 3600,
+        "preauthorised": true,
+        "reusable": false,
+        "shortest_available": true,
+        "tags": [
+          "tag:server"
+        ]
+      }
+    }
+  },
+  "planned_values": {
+    "outputs": {
+      "cloud_init": {
+        "sensitive": true,
+        "type": "string",
+        "value": "#!/bin/bash\n# Launch order and IPv4 apt handling adapted from coolify-launchpad; see docs/SOURCES.md.\nset -euo pipefail\nexport DEBIAN_FRONTEND=noninteractive\nprintf '%s\\n' 'Acquire::ForceIPv4 \"true\";' > /etc/apt/apt.conf.d/99force-ipv4\nprintf '%s\\n' 'DPkg::Lock::Timeout \"300\";' > /etc/apt/apt.conf.d/99lock-timeout\napt-get -o Acquire::ForceIPv4=true update\napt-get -o Acquire::ForceIPv4=true install -y curl ca-certificates\ncurl -4 -fsSL https://tailscale.com/install.sh | sh\ninstall -d -m 700 /run/ai-host-kit\nTAILSCALE_KEY_FILE=/run/ai-host-kit/tailscale-auth-key\ntrap 'rm -f \"$TAILSCALE_KEY_FILE\"' EXIT\n(umask 077 && base64 -d > \"$TAILSCALE_KEY_FILE\" <<'HOST_KIT_KEY'\ndHNrZXktYXV0aC1zeW50aGV0aWMtb25seQ==\nHOST_KIT_KEY\n)\n# Keep the credential out of arguments and diagnostics, including a failed join.\nif ! tailscale up --auth-key=\"file:$TAILSCALE_KEY_FILE\" --ssh \\\n    --advertise-tags=tag:server --hostname=test-place >/dev/null 2>&1; then\n    printf '%s\\n' 'Tailnet join failed. Coolify was not installed.' >&2\n    exit 1\nfi\nrm -f \"$TAILSCALE_KEY_FILE\"\ntailscale ip -4 >/dev/null\ncurl -4 -fsSL https://cdn.coollabs.io/coolify/install.sh | bash -s 4.3.23\n"
+      },
+      "firewall_id": {
+        "sensitive": false,
+        "type": "string",
+        "value": "101"
+      },
+      "ipv4_address": {
+        "sensitive": false,
+        "type": "string",
+        "value": "A9JYREmyJFCEQe"
+      },
+      "server_id": {
+        "sensitive": false,
+        "type": "string",
+        "value": "gvbRV5NknU53"
+      },
+      "ssh_key_id": {
+        "sensitive": false,
+        "type": "string",
+        "value": "sNxKOTYzU6Mih"
+      }
+    },
+    "root_module": {
+      "resources": [
+        {
+          "address": "hcloud_firewall.coolify",
+          "mode": "managed",
+          "type": "hcloud_firewall",
+          "name": "coolify",
+          "provider_name": "registry.opentofu.org/hetznercloud/hcloud",
+          "schema_version": 0,
+          "values": {
+            "apply_to": [],
+            "id": "101",
+            "labels": {
+              "place": "test-place",
+              "purpose": "ai-host-kit"
+            },
+            "name": "coolify",
+            "rule": []
+          },
+          "sensitive_values": {
+            "apply_to": [],
+            "labels": {},
+            "rule": []
+          }
+        },
+        {
+          "address": "hcloud_server.place",
+          "mode": "managed",
+          "type": "hcloud_server",
+          "name": "place",
+          "provider_name": "registry.opentofu.org/hetznercloud/hcloud",
+          "schema_version": 0,
+          "values": {
+            "allow_deprecated_images": null,
+            "backup_window": "FAlS",
+            "backups": null,
+            "datacenter": "2aLNIEu",
+            "delete_protection": null,
+            "firewall_ids": [
+              101
+            ],
+            "id": "gvbRV5NknU53",
+            "ignore_remote_firewall_ids": null,
+            "image": "ubuntu-24.04",
+            "ipv4_address": "A9JYREmyJFCEQe",
+            "ipv6_address": "zGdgInmbaHOaAU",
+            "ipv6_network": "JmgkA1zrsgOGkco",
+            "iso": null,
+            "keep_disk": null,
+            "labels": {
+              "place": "test-place",
+              "purpose": "ai-host-kit"
+            },
+            "location": "fsn1",
+            "name": "test-place",
+            "network": [],
+            "placement_group_id": null,
+            "primary_disk_size": 0,
+            "public_net": [
+              {
+                "ipv4": 0,
+                "ipv4_enabled": true,
+                "ipv6": 0,
+                "ipv6_enabled": false
+              }
+            ],
+            "rebuild_protection": null,
+            "rescue": null,
+            "server_type": "cx23",
+            "shutdown_before_deletion": null,
+            "ssh_keys": [
+              "sNxKOTYzU6Mih"
+            ],
+            "status": "2EzUicP7e2U",
+            "timeouts": null,
+            "user_data": "#!/bin/bash\n# Launch order and IPv4 apt handling adapted from coolify-launchpad; see docs/SOURCES.md.\nset -euo pipefail\nexport DEBIAN_FRONTEND=noninteractive\nprintf '%s\\n' 'Acquire::ForceIPv4 \"true\";' > /etc/apt/apt.conf.d/99force-ipv4\nprintf '%s\\n' 'DPkg::Lock::Timeout \"300\";' > /etc/apt/apt.conf.d/99lock-timeout\napt-get -o Acquire::ForceIPv4=true update\napt-get -o Acquire::ForceIPv4=true install -y curl ca-certificates\ncurl -4 -fsSL https://tailscale.com/install.sh | sh\ninstall -d -m 700 /run/ai-host-kit\nTAILSCALE_KEY_FILE=/run/ai-host-kit/tailscale-auth-key\ntrap 'rm -f \"$TAILSCALE_KEY_FILE\"' EXIT\n(umask 077 && base64 -d > \"$TAILSCALE_KEY_FILE\" <<'HOST_KIT_KEY'\ndHNrZXktYXV0aC1zeW50aGV0aWMtb25seQ==\nHOST_KIT_KEY\n)\n# Keep the credential out of arguments and diagnostics, including a failed join.\nif ! tailscale up --auth-key=\"file:$TAILSCALE_KEY_FILE\" --ssh \\\n    --advertise-tags=tag:server --hostname=test-place >/dev/null 2>&1; then\n    printf '%s\\n' 'Tailnet join failed. Coolify was not installed.' >&2\n    exit 1\nfi\nrm -f \"$TAILSCALE_KEY_FILE\"\ntailscale ip -4 >/dev/null\ncurl -4 -fsSL https://cdn.coollabs.io/coolify/install.sh | bash -s 4.3.23\n"
+          },
+          "sensitive_values": {
+            "firewall_ids": [
+              false
+            ],
+            "labels": {},
+            "network": [],
+            "public_net": [
+              {}
+            ],
+            "ssh_keys": [
+              false
+            ],
+            "user_data": true
+          }
+        },
+        {
+          "address": "hcloud_ssh_key.place",
+          "mode": "managed",
+          "type": "hcloud_ssh_key",
+          "name": "place",
+          "provider_name": "registry.opentofu.org/hetznercloud/hcloud",
+          "schema_version": 0,
+          "values": {
+            "fingerprint": "66md77NqRgkYg",
+            "id": "sNxKOTYzU6Mih",
+            "labels": {
+              "place": "test-place",
+              "purpose": "ai-host-kit"
+            },
+            "name": "test-place",
+            "public_key": "ssh-ed25519 c3ludGhldGlj test"
+          },
+          "sensitive_values": {
+            "labels": {}
+          }
+        }
+      ]
+    }
+  },
+  "resource_changes": [
+    {
+      "address": "hcloud_firewall.coolify",
+      "mode": "managed",
+      "type": "hcloud_firewall",
+      "name": "coolify",
+      "provider_name": "registry.opentofu.org/hetznercloud/hcloud",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "before": null,
+        "after": {
+          "apply_to": [],
+          "id": "101",
+          "labels": {
+            "place": "test-place",
+            "purpose": "ai-host-kit"
+          },
+          "name": "coolify",
+          "rule": []
+        },
+        "after_unknown": {},
+        "before_sensitive": false,
+        "after_sensitive": {
+          "apply_to": [],
+          "labels": {},
+          "rule": []
+        }
+      }
+    },
+    {
+      "address": "hcloud_server.place",
+      "mode": "managed",
+      "type": "hcloud_server",
+      "name": "place",
+      "provider_name": "registry.opentofu.org/hetznercloud/hcloud",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "before": null,
+        "after": {
+          "allow_deprecated_images": null,
+          "backup_window": "FAlS",
+          "backups": null,
+          "datacenter": "2aLNIEu",
+          "delete_protection": null,
+          "firewall_ids": [
+            101
+          ],
+          "id": "gvbRV5NknU53",
+          "ignore_remote_firewall_ids": null,
+          "image": "ubuntu-24.04",
+          "ipv4_address": "A9JYREmyJFCEQe",
+          "ipv6_address": "zGdgInmbaHOaAU",
+          "ipv6_network": "JmgkA1zrsgOGkco",
+          "iso": null,
+          "keep_disk": null,
+          "labels": {
+            "place": "test-place",
+            "purpose": "ai-host-kit"
+          },
+          "location": "fsn1",
+          "name": "test-place",
+          "network": [],
+          "placement_group_id": null,
+          "primary_disk_size": 0,
+          "public_net": [
+            {
+              "ipv4": 0,
+              "ipv4_enabled": true,
+              "ipv6": 0,
+              "ipv6_enabled": false
+            }
+          ],
+          "rebuild_protection": null,
+          "rescue": null,
+          "server_type": "cx23",
+          "shutdown_before_deletion": null,
+          "ssh_keys": [
+            "sNxKOTYzU6Mih"
+          ],
+          "status": "2EzUicP7e2U",
+          "timeouts": null,
+          "user_data": "#!/bin/bash\n# Launch order and IPv4 apt handling adapted from coolify-launchpad; see docs/SOURCES.md.\nset -euo pipefail\nexport DEBIAN_FRONTEND=noninteractive\nprintf '%s\\n' 'Acquire::ForceIPv4 \"true\";' > /etc/apt/apt.conf.d/99force-ipv4\nprintf '%s\\n' 'DPkg::Lock::Timeout \"300\";' > /etc/apt/apt.conf.d/99lock-timeout\napt-get -o Acquire::ForceIPv4=true update\napt-get -o Acquire::ForceIPv4=true install -y curl ca-certificates\ncurl -4 -fsSL https://tailscale.com/install.sh | sh\ninstall -d -m 700 /run/ai-host-kit\nTAILSCALE_KEY_FILE=/run/ai-host-kit/tailscale-auth-key\ntrap 'rm -f \"$TAILSCALE_KEY_FILE\"' EXIT\n(umask 077 && base64 -d > \"$TAILSCALE_KEY_FILE\" <<'HOST_KIT_KEY'\ndHNrZXktYXV0aC1zeW50aGV0aWMtb25seQ==\nHOST_KIT_KEY\n)\n# Keep the credential out of arguments and diagnostics, including a failed join.\nif ! tailscale up --auth-key=\"file:$TAILSCALE_KEY_FILE\" --ssh \\\n    --advertise-tags=tag:server --hostname=test-place >/dev/null 2>&1; then\n    printf '%s\\n' 'Tailnet join failed. Coolify was not installed.' >&2\n    exit 1\nfi\nrm -f \"$TAILSCALE_KEY_FILE\"\ntailscale ip -4 >/dev/null\ncurl -4 -fsSL https://cdn.coollabs.io/coolify/install.sh | bash -s 4.3.23\n"
+        },
+        "after_unknown": {},
+        "before_sensitive": false,
+        "after_sensitive": {
+          "firewall_ids": [
+            false
+          ],
+          "labels": {},
+          "network": [],
+          "public_net": [
+            {}
+          ],
+          "ssh_keys": [
+            false
+          ],
+          "user_data": true
+        }
+      }
+    },
+    {
+      "address": "hcloud_ssh_key.place",
+      "mode": "managed",
+      "type": "hcloud_ssh_key",
+      "name": "place",
+      "provider_name": "registry.opentofu.org/hetznercloud/hcloud",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "before": null,
+        "after": {
+          "fingerprint": "66md77NqRgkYg",
+          "id": "sNxKOTYzU6Mih",
+          "labels": {
+            "place": "test-place",
+            "purpose": "ai-host-kit"
+          },
+          "name": "test-place",
+          "public_key": "ssh-ed25519 c3ludGhldGlj test"
+        },
+        "after_unknown": {},
+        "before_sensitive": false,
+        "after_sensitive": {
+          "labels": {}
+        }
+      }
+    }
+  ],
+  "output_changes": {
+    "cloud_init": {
+      "actions": [
+        "create"
+      ],
+      "before": null,
+      "after": "#!/bin/bash\n# Launch order and IPv4 apt handling adapted from coolify-launchpad; see docs/SOURCES.md.\nset -euo pipefail\nexport DEBIAN_FRONTEND=noninteractive\nprintf '%s\\n' 'Acquire::ForceIPv4 \"true\";' > /etc/apt/apt.conf.d/99force-ipv4\nprintf '%s\\n' 'DPkg::Lock::Timeout \"300\";' > /etc/apt/apt.conf.d/99lock-timeout\napt-get -o Acquire::ForceIPv4=true update\napt-get -o Acquire::ForceIPv4=true install -y curl ca-certificates\ncurl -4 -fsSL https://tailscale.com/install.sh | sh\ninstall -d -m 700 /run/ai-host-kit\nTAILSCALE_KEY_FILE=/run/ai-host-kit/tailscale-auth-key\ntrap 'rm -f \"$TAILSCALE_KEY_FILE\"' EXIT\n(umask 077 && base64 -d > \"$TAILSCALE_KEY_FILE\" <<'HOST_KIT_KEY'\ndHNrZXktYXV0aC1zeW50aGV0aWMtb25seQ==\nHOST_KIT_KEY\n)\n# Keep the credential out of arguments and diagnostics, including a failed join.\nif ! tailscale up --auth-key=\"file:$TAILSCALE_KEY_FILE\" --ssh \\\n    --advertise-tags=tag:server --hostname=test-place >/dev/null 2>&1; then\n    printf '%s\\n' 'Tailnet join failed. Coolify was not installed.' >&2\n    exit 1\nfi\nrm -f \"$TAILSCALE_KEY_FILE\"\ntailscale ip -4 >/dev/null\ncurl -4 -fsSL https://cdn.coollabs.io/coolify/install.sh | bash -s 4.3.23\n",
+      "after_unknown": false,
+      "before_sensitive": true,
+      "after_sensitive": true
+    },
+    "firewall_id": {
+      "actions": [
+        "create"
+      ],
+      "before": null,
+      "after": "101",
+      "after_unknown": false,
+      "before_sensitive": false,
+      "after_sensitive": false
+    },
+    "ipv4_address": {
+      "actions": [
+        "create"
+      ],
+      "before": null,
+      "after": "A9JYREmyJFCEQe",
+      "after_unknown": false,
+      "before_sensitive": false,
+      "after_sensitive": false
+    },
+    "server_id": {
+      "actions": [
+        "create"
+      ],
+      "before": null,
+      "after": "gvbRV5NknU53",
+      "after_unknown": false,
+      "before_sensitive": false,
+      "after_sensitive": false
+    },
+    "ssh_key_id": {
+      "actions": [
+        "create"
+      ],
+      "before": null,
+      "after": "sNxKOTYzU6Mih",
+      "after_unknown": false,
+      "before_sensitive": false,
+      "after_sensitive": false
+    }
+  },
+  "configuration": {
+    "provider_config": {
+      "hcloud": {
+        "name": "hcloud",
+        "full_name": "registry.opentofu.org/hetznercloud/hcloud",
+        "version_constraint": "1.70.2"
+      }
+    },
+    "root_module": {
+      "outputs": {
+        "cloud_init": {
+          "sensitive": true,
+          "expression": {
+            "references": [
+              "local.cloud_init"
+            ]
+          }
+        },
+        "firewall_id": {
+          "expression": {
+            "references": [
+              "hcloud_firewall.coolify.id",
+              "hcloud_firewall.coolify"
+            ]
+          }
+        },
+        "ipv4_address": {
+          "expression": {
+            "references": [
+              "hcloud_server.place.ipv4_address",
+              "hcloud_server.place"
+            ]
+          }
+        },
+        "server_id": {
+          "expression": {
+            "references": [
+              "hcloud_server.place.id",
+              "hcloud_server.place"
+            ]
+          }
+        },
+        "ssh_key_id": {
+          "expression": {
+            "references": [
+              "hcloud_ssh_key.place.id",
+              "hcloud_ssh_key.place"
+            ]
+          }
+        }
+      },
+      "resources": [
+        {
+          "address": "hcloud_firewall.coolify",
+          "mode": "managed",
+          "type": "hcloud_firewall",
+          "name": "coolify",
+          "provider_config_key": "hcloud",
+          "expressions": {
+            "labels": {
+              "references": [
+                "local.ownership"
+              ]
+            },
+            "name": {
+              "constant_value": "coolify"
+            }
+          },
+          "schema_version": 0
+        },
+        {
+          "address": "hcloud_server.place",
+          "mode": "managed",
+          "type": "hcloud_server",
+          "name": "place",
+          "provider_config_key": "hcloud",
+          "expressions": {
+            "firewall_ids": {
+              "references": [
+                "hcloud_firewall.coolify.id",
+                "hcloud_firewall.coolify"
+              ]
+            },
+            "image": {
+              "constant_value": "ubuntu-24.04"
+            },
+            "labels": {
+              "references": [
+                "local.ownership"
+              ]
+            },
+            "location": {
+              "references": [
+                "var.location"
+              ]
+            },
+            "name": {
+              "references": [
+                "var.place_name"
+              ]
+            },
+            "public_net": [
+              {
+                "ipv4_enabled": {
+                  "constant_value": true
+                },
+                "ipv6_enabled": {
+                  "constant_value": false
+                }
+              }
+            ],
+            "server_type": {
+              "references": [
+                "var.server_type"
+              ]
+            },
+            "ssh_keys": {
+              "references": [
+                "hcloud_ssh_key.place.id",
+                "hcloud_ssh_key.place"
+              ]
+            },
+            "user_data": {
+              "references": [
+                "local.cloud_init"
+              ]
+            }
+          },
+          "schema_version": 0
+        },
+        {
+          "address": "hcloud_ssh_key.place",
+          "mode": "managed",
+          "type": "hcloud_ssh_key",
+          "name": "place",
+          "provider_config_key": "hcloud",
+          "expressions": {
+            "labels": {
+              "references": [
+                "local.ownership"
+              ]
+            },
+            "name": {
+              "references": [
+                "var.place_name"
+              ]
+            },
+            "public_key": {
+              "references": [
+                "var.ssh_public_key"
+              ]
+            }
+          },
+          "schema_version": 0
+        }
+      ],
+      "variables": {
+        "location": {
+          "type": "string",
+          "required": true
+        },
+        "place_name": {
+          "type": "string",
+          "required": true
+        },
+        "server_type": {
+          "type": "string",
+          "required": true
+        },
+        "ssh_public_key": {
+          "type": "string",
+          "required": true
+        },
+        "tailnet_auth_key": {
+          "type": "string",
+          "required": true,
+          "sensitive": true
+        },
+        "tailnet_key_settings": {
+          "type": [
+            "object",
+            {
+              "ephemeral": "bool",
+              "expiry_seconds": "number",
+              "preauthorised": "bool",
+              "reusable": "bool",
+              "shortest_available": "bool",
+              "tags": [
+                "set",
+                "string"
+              ]
+            }
+          ],
+          "required": true
+        }
+      }
+    }
+  },
+  "relevant_attributes": [
+    {
+      "resource": "hcloud_firewall.coolify",
+      "attribute": [
+        "id"
+      ]
+    },
+    {
+      "resource": "hcloud_server.place",
+      "attribute": [
+        "ipv4_address"
+      ]
+    },
+    {
+      "resource": "hcloud_server.place",
+      "attribute": [
+        "id"
+      ]
+    },
+    {
+      "resource": "hcloud_ssh_key.place",
+      "attribute": [
+        "id"
+      ]
+    }
+  ],
+  "checks": [
+    {
+      "address": {
+        "kind": "resource",
+        "mode": "managed",
+        "name": "place",
+        "to_display": "hcloud_server.place",
+        "type": "hcloud_server"
+      },
+      "status": "pass",
+      "instances": [
+        {
+          "address": {
+            "to_display": "hcloud_server.place"
+          },
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "address": {
+        "kind": "var",
+        "name": "location",
+        "to_display": "var.location"
+      },
+      "status": "pass",
+      "instances": [
+        {
+          "address": {
+            "to_display": "var.location"
+          },
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "address": {
+        "kind": "var",
+        "name": "place_name",
+        "to_display": "var.place_name"
+      },
+      "status": "pass",
+      "instances": [
+        {
+          "address": {
+            "to_display": "var.place_name"
+          },
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "address": {
+        "kind": "var",
+        "name": "ssh_public_key",
+        "to_display": "var.ssh_public_key"
+      },
+      "status": "pass",
+      "instances": [
+        {
+          "address": {
+            "to_display": "var.ssh_public_key"
+          },
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "address": {
+        "kind": "var",
+        "name": "tailnet_auth_key",
+        "to_display": "var.tailnet_auth_key"
+      },
+      "status": "pass",
+      "instances": [
+        {
+          "address": {
+            "to_display": "var.tailnet_auth_key"
+          },
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "address": {
+        "kind": "var",
+        "name": "tailnet_key_settings",
+        "to_display": "var.tailnet_key_settings"
+      },
+      "status": "pass",
+      "instances": [
+        {
+          "address": {
+            "to_display": "var.tailnet_key_settings"
+          },
+          "status": "pass"
+        }
+      ]
+    }
+  ],
+  "timestamp": "2026-11-09T11:40:52Z",
+  "errored": false
+}
