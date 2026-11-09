@@ -520,11 +520,14 @@ def installer_checks(work):
 
 def main():
     if not shutil.which('tofu'):
-        print('could not check: install the pinned OpenTofu with .agents/tools/install-tofu.py and add it to PATH')
+        print('could-not-run: install the pinned OpenTofu with .agents/tools/install-tofu.py and add it to PATH')
+        return 2
+    if load().records.dependencies() is None:
+        print('could-not-run: schema packages are missing')
         return 2
     version = run(['tofu', 'version', '-json']).stdout
     if json.loads(version)['terraform_version'] != '1.13.2':
-        print('could not check: these tests require OpenTofu 1.13.2')
+        print('could-not-run: these tests require OpenTofu 1.13.2')
         return 2
     with tempfile.TemporaryDirectory(prefix='ai-host-kit-approval-checks-') as temp, patch.dict(os.environ, ENV):
         work = Path(temp)

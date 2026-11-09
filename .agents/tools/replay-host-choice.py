@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Build local host-choice cases; run a model only with the explicit --run flag."""
 import argparse
+import ast
 import json
 import os
 from pathlib import Path
@@ -16,6 +17,7 @@ ROOT = Path(__file__).resolve().parents[2]
 CASES = ROOT / '.agents/tests/replays/host-choice'
 # Keep this independent of the skill text so dry mode detects drift on either side.
 SCRIPT_ALLOW_RULE = 'Bash(python3 .agents/skills/host-fit/scripts/host_fit.py *)'
+PLACE = 'hosting/place-record.json'
 ANSWERS = 'hosting/host-fit-answers.tmp.json'
 
 
@@ -40,6 +42,25 @@ def check_command_rule(prefix):
     require(not shlex.split(prefix)[1].startswith('/'), 'replay script path must be relative')
     require(SCRIPT_ALLOW_RULE == 'Bash(' + prefix + ' *)',
             'skill command and harness allow rule differ')
+
+
+def check_place_location(project):
+    for name in ('setup-hosting', 'host-fit'):
+        text = (project / '.agents/skills' / name / 'SKILL.md').read_text()
+        paths = re.findall(r'`([^`]*place-record\.json)`', text)
+        require(bool(paths) and set(paths) == {PLACE},
+                name + ': draft place record location differs from harness')
+    source = project / '.agents/skills/host-fit/scripts/host_fit.py'
+    defaults = {}
+    for node in ast.walk(ast.parse(source.read_text())):
+        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                and node.func.attr == 'add_argument' and node.args
+                and isinstance(node.args[0], ast.Constant)
+                and node.args[0].value in ('--place', '--output')):
+            defaults[node.args[0].value] = next(
+                (ast.literal_eval(k.value) for k in node.keywords if k.arg == 'default'), None)
+    require(defaults == {'--place': PLACE, '--output': PLACE},
+            'script defaults and harness draft place record location differ')
 
 
 def checked_command(prefix, action, *args):
@@ -75,7 +96,7 @@ def build(case, folder):
     (folder / 'hosting').mkdir()
     (folder / 'hosting/handover.json').write_text(json.dumps(case['handover'], indent=2) + '\n')
     if case['place']:
-        (folder / 'place-record.json').write_text(json.dumps(case['place'], indent=2) + '\n')
+        (folder / PLACE).write_text(json.dumps(case['place'], indent=2) + '\n')
     (folder / 'AGENTS.md').write_text('This is a local replay project. Follow .agents/skills/setup-hosting/SKILL.md. Read only the supplied handover. Never contact hosts, provider APIs or external repositories. Do not run another model. Write only local choice files. Do not invent a person\'s answers or acceptance.\n')
     (folder / 'expected.json').write_text(json.dumps(case['expected'], indent=2) + '\n')
     (folder / 'person-turns.json').write_text(json.dumps(case['turns'], indent=2) + '\n')
@@ -86,6 +107,7 @@ def build(case, folder):
 
 
 def dry_check(case, project):
+    check_place_location(project)
     prefix = skill_command(project / '.agents/skills/host-fit/SKILL.md')
     check_command_rule(prefix)
     # Execute exactly the documented command from the throwaway project root.
@@ -94,19 +116,35 @@ def dry_check(case, project):
         require(result.returncode == 0, 'assembled project check failed: ' + result.stdout + result.stderr)
         return result.stdout
     h = ['--handover', 'hosting/handover.json']
-    place = ['--place', 'place-record.json'] if case['place'] else []
-    questions = json.loads(call('questions', *h, *place))
+    # Exercise the default input path, including existing records.
+    questions = json.loads(call('questions', *h))
     require([q['id'] for q in questions] == case['expected']['questions'], 'question expectation differs')
     (project / ANSWERS).write_text(json.dumps(case['expected']['answers']))
-    result = json.loads(call('suggest', *h, *place, '--answers', ANSWERS))
+    result = json.loads(call('suggest', *h, '--answers', ANSWERS))
     require(result['host'] == case['expected']['host'] and result['wish'] == case['expected']['wish'], 'suggestion expectation differs')
     require(result['proof'] == 'not yet proven', 'stub became proven')
     require(json.loads(call('menu')) == [], 'stub reached the menu')
     call('check-recipes')
     for host in ('azure', 'coolify-hetzner', 'vercel-postgres'):
         call('fit', *h, '--recipe', host)
-    pending = json.loads(call('warnings', *h, *place, '--recipe', case['expected']['host']))
+    pending = json.loads(call('warnings', *h, '--recipe', case['expected']['host']))
     require(len(pending) == case['expected']['warnings'], 'warning expectation differs')
+    record = project / PLACE
+    original = record.read_bytes() if record.exists() else None
+    try:
+        call('record', *h, '--answers', ANSWERS, '--recipe', case['expected']['host'])
+        saved = json.loads(record.read_text())
+        require(saved['choice']['host'] == case['expected']['host'], 'default record output differs')
+        require(not (project / 'place-record.json').exists(), 'record written at project root')
+        if case['place']:
+            require(all(saved[k] == v for k, v in case['place'].items() if k != 'choice'),
+                    'default record update changed infrastructure fields')
+    finally:
+        # Dry checks must not supply future answers to a subsequent model replay.
+        if original is None:
+            record.unlink(missing_ok=True)
+        else:
+            record.write_bytes(original)
     (project / ANSWERS).unlink()
 
 

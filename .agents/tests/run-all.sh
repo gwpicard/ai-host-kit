@@ -14,6 +14,26 @@ WORK=$(mktemp -d)
 trap 'rm -R "$WORK"' EXIT INT TERM
 : > "$WORK/not-run"
 
+run_group() {
+  group=$1
+  script=$2
+  required=""
+  case "$group" in
+    approval-gate | commit-hook | contracts | host-fit | pull-request-checks | rehearsal-runner | release-builder | source-rules)
+      required="python3 git" ;;
+  esac
+  case "$group" in
+    pull-request-checks | release-builder | source-rules) required="$required ruby" ;;
+  esac
+  for tool in $required; do
+    if ! command -v "$tool" >/dev/null 2>&1; then
+      printf 'could-not-run: %s is not on PATH\n' "$tool"
+      return 2
+    fi
+  done
+  "$script"
+}
+
 for script in .agents/tests/*.sh; do
   name=$(basename "$script" .sh)
   case "$name" in
@@ -24,7 +44,7 @@ for script in .agents/tests/*.sh; do
   printf '\n=== %s ===\n' "$name"
   {
     status=0
-    "$script" || status=$?
+    run_group "$name" "$script" || status=$?
     printf '%s\n' "$status" > "$WORK/status"
   } 2>&1 | tee "$WORK/output"
   status=$(cat "$WORK/status")
