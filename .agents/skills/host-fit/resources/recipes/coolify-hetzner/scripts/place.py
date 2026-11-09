@@ -28,6 +28,11 @@ def attempt_effect(effect, observed):
     return dict(effect, observed=observed, attempt=uuid.uuid4().hex)
 
 
+def journal_identity(journal):
+    # Numeric digest bytes bind the directory without retaining private paths.
+    return list(bytes.fromhex(fingerprint(str(Path(journal).resolve()))))
+
+
 def start_attempt(effect, approval, journal=None):
     # An exclusive, durable receipt consumes this approval before any write.
     path = Path(journal or 'hosting/place-attempts') / (fingerprint(effect) + '.json')
@@ -99,7 +104,7 @@ def set_lane(record, resources, lane, ports, approval, api, gate, effect=None, j
     require(effect is not None and effect.get('observed') == observed
             and {k:v for k,v in effect.items() if k not in ('observed','attempt','journal')} == lane_effect(record,lane,ports)
             and bool(effect.get('attempt')), 'Read and prepare a fresh lane effect before applying.')
-    require(journal is None or effect.get('journal') == str(Path(journal).resolve()),
+    require(journal is None or effect.get('journal') == journal_identity(journal),
             'Use the record directory bound to this prepared lane attempt.')
     gate(effect, approval)
     receipt = start_attempt(effect, approval, journal)

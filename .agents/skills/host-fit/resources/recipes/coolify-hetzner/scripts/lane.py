@@ -6,7 +6,7 @@ from pathlib import Path
 import sys
 from api import API, approval_gate, hidden_value
 from check import load_reader
-from place import lane_effect, set_lane, write_record, attempt_effect
+from place import lane_effect, set_lane, write_record, attempt_effect, journal_identity
 
 
 def main():
@@ -28,7 +28,7 @@ def main():
         effect=lane_effect(record,args.lane,args.port)
         if args.command=='prepare':
             effect=attempt_effect(effect,api.firewall_rules(record['infrastructure']['firewall_id']))
-            effect['journal']=str(Path(args.record).resolve().parent/'place-attempts')
+            effect['journal']=journal_identity(Path(args.record).resolve().parent/'place-attempts')
             print('Observed firewall rules: '+json.dumps(effect['observed'],sort_keys=True))
             with open(args.effect,'x') as out: json.dump(effect,out,indent=2)
             print(effect['effect'])
