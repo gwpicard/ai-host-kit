@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import socket
 import sys
+import subprocess
 import urllib.request
 from place import check_place, tailnet_address
 
@@ -62,6 +63,11 @@ def main():
                 try: return json.loads(text)
                 except ValueError: return text
         rows = check_place(record, outside_probe, coolify, lambda:package.get('version'))
+        from node import read_node, node_rows
+        try:
+            rows.extend(node_rows(record, read_node(record['infrastructure']['tailnet_ipv4'])))
+        except (OSError, ValueError, KeyError, TypeError, subprocess.TimeoutExpired):
+            rows.append(('Tailnet node and temporary key', 'could not decide'))
         for name, status in rows:
             print(name + ': ' + status)
         return 0 if all(status == 'passed' for _, status in rows) else 1

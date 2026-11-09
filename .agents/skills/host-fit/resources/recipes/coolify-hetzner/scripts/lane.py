@@ -1,11 +1,10 @@
 """Prepare or apply an explicit firewall lane effect after separate approval."""
 import argparse
 import copy
-import getpass
 import json
 from pathlib import Path
 import sys
-from api import API, approval_gate
+from api import API, approval_gate, hidden_value
 from check import load_reader
 from place import lane_effect, set_lane, write_record
 
@@ -36,7 +35,7 @@ def main():
         if reader.read_json(args.effect)!=effect: raise ValueError('The prepared effect differs.')
         # Refuse an existing destination before a cloud write.
         if Path(args.new_record).exists(): raise ValueError('The new record already exists.')
-        api=API(record,getpass.getpass('Hetzner project token (hidden): '),getpass.getpass('Coolify read token (hidden): '))
+        api=API(record,hidden_value(gate,'Hetzner project token'),hidden_value(gate,'Coolify read token'))
         set_lane(record,api.owned_resources(),args.lane,args.port,args.approval,api,gate.match_effect)
         updated=copy.deepcopy(record)
         updated['firewall']['rules']=[dict(protocol='tcp',ports=[p],sources=['0.0.0.0/0'],purpose='Approved public web access') for p in sorted(args.port)]

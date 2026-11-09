@@ -1,0 +1,60 @@
+{
+  "place": {
+    "name": "test-place",
+    "organisation": "Example organisation",
+    "kind": "server",
+    "provider": "Hetzner",
+    "region": "fsn1"
+  },
+  "encrypted_state": {
+    "location": "s3://example-state/place/state",
+    "encryption": "AES-GCM",
+    "key_custodian": "Example owner"
+  },
+  "backend": {
+    "bucket": "example-state",
+    "key": "place/state",
+    "region": "fsn1",
+    "endpoints": {
+      "s3": "https://fsn1.your-objectstorage.com"
+    },
+    "workspace_key_prefix": "places",
+    "use_path_style": true,
+    "skip_credentials_validation": true,
+    "skip_region_validation": true,
+    "skip_requesting_account_id": true,
+    "skip_metadata_api_check": true,
+    "skip_s3_checksum": true,
+    "shared_credentials_files": [
+      "/dev/null"
+    ],
+    "shared_config_files": [
+      "/dev/null"
+    ],
+    "use_lockfile": true,
+    "max_retries": 1
+  },
+  "inputs": {
+    "place_name": "test-place",
+    "location": "fsn1",
+    "server_type": "cx23",
+    "ssh_public_key": "ssh-ed25519 c3ludGhldGlj replace-with-your-public-key",
+    "tailnet_key_settings": {
+      "reusable": false,
+      "ephemeral": false,
+      "preauthorised": true,
+      "tags": [
+        "tag:server"
+      ],
+      "expiry_seconds": 3600,
+      "shortest_available": true
+    }
+  },
+  "scopes": [
+    "read",
+    "read:sensitive",
+    "write",
+    "deploy"
+  ],
+  "canary_name": "place-canary"
+}

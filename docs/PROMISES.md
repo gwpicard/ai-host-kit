@@ -47,8 +47,7 @@ the hosting promises above.
 
 ## Approval gate limits
 
-The saved-plan gate is built and tested locally. The hosting commands still
-create no infrastructure. The broad promises above remain unproven: future
+The saved-plan gate is built and tested locally. The experimental empty-Place scripts have offline checks only. The broad promises above remain unproven: future
 host scripts, API writes and directory changes must use an approval mechanism
 before they can back those promises.
 
@@ -82,13 +81,19 @@ recording flow, encryption setup and output limits.
 
 ## Offline Place checks
 
-The Coolify on Hetzner recipe remains off the menu and the setup command still
-creates nothing. `place.sh` exercises a provider-mocked module, fully rendered
-cloud-init, an S3 HTTP stand-in on a temporary port, named-effect approval,
-lane rules, ownership, sampled outside ports including 8080, version and scope
-declarations, docktail port definitions, destroy-plan membership and leftovers.
-Its throwaway protection removals cover the tested module and operation guards.
-These checks do not prove first-admin ownership, tailnet policy, real token
-abilities, Hetzner locking or versioning, or a complete MCP write path. The
-bootstrap key-delivery route remains unresolved, so no key is embedded in
-cloud-init. No broad hosting promise above changes to a guarantee.
+The Coolify on Hetzner recipe remains off the menu. `place.sh` exercises the
+provider-mocked module, one-off key rendering, a local S3 stand-in, named-effect
+approval, claim confirmation and registration read-back, lanes, ownership,
+node reads, sampled ports including 8080, the MCP protocol, scope declarations,
+docktail port definitions, staged record assembly, destroy membership and
+leftovers. A generated root validates with the pinned provider. The complete
+setup command sequence uses stand-ins and synthetic approvals. The unmodified
+MCP pin has also created and started a synthetic service against a loopback
+API. Tests remove the corresponding guards in throwaway copies.
+
+These checks do not prove who claimed a real administrator, real tailnet
+policy, token abilities unavailable through the pinned API, actual docktail
+reconciliation, Hetzner locking or versioning, or either real-run outcome.
+The recipe owns the key-retention warning and approval sequence. A one-off
+key is still a secret while unused and unexpired. No broad hosting promise
+above changes to a guarantee.

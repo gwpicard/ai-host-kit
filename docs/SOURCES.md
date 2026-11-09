@@ -32,18 +32,19 @@ The Place work studied coolify-launchpad v0.1.1, commit
 `d8b5813ad5c6728057b7c006a8371bdd0b1183ed`, read only from the maintainer's
 checkout, and coolify-devops v0.9.0, commit
 `20809551215f442379238ea20338364d96ab765e`, read from its public repository.
-The adapted launch order, IPv4 apt setting, outside port sample and retirement
-ownership checks are from launchpad. Lane separation, explicit docktail
+The adapted launch order, IPv4 apt setting, one-off key-file delivery and
+cleanup, person-led administrator claim, tailnet node reads, outside port sample
+and retirement ownership checks are from launchpad. Lane separation, explicit docktail
 service port and the control-plane write-once port check are from coolify-devops.
 Closely adapted files carry source headers. Both MIT notices remain intact.
 
-`@masonator/coolify-mcp` 3.9.0 is the planned MIT runtime dependency, from
+`@masonator/coolify-mcp` 3.9.0 is the MIT runtime dependency, from
 [StuMason/coolify-mcp](https://github.com/StuMason/coolify-mcp). Its npm tarball
 was verified against its published SHA-512 integrity before reading. The exact
 pin and integrity are in the recipe's `dependencies.json`; no MCP source is
-copied into the runtime. Its MIT notice is included in NOTICES. Declared token
-scopes do not establish the abilities of a real token. Complete MCP transport
-and the first-admin claim are still unfinished.
+copied into the runtime. Its MIT notice is included in NOTICES. The stdio client drives the installed package without copying its code.
+Declared token scopes do not establish the abilities of a real token; the
+pinned Coolify API has no current-token introspection route.
 
 [docktail](https://github.com/marvinvr/docktail) 1.8.6 is an AGPL-3.0 runtime
 dependency, run unmodified as its own container. No docktail code is copied,

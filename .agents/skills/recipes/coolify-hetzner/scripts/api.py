@@ -18,6 +18,13 @@ def approval_gate():
     raise ValueError('The installed approval gate is missing.')
 
 
+def hidden_value(gate, label):
+    with gate.terminal() as tty:
+        value=gate.typed(tty,label+' (hidden): ')
+    if not value: raise ValueError('A required hidden value was empty.')
+    return value
+
+
 class API:
     def __init__(self, record, hcloud_token, coolify_token=None):
         self.record=record
@@ -43,6 +50,27 @@ class API:
     def coolify_team(self):
         address=tailnet_address(self.record['infrastructure']['tailnet_ipv4'])
         return self.request('GET','http://'+address+':8000/api/v1/team',self.coolify_token)
+
+    def registration_closed(self):
+        import urllib.error
+        from urllib.parse import urljoin
+        address=tailnet_address(self.record['infrastructure']['tailnet_ipv4'])
+        class Stop(urllib.request.HTTPRedirectHandler):
+            def redirect_request(self, *args): return None
+        opener=urllib.request.build_opener(urllib.request.ProxyHandler({}),Stop())
+        base='http://'+address+':8000'
+        try:
+            with opener.open(base+'/register',timeout=10): return False
+        except urllib.error.HTTPError as error:
+            return error.code in (301,302,303) and urljoin(base+'/',error.headers.get('Location','')) == base+'/login'
+
+    def token_abilities(self):
+        # The pinned Coolify routes have no current-token introspection route.
+        # Do not invent one or mistake a successful team read for scope proof.
+        team=self.coolify_team()
+        if isinstance(team, dict) and 'token_abilities' in team:
+            return team['token_abilities']
+        return None
 
     def set_firewall(self, identity, rules):
         # The cloud action is asynchronous. Poll its action, then read the rules.

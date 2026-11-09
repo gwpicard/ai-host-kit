@@ -1,5 +1,5 @@
-Offline fixture from an OpenTofu 1.13.2 provider-mocked plan.
-This JSON fixture is not an executable saved plan or an approval.
+Plan SHA-256: 0000000000000000000000000000000000000000000000000000000000000000
+Read-back checksum: 0000-0000-0000
 
 What will be destroyed, created or changed
 - Create: hcloud_firewall.coolify.
@@ -42,7 +42,7 @@ What will be destroyed, created or changed
 - hcloud_server.place: ssh_keys[0]: not set -> value withheld.
 - hcloud_server.place: status: not set -> value withheld.
 - hcloud_server.place: timeouts: not set -> not set.
-- hcloud_server.place: user_data: not set -> value withheld.
+- hcloud_server.place: user_data: withheld (sensitive or unknown) -> withheld (sensitive or unknown).
 - Create: hcloud_ssh_key.place.
 - hcloud_ssh_key.place: fingerprint: not set -> value withheld.
 - hcloud_ssh_key.place: id: not set -> value withheld.
@@ -76,9 +76,10 @@ What changes who can get in
 - hcloud_server.place: firewall_ids[0]: not set -> value withheld.
 - hcloud_server.place: ignore_remote_firewall_ids: not set -> not set.
 - hcloud_server.place: ssh_keys[0]: not set -> value withheld.
-- hcloud_server.place: user_data: not set -> value withheld.
+- hcloud_server.place: user_data: withheld (sensitive or unknown) -> withheld (sensitive or unknown).
 - hcloud_ssh_key.place: access, identity or directory registration changes; check who gains or loses access.
 - hcloud_ssh_key.place: public_key: not set -> value withheld.
 
 What cannot be undone
+- hcloud_server.place: the one-off tailnet auth key is sent in user data to Hetzner and retained in encrypted OpenTofu plans and state. Server cloud-init copies can remain. These copies cannot be recalled. The key is single use, uses the shortest available expiry that covers apply (aim for one hour) and is worthless once used or expired. Only tag:server joins are intended; tailnet policy controls access.
 - A lost passphrase means the state cannot be read. Keep it in your password manager; the kit keeps no copy.

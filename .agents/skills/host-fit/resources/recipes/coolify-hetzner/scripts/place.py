@@ -64,6 +64,7 @@ def set_lane(record, resources, lane, ports, approval, api, gate):
     # prove that the intended person was the first administrator.
     tailnet_address(record["infrastructure"]["tailnet_ipv4"])
     require(api.coolify_team() is not None, "Claim the administrator over the tailnet first.")
+    require(api.registration_closed(), "Registration is still open or could not be read. Claim the administrator first.")
     effect = lane_effect(record, lane, ports)
     gate(effect, approval)
     api.set_firewall(effect["firewall_id"], effect["rules"])

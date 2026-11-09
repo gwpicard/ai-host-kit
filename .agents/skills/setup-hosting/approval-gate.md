@@ -246,8 +246,9 @@ paths. A lane write regenerates the effect and compares the full checksum
 before it calls the cloud adapter. This has the same trusted-local-process
 limit as saved-plan approval. An agent must never answer the prompt or make
 a real approval record. Synthetic approval records belong to offline tests only.
-The docktail library accepts this gate but its complete MCP transport is not
-yet built. An approval record alone does not perform the action.
+The staged Place runner uses this gate for each Coolify MCP write, the
+person-led administrator claim and final record assembly. The recipe owns
+the exact sequence and failure recovery. An approval record alone does not perform the action.
 
 A destroy plan is saved through the same controlled identity command:
 

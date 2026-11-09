@@ -13,14 +13,29 @@
     },
     "ssh_public_key": {
       "value": "ssh-ed25519 c3ludGhldGlj test"
+    },
+    "tailnet_auth_key": {
+      "value": "tskey-auth-synthetic-only"
+    },
+    "tailnet_key_settings": {
+      "value": {
+        "ephemeral": false,
+        "expiry_seconds": 3600,
+        "preauthorised": true,
+        "reusable": false,
+        "shortest_available": true,
+        "tags": [
+          "tag:server"
+        ]
+      }
     }
   },
   "planned_values": {
     "outputs": {
       "cloud_init": {
-        "sensitive": false,
+        "sensitive": true,
         "type": "string",
-        "value": "#!/bin/bash\n# Launch order and IPv4 apt handling adapted from coolify-launchpad; see docs/SOURCES.md.\nset -euo pipefail\nexport DEBIAN_FRONTEND=noninteractive\nprintf '%s\\n' 'Acquire::ForceIPv4 \"true\";' > /etc/apt/apt.conf.d/99force-ipv4\nprintf '%s\\n' 'DPkg::Lock::Timeout \"300\";' > /etc/apt/apt.conf.d/99lock-timeout\napt-get -o Acquire::ForceIPv4=true update\napt-get -o Acquire::ForceIPv4=true install -y curl ca-certificates\ncurl -4 -fsSL https://tailscale.com/install.sh | sh\n# No enrolment credential is put in user-data, metadata or a cloud-init cache.\n# Enrolment is blocked pending an approved secret delivery mechanism.\n# Wait a bounded interval; never install Coolify before a tailnet address exists.\nfor attempt in $(seq 1 120); do\n    if tailscale ip -4 >/dev/null 2>&1; then\n        curl -4 -fsSL https://cdn.coollabs.io/coolify/install.sh | bash -s 4.3.23\n        exit 0\n    fi\n    sleep 5\ndone\nprintf '%s\\n' 'Tailnet enrolment did not complete. Coolify was not installed.' >&2\nexit 1\n"
+        "value": "#!/bin/bash\n# Launch order and IPv4 apt handling adapted from coolify-launchpad; see docs/SOURCES.md.\nset -euo pipefail\nexport DEBIAN_FRONTEND=noninteractive\nprintf '%s\\n' 'Acquire::ForceIPv4 \"true\";' > /etc/apt/apt.conf.d/99force-ipv4\nprintf '%s\\n' 'DPkg::Lock::Timeout \"300\";' > /etc/apt/apt.conf.d/99lock-timeout\napt-get -o Acquire::ForceIPv4=true update\napt-get -o Acquire::ForceIPv4=true install -y curl ca-certificates\ncurl -4 -fsSL https://tailscale.com/install.sh | sh\ninstall -d -m 700 /run/ai-host-kit\nTAILSCALE_KEY_FILE=/run/ai-host-kit/tailscale-auth-key\ntrap 'rm -f \"$TAILSCALE_KEY_FILE\"' EXIT\n(umask 077 && base64 -d > \"$TAILSCALE_KEY_FILE\" <<'HOST_KIT_KEY'\ndHNrZXktYXV0aC1zeW50aGV0aWMtb25seQ==\nHOST_KIT_KEY\n)\n# Keep the credential out of arguments and diagnostics, including a failed join.\nif ! tailscale up --auth-key=\"file:$TAILSCALE_KEY_FILE\" --ssh \\\n    --advertise-tags=tag:server --hostname=test-place >/dev/null 2>&1; then\n    printf '%s\\n' 'Tailnet join failed. Coolify was not installed.' >&2\n    exit 1\nfi\nrm -f \"$TAILSCALE_KEY_FILE\"\ntailscale ip -4 >/dev/null\ncurl -4 -fsSL https://cdn.coollabs.io/coolify/install.sh | bash -s 4.3.23\n"
       },
       "firewall_id": {
         "sensitive": false,
@@ -118,7 +133,7 @@
             ],
             "status": "2EzUicP7e2U",
             "timeouts": null,
-            "user_data": "#!/bin/bash\n# Launch order and IPv4 apt handling adapted from coolify-launchpad; see docs/SOURCES.md.\nset -euo pipefail\nexport DEBIAN_FRONTEND=noninteractive\nprintf '%s\\n' 'Acquire::ForceIPv4 \"true\";' > /etc/apt/apt.conf.d/99force-ipv4\nprintf '%s\\n' 'DPkg::Lock::Timeout \"300\";' > /etc/apt/apt.conf.d/99lock-timeout\napt-get -o Acquire::ForceIPv4=true update\napt-get -o Acquire::ForceIPv4=true install -y curl ca-certificates\ncurl -4 -fsSL https://tailscale.com/install.sh | sh\n# No enrolment credential is put in user-data, metadata or a cloud-init cache.\n# Enrolment is blocked pending an approved secret delivery mechanism.\n# Wait a bounded interval; never install Coolify before a tailnet address exists.\nfor attempt in $(seq 1 120); do\n    if tailscale ip -4 >/dev/null 2>&1; then\n        curl -4 -fsSL https://cdn.coollabs.io/coolify/install.sh | bash -s 4.3.23\n        exit 0\n    fi\n    sleep 5\ndone\nprintf '%s\\n' 'Tailnet enrolment did not complete. Coolify was not installed.' >&2\nexit 1\n"
+            "user_data": "#!/bin/bash\n# Launch order and IPv4 apt handling adapted from coolify-launchpad; see docs/SOURCES.md.\nset -euo pipefail\nexport DEBIAN_FRONTEND=noninteractive\nprintf '%s\\n' 'Acquire::ForceIPv4 \"true\";' > /etc/apt/apt.conf.d/99force-ipv4\nprintf '%s\\n' 'DPkg::Lock::Timeout \"300\";' > /etc/apt/apt.conf.d/99lock-timeout\napt-get -o Acquire::ForceIPv4=true update\napt-get -o Acquire::ForceIPv4=true install -y curl ca-certificates\ncurl -4 -fsSL https://tailscale.com/install.sh | sh\ninstall -d -m 700 /run/ai-host-kit\nTAILSCALE_KEY_FILE=/run/ai-host-kit/tailscale-auth-key\ntrap 'rm -f \"$TAILSCALE_KEY_FILE\"' EXIT\n(umask 077 && base64 -d > \"$TAILSCALE_KEY_FILE\" <<'HOST_KIT_KEY'\ndHNrZXktYXV0aC1zeW50aGV0aWMtb25seQ==\nHOST_KIT_KEY\n)\n# Keep the credential out of arguments and diagnostics, including a failed join.\nif ! tailscale up --auth-key=\"file:$TAILSCALE_KEY_FILE\" --ssh \\\n    --advertise-tags=tag:server --hostname=test-place >/dev/null 2>&1; then\n    printf '%s\\n' 'Tailnet join failed. Coolify was not installed.' >&2\n    exit 1\nfi\nrm -f \"$TAILSCALE_KEY_FILE\"\ntailscale ip -4 >/dev/null\ncurl -4 -fsSL https://cdn.coollabs.io/coolify/install.sh | bash -s 4.3.23\n"
           },
           "sensitive_values": {
             "firewall_ids": [
@@ -131,7 +146,8 @@
             ],
             "ssh_keys": [
               false
-            ]
+            ],
+            "user_data": true
           }
         },
         {
@@ -243,7 +259,7 @@
           ],
           "status": "2EzUicP7e2U",
           "timeouts": null,
-          "user_data": "#!/bin/bash\n# Launch order and IPv4 apt handling adapted from coolify-launchpad; see docs/SOURCES.md.\nset -euo pipefail\nexport DEBIAN_FRONTEND=noninteractive\nprintf '%s\\n' 'Acquire::ForceIPv4 \"true\";' > /etc/apt/apt.conf.d/99force-ipv4\nprintf '%s\\n' 'DPkg::Lock::Timeout \"300\";' > /etc/apt/apt.conf.d/99lock-timeout\napt-get -o Acquire::ForceIPv4=true update\napt-get -o Acquire::ForceIPv4=true install -y curl ca-certificates\ncurl -4 -fsSL https://tailscale.com/install.sh | sh\n# No enrolment credential is put in user-data, metadata or a cloud-init cache.\n# Enrolment is blocked pending an approved secret delivery mechanism.\n# Wait a bounded interval; never install Coolify before a tailnet address exists.\nfor attempt in $(seq 1 120); do\n    if tailscale ip -4 >/dev/null 2>&1; then\n        curl -4 -fsSL https://cdn.coollabs.io/coolify/install.sh | bash -s 4.3.23\n        exit 0\n    fi\n    sleep 5\ndone\nprintf '%s\\n' 'Tailnet enrolment did not complete. Coolify was not installed.' >&2\nexit 1\n"
+          "user_data": "#!/bin/bash\n# Launch order and IPv4 apt handling adapted from coolify-launchpad; see docs/SOURCES.md.\nset -euo pipefail\nexport DEBIAN_FRONTEND=noninteractive\nprintf '%s\\n' 'Acquire::ForceIPv4 \"true\";' > /etc/apt/apt.conf.d/99force-ipv4\nprintf '%s\\n' 'DPkg::Lock::Timeout \"300\";' > /etc/apt/apt.conf.d/99lock-timeout\napt-get -o Acquire::ForceIPv4=true update\napt-get -o Acquire::ForceIPv4=true install -y curl ca-certificates\ncurl -4 -fsSL https://tailscale.com/install.sh | sh\ninstall -d -m 700 /run/ai-host-kit\nTAILSCALE_KEY_FILE=/run/ai-host-kit/tailscale-auth-key\ntrap 'rm -f \"$TAILSCALE_KEY_FILE\"' EXIT\n(umask 077 && base64 -d > \"$TAILSCALE_KEY_FILE\" <<'HOST_KIT_KEY'\ndHNrZXktYXV0aC1zeW50aGV0aWMtb25seQ==\nHOST_KIT_KEY\n)\n# Keep the credential out of arguments and diagnostics, including a failed join.\nif ! tailscale up --auth-key=\"file:$TAILSCALE_KEY_FILE\" --ssh \\\n    --advertise-tags=tag:server --hostname=test-place >/dev/null 2>&1; then\n    printf '%s\\n' 'Tailnet join failed. Coolify was not installed.' >&2\n    exit 1\nfi\nrm -f \"$TAILSCALE_KEY_FILE\"\ntailscale ip -4 >/dev/null\ncurl -4 -fsSL https://cdn.coollabs.io/coolify/install.sh | bash -s 4.3.23\n"
         },
         "after_unknown": {},
         "before_sensitive": false,
@@ -258,7 +274,8 @@
           ],
           "ssh_keys": [
             false
-          ]
+          ],
+          "user_data": true
         }
       }
     },
@@ -297,10 +314,10 @@
         "create"
       ],
       "before": null,
-      "after": "#!/bin/bash\n# Launch order and IPv4 apt handling adapted from coolify-launchpad; see docs/SOURCES.md.\nset -euo pipefail\nexport DEBIAN_FRONTEND=noninteractive\nprintf '%s\\n' 'Acquire::ForceIPv4 \"true\";' > /etc/apt/apt.conf.d/99force-ipv4\nprintf '%s\\n' 'DPkg::Lock::Timeout \"300\";' > /etc/apt/apt.conf.d/99lock-timeout\napt-get -o Acquire::ForceIPv4=true update\napt-get -o Acquire::ForceIPv4=true install -y curl ca-certificates\ncurl -4 -fsSL https://tailscale.com/install.sh | sh\n# No enrolment credential is put in user-data, metadata or a cloud-init cache.\n# Enrolment is blocked pending an approved secret delivery mechanism.\n# Wait a bounded interval; never install Coolify before a tailnet address exists.\nfor attempt in $(seq 1 120); do\n    if tailscale ip -4 >/dev/null 2>&1; then\n        curl -4 -fsSL https://cdn.coollabs.io/coolify/install.sh | bash -s 4.3.23\n        exit 0\n    fi\n    sleep 5\ndone\nprintf '%s\\n' 'Tailnet enrolment did not complete. Coolify was not installed.' >&2\nexit 1\n",
+      "after": "#!/bin/bash\n# Launch order and IPv4 apt handling adapted from coolify-launchpad; see docs/SOURCES.md.\nset -euo pipefail\nexport DEBIAN_FRONTEND=noninteractive\nprintf '%s\\n' 'Acquire::ForceIPv4 \"true\";' > /etc/apt/apt.conf.d/99force-ipv4\nprintf '%s\\n' 'DPkg::Lock::Timeout \"300\";' > /etc/apt/apt.conf.d/99lock-timeout\napt-get -o Acquire::ForceIPv4=true update\napt-get -o Acquire::ForceIPv4=true install -y curl ca-certificates\ncurl -4 -fsSL https://tailscale.com/install.sh | sh\ninstall -d -m 700 /run/ai-host-kit\nTAILSCALE_KEY_FILE=/run/ai-host-kit/tailscale-auth-key\ntrap 'rm -f \"$TAILSCALE_KEY_FILE\"' EXIT\n(umask 077 && base64 -d > \"$TAILSCALE_KEY_FILE\" <<'HOST_KIT_KEY'\ndHNrZXktYXV0aC1zeW50aGV0aWMtb25seQ==\nHOST_KIT_KEY\n)\n# Keep the credential out of arguments and diagnostics, including a failed join.\nif ! tailscale up --auth-key=\"file:$TAILSCALE_KEY_FILE\" --ssh \\\n    --advertise-tags=tag:server --hostname=test-place >/dev/null 2>&1; then\n    printf '%s\\n' 'Tailnet join failed. Coolify was not installed.' >&2\n    exit 1\nfi\nrm -f \"$TAILSCALE_KEY_FILE\"\ntailscale ip -4 >/dev/null\ncurl -4 -fsSL https://cdn.coollabs.io/coolify/install.sh | bash -s 4.3.23\n",
       "after_unknown": false,
-      "before_sensitive": false,
-      "after_sensitive": false
+      "before_sensitive": true,
+      "after_sensitive": true
     },
     "firewall_id": {
       "actions": [
@@ -354,6 +371,7 @@
     "root_module": {
       "outputs": {
         "cloud_init": {
+          "sensitive": true,
           "expression": {
             "references": [
               "local.cloud_init"
@@ -514,6 +532,28 @@
         "ssh_public_key": {
           "type": "string",
           "required": true
+        },
+        "tailnet_auth_key": {
+          "type": "string",
+          "required": true,
+          "sensitive": true
+        },
+        "tailnet_key_settings": {
+          "type": [
+            "object",
+            {
+              "ephemeral": "bool",
+              "expiry_seconds": "number",
+              "preauthorised": "bool",
+              "reusable": "bool",
+              "shortest_available": "bool",
+              "tags": [
+                "set",
+                "string"
+              ]
+            }
+          ],
+          "required": true
         }
       }
     }
@@ -528,13 +568,13 @@
     {
       "resource": "hcloud_server.place",
       "attribute": [
-        "id"
+        "ipv4_address"
       ]
     },
     {
       "resource": "hcloud_server.place",
       "attribute": [
-        "ipv4_address"
+        "id"
       ]
     },
     {
@@ -610,7 +650,40 @@
           "status": "pass"
         }
       ]
+    },
+    {
+      "address": {
+        "kind": "var",
+        "name": "tailnet_auth_key",
+        "to_display": "var.tailnet_auth_key"
+      },
+      "status": "pass",
+      "instances": [
+        {
+          "address": {
+            "to_display": "var.tailnet_auth_key"
+          },
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "address": {
+        "kind": "var",
+        "name": "tailnet_key_settings",
+        "to_display": "var.tailnet_key_settings"
+      },
+      "status": "pass",
+      "instances": [
+        {
+          "address": {
+            "to_display": "var.tailnet_key_settings"
+          },
+          "status": "pass"
+        }
+      ]
     }
   ],
+  "timestamp": "2026-11-09T11:40:52Z",
   "errored": false
 }

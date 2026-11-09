@@ -1,6 +1,6 @@
 # GENERATED from .agents/skills/setup-hosting/SKILL.md. Do not edit.
 # Run .agents/tools/build-adapters.sh to regenerate.
-description = "Choose a host and record its fit. Creating the place is not built yet; checking is /check-live."
+description = "Choose a host, record its fit and prepare an approved empty Place; checking is /check-live."
 prompt = """
 Load and follow `.agents/skills/setup-hosting/SKILL.md`.
 Treat the following as the person's request (it may be empty): {{args}}

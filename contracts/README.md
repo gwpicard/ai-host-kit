@@ -267,3 +267,6 @@ tools. The complete existing format still requires backup and alert fields.
 Choice-only drafts remain at `hosting/place-record.json`. A fixture of the
 new stage is in `.agents/tests/fixtures/place/place-record.json`; validation
 checks its shape, not whether the place exists or the addresses belong to it.
+Optional `infrastructure.plumbing` records the created Coolify project,
+docktail and canary identities and the tailnet service name. It contains no
+credentials or claim that the service is ready.

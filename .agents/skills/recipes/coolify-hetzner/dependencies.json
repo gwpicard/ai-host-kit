@@ -11,5 +11,9 @@
     "image": "ghcr.io/marvinvr/docktail:1.8.6",
     "licence": "AGPL-3.0",
     "modified": false
+  },
+  "canary": {
+    "image": "traefik/whoami:v1.11.0",
+    "purpose": "Empty-place tailnet connectivity check"
   }
 }

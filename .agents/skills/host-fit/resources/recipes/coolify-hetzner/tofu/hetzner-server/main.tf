@@ -32,9 +32,24 @@ variable "ssh_public_key" {
     error_message = "Supply an existing Ed25519 public key, never a private key."
   }
 }
+variable "tailnet_auth_key" {
+  type      = string
+  sensitive = true
+  validation {
+    condition     = can(regex("^tskey-auth-[A-Za-z0-9-]+$", var.tailnet_auth_key))
+    error_message = "Supply a one-off Tailscale auth key through the hidden prompt."
+  }
+}
+variable "tailnet_key_settings" {
+  type = object({ reusable = bool, ephemeral = bool, preauthorised = bool, tags = set(string), expiry_seconds = number, shortest_available = bool })
+  validation {
+    condition = !var.tailnet_key_settings.reusable && !var.tailnet_key_settings.ephemeral && var.tailnet_key_settings.preauthorised && var.tailnet_key_settings.tags == toset(["tag:server"]) && var.tailnet_key_settings.expiry_seconds > 0 && var.tailnet_key_settings.shortest_available
+    error_message = "Use a single-use, pre-approved, non-ephemeral tag:server key, with the shortest available expiry that covers apply."
+  }
+}
 locals {
   ownership  = { purpose = "ai-host-kit", place = var.place_name }
-  cloud_init = file("${path.module}/cloud-init.sh")
+  cloud_init = replace(replace(file("${path.module}/cloud-init.sh"), "{{TAILSCALE_KEY_B64}}", base64encode(var.tailnet_auth_key)), "{{PLACE_NAME}}", var.place_name)
 }
 resource "hcloud_ssh_key" "place" {
   name       = var.place_name
@@ -74,4 +89,7 @@ output "server_id" { value = hcloud_server.place.id }
 output "firewall_id" { value = hcloud_firewall.coolify.id }
 output "ssh_key_id" { value = hcloud_ssh_key.place.id }
 output "ipv4_address" { value = hcloud_server.place.ipv4_address }
-output "cloud_init" { value = local.cloud_init }
+output "cloud_init" {
+  value = local.cloud_init
+  sensitive = true
+}

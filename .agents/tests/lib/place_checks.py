@@ -35,6 +35,7 @@ class StandIn:
         self.writes = []
         self.rules = []
         self.definition = None
+    def registration_closed(self): return True
     def coolify_team(self): return {'id': 1}
     def set_firewall(self, identity, rules):
         self.writes.append(('firewall', identity, rules)); self.rules = rules
@@ -78,6 +79,9 @@ def outcomes(ops, gate, work):
     api.coolify_team=lambda:None
     refused(lambda:ops.set_lane(record,owned,'public',[80,443],approval,api,gate.match_effect))
     api.coolify_team=lambda:{'id':1}
+    api.registration_closed=lambda:False
+    refused(lambda:ops.set_lane(record,owned,'public',[80,443],approval,api,gate.match_effect))
+    api.registration_closed=lambda:True
     refused(lambda: ops.lane_rules('public', [8080]))
     refused(lambda: ops.lane_rules('internal', [443]))
     refused(lambda: ops.lane_rules('public', [True]))
@@ -123,6 +127,7 @@ def mutations(work):
         ('ownership','str(resource["id"]) == str(expected[kind + "_id"])','True'),
         ('ownership labels','resource.get("labels") == {"purpose": "ai-host-kit", "place": name}','True'),
         ('ownership name','resource["name"] == ("coolify" if kind == "firewall" else name)','True'),
+        ('closed registration','api.registration_closed()','True'),
         ('claimed account read','api.coolify_team() is not None','True'),
         ('lane approval','    gate(effect, approval)\n    api.set_firewall','    api.set_firewall'),
         ('typed place name','confirm(name) == name','True'),
@@ -172,7 +177,7 @@ def module(work):
         ('attached firewall','firewall_ids = [hcloud_firewall.coolify.id]','firewall_ids = []'),
         ('inbound default','name   = "coolify"','name   = "wrong"'),
         ('IPv6 coverage','ipv6_enabled = false','ipv6_enabled = true'),
-        ('placeholder','cloud_init = file("${path.module}/cloud-init.sh")','cloud_init = "{{UNSET_1}}"'),
+        ('placeholder','cloud_init = replace(replace(file("${path.module}/cloud-init.sh"), "{{TAILSCALE_KEY_B64}}", base64encode(var.tailnet_auth_key)), "{{PLACE_NAME}}", var.place_name)','cloud_init = "{{UNSET_1}}"'),
     ]
     for name, old, new in changes:
         assert old in source, name
@@ -181,15 +186,32 @@ def module(work):
         assert result.returncode != 0, name
         print('Module protection removal detected: ' + name)
     (target/'main.tf').write_text(source)
+    original_test=(target/'tests/fresh.tftest.hcl').read_text()
+    for name, old, new in [('reusable key','reusable = false','reusable = true'),
+                           ('ephemeral key','ephemeral = false','ephemeral = true'),
+                           ('untagged key','tags = ["tag:server"]','tags = []'),
+                           ('unapproved key','preauthorised = true','preauthorised = false'),
+                           ('shortest available expiry','shortest_available = true','shortest_available = false')]:
+        (target/'tests/fresh.tftest.hcl').write_text(original_test.replace(old,new,1))
+        result=subprocess.run(['tofu','test','-no-color'],cwd=target,stdout=subprocess.PIPE,stderr=subprocess.STDOUT)
+        assert result.returncode != 0,name
+        mutated=source.replace('!var.tailnet_key_settings.reusable && !var.tailnet_key_settings.ephemeral && var.tailnet_key_settings.preauthorised && var.tailnet_key_settings.tags == toset(["tag:server"]) && var.tailnet_key_settings.expiry_seconds > 0 && var.tailnet_key_settings.shortest_available','var.tailnet_key_settings.expiry_seconds > 0')
+        assert mutated != source
+        (target/'main.tf').write_text(mutated)
+        result=subprocess.run(['tofu','test','-no-color'],cwd=target,stdout=subprocess.PIPE,stderr=subprocess.STDOUT)
+        assert result.returncode == 0,name
+        (target/'main.tf').write_text(source)
+        print('Module protection removal detected: '+name)
+    (target/'tests/fresh.tftest.hcl').write_text(original_test)
     # The pinned provider cannot consume a genuinely ephemeral bootstrap key.
-    ephemeral=source.replace('cloud_init = file("${path.module}/cloud-init.sh")',
+    ephemeral=source.replace('cloud_init = replace(replace(file("${path.module}/cloud-init.sh"), "{{TAILSCALE_KEY_B64}}", base64encode(var.tailnet_auth_key)), "{{PLACE_NAME}}", var.place_name)',
              'cloud_init = "${file("${path.module}/cloud-init.sh")}${var.bootstrap_key}"')
     ephemeral+='\nvariable "bootstrap_key" {\n type = string\n sensitive = true\n ephemeral = true\n default = "synthetic-only"\n}\n'
     (target/'main.tf').write_text(ephemeral)
     result=subprocess.run(['tofu','test','-no-color'],cwd=target,stdout=subprocess.PIPE,stderr=subprocess.STDOUT)
     assert result.returncode != 0 and b'ephemeral' in result.stdout.lower()
     (target/'main.tf').write_text(source)
-    print('Pinned provider refuses an ephemeral user-data value; no bootstrap key is retained by this module.')
+    print('Pinned provider refuses an ephemeral user-data value; the agreed one-off key is retained only under the documented encrypted-state boundary.')
     boot = target/'cloud-init.sh'; original=boot.read_text()
     for name, old, new in [('IPv4 apt','Acquire::ForceIPv4','Acquire::Alternate'),('tailnet order','tailscale ip -4','true')]:
         boot.write_text(original.replace(old,new))
@@ -250,7 +272,7 @@ def adapter_checks():
             approval.write_text(json.dumps(dict(effect_sha256=gate.effect_sha(value),effect=value['effect'],words='Synthetic fixture approval',approved_at='2026-11-06T12:00:00Z',method='foreground-terminal')))
             fake=StandIn(); fake.owned_resources=lambda:resources(record)
             command[1]='apply'; command+=['--approval',str(approval),'--new-record',str(new_record)]
-            with patch.object(sys,'argv',command), patch.object(lane_cli,'API',return_value=fake), patch.object(lane_cli.getpass,'getpass',return_value='synthetic-only'):
+            with patch.object(sys,'argv',command), patch.object(lane_cli,'API',return_value=fake), patch.object(lane_cli,'hidden_value',return_value='synthetic-only'):
                 assert lane_cli.main()==0
                 assert new_record.is_file() and len(fake.writes)==1
                 assert lane_cli.main()!=0 and len(fake.writes)==1
@@ -269,7 +291,7 @@ def adapter_checks():
                  planned_identity=lambda *a:None,tofu=lambda *a:subprocess.CompletedProcess(a,0,json.dumps(destroy).encode(),b''),
                  apply=lambda *a:applied.append(a),terminal=terminal,typed=lambda *a:record['place']['name'])
             command=['retire','--record',str(FIXTURE/'place-record.json'),'--plan','synthetic-plan','--approval',str(approval)]
-            with patch.object(sys,'argv',command),patch.object(retire_cli,'API',return_value=fake),patch.object(retire_cli,'approval_gate',return_value=retired),patch.object(retire_cli.getpass,'getpass',return_value='synthetic-only'):
+            with patch.object(sys,'argv',command),patch.object(retire_cli,'API',return_value=fake),patch.object(retire_cli,'approval_gate',return_value=retired),patch.object(retire_cli,'hidden_value',return_value='synthetic-only'):
                 assert retire_cli.main()==0 and len(applied)==1
                 destroy['resource_changes'][0]['change']['actions']=['create']
                 assert retire_cli.main()!=0 and len(applied)==1
@@ -290,13 +312,19 @@ def summary_removal(work):
     try: assert checks.load(scratch).summarise(fixture)==expected
     except AssertionError: print('Summary protection removal detected: fresh firewall port statement')
     else: raise AssertionError('Summary protection removal escaped')
+    old="        if kind == 'hcloud_server' and 'create' in actions:"
+    path.write_text(source.replace(old,'        if False:',1))
+    assert checks.load(scratch).summarise(fixture)!=expected
+    assert any('worthless once used or expired' in line for line in expected['irreversible'])
+    print('Summary protection removal detected: retained one-off key warning')
+
 
 
 def main():
     if checks.load().records.dependencies() is None:
         print('could-not-run: schema packages are missing')
         raise SystemExit(2)
-    for relative in ['scripts/place.py','scripts/check.py','scripts/api.py','scripts/lane.py','scripts/retire.py','tofu/hetzner-server/main.tf','tofu/hetzner-server/cloud-init.sh','tofu/hetzner-server/.terraform.lock.hcl']:
+    for relative in ['scripts/setup.py','scripts/mcp.py','scripts/node.py','scripts/place.py','scripts/check.py','scripts/api.py','scripts/lane.py','scripts/retire.py','tofu/hetzner-server/main.tf','tofu/hetzner-server/cloud-init.sh','tofu/hetzner-server/.terraform.lock.hcl']:
         bundled=ROOT/'.agents/skills/host-fit/resources/recipes/coolify-hetzner'/relative
         assert bundled.is_file() and bundled.read_bytes()==(RECIPE/relative).read_bytes(),relative
     with tempfile.TemporaryDirectory(prefix='ai-host-kit-place-checks-') as temporary:
@@ -307,6 +335,8 @@ def main():
         summary_removal(work)
         record_checks(work)
         adapter_checks()
+        from place_setup_checks import exercise as setup_checks
+        setup_checks(work, checks)
         from place_s3_checks import exercise, protection_removals
         exercise(work, checks)
         protection_removals(work, checks)

@@ -408,6 +408,34 @@
             "docktail",
             "hcloud"
           ]
+        },
+        "plumbing": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "project_uuid": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9-]+$"
+            },
+            "docktail_uuid": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9-]+$"
+            },
+            "canary_uuid": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9-]+$"
+            },
+            "tailnet_service_name": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9-]+$"
+            }
+          },
+          "required": [
+            "project_uuid",
+            "docktail_uuid",
+            "canary_uuid",
+            "tailnet_service_name"
+          ]
         }
       },
       "required": [

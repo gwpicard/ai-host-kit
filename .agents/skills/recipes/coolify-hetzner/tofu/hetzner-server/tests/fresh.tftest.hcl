@@ -4,6 +4,8 @@ mock_provider "hcloud" {
   }
 }
 variables {
+  tailnet_auth_key = "tskey-auth-synthetic-only"
+  tailnet_key_settings = { reusable = false, ephemeral = false, preauthorised = true, tags = ["tag:server"], expiry_seconds = 3600, shortest_available = true }
   place_name     = "test-place"
   location       = "fsn1"
   server_type    = "cx23"
@@ -28,7 +30,7 @@ run "fresh" {
     error_message = "Render cloud-init fully and force IPv4 apt."
   }
   assert {
-    condition     = strcontains(output.cloud_init, "tailscale ip -4") && !strcontains(output.cloud_init, "--auth-key")
-    error_message = "Bootstrap must wait for the tailnet without retaining an enrolment key."
+    condition     = strcontains(output.cloud_init, "tailscale ip -4") && strcontains(output.cloud_init, "--auth-key=\"file:")
+    error_message = "Bootstrap must join through a temporary key file before installing Coolify."
   }
 }

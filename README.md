@@ -24,11 +24,12 @@ version, and checks that never change anything.
 | `/change-live` | Something about a live tool needs to change: undo a release, secrets, access, a restore test, a move, or retiring it |
 
 The choice step in `/setup-hosting` compares the handover with stub recipes,
-suggests a host and saves a local choice record. Creating the place is not
-built yet. `/check-live` can run the Coolify on Hetzner recipe's sampled
+suggests a host and saves a local choice record. The experimental Coolify on
+Hetzner path can then prepare an empty place through separate approvals; only
+offline checks have run. `/check-live` can run the Coolify on Hetzner recipe's sampled
 read-only Place checks. Tool health checks, `/go-live` and `/change-live` remain
 stubs. The [offline Place recipe](.agents/skills/recipes/coolify-hetzner/recipe.md)
-records its bootstrap and MCP gaps. No host is proven.
+records its commands and live-check limits. No host is proven.
 
 ## Install the beta
 

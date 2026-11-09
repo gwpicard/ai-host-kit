@@ -1,10 +1,9 @@
 """Retire only the owned resources in an approved encrypted destroy plan."""
 import argparse
-import getpass
 import json
 from pathlib import Path
 import sys
-from api import API, approval_gate
+from api import API, approval_gate, hidden_value
 from check import load_reader
 from place import destroy_plan_matches, retire
 
@@ -27,7 +26,7 @@ def main():
             shown=gate.tofu('show','-json',snapshot)
             if shown.returncode: raise ValueError('Destroy plan could not be read.')
             destroy_plan_matches(record,json.loads(shown.stdout))
-        api=API(record,getpass.getpass('Hetzner project token (hidden): '))
+        api=API(record,hidden_value(gate,'Hetzner project token'))
         def confirm(name):
             with gate.terminal() as tty:
                 return gate.typed(tty,'This destroys the place and its disk. Type '+name+': ')
@@ -42,6 +41,9 @@ def main():
         for kind,items in remaining.items():
             print(kind+': '+(', '.join(str(item['id']) for item in items) or 'none'))
         print('Object Storage and DNS are outside this inventory. Review them in the Hetzner console.')
+        plumbing=record['infrastructure'].get('plumbing',{})
+        if plumbing:
+            print('Tailscale Services > svc:'+plumbing['tailnet_service_name']+' may remain. Review its advertising devices before a separately approved removal.')
         print('Tailscale admin console > Machines > this place > Remove remains a separate approved action.')
         return 0
     except (OSError,ValueError,KeyError,TypeError):

@@ -198,6 +198,8 @@ def summarise(plan):
             result['changes'].append(f'Unrecognised resource type {label(kind)}: {name}; its effects need review.')
         if change.get('importing') is not None or resource.get('previous_address'):
             result['changes'].append(f'{name}: import or address move; review the ownership change.')
+        if kind == 'hcloud_server' and 'create' in actions:
+            result['irreversible'].append(f'{name}: the one-off tailnet auth key is sent in user data to Hetzner and retained in encrypted OpenTofu plans and state. Server cloud-init copies can remain. These copies cannot be recalled. The key is single use, uses the shortest available expiry that covers apply (aim for one hour) and is worthless once used or expired. Only tag:server joins are intended; tailnet policy controls access.')
         if 'delete' in actions:
             result['irreversible'].append(f'{name}: destruction can lose data, including any stored volumes or bucket contents. Recovery needs a separate tested backup.')
         if actions != ['no-op'] and isinstance(kind, str) and re.search(r'bucket|volume|disk|database|db_instance', kind):
@@ -613,10 +615,11 @@ class Arguments(argparse.ArgumentParser):
 
 
 def effect_sha(effect):
-    if (not isinstance(effect, dict) or effect.get('action') not in ('set-lane', 'register-docktail', 'claim-admin')
+    if (not isinstance(effect, dict) or effect.get('action') not in ('set-lane', 'register-docktail', 'claim-admin', 'place-claim', 'place-project', 'place-docktail', 'place-oauth-id', 'place-oauth-secret', 'place-start-docktail', 'place-register', 'place-start-register', 'place-record')
             or not isinstance(effect.get('effect'), str) or not effect['effect']
             or not re.fullmatch(r'[0-9a-f]{64}', effect.get('place_sha256', ''))
-            or list(records.secret_fields({k:v for k,v in effect.items() if k != 'place_sha256'}))):
+            or ('progress_sha256' in effect and not re.fullmatch(r'[0-9a-f]{64}', effect['progress_sha256']))
+            or list(records.secret_fields({k:v for k,v in effect.items() if k not in ('place_sha256','progress_sha256')}))):
         refuse('The effect is missing, unsupported or contains unsafe text. Values are withheld.')
     return digest(json.dumps(effect, sort_keys=True, separators=(',', ':')).encode())
 
