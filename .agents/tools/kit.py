@@ -34,6 +34,17 @@ def error(message):
     raise ValueError(message)
 
 
+def posix_shell():
+    """Require a shell whose parser rejects Bash arithmetic loops on every platform."""
+    for name in ('dash', 'posh'):
+        shell = shutil.which(name)
+        if shell and subprocess.run(
+                [shell, '-n', '-c', 'for ((i=0; i<1; i++)); do :; done'],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode != 0:
+            return shell
+    error('strict POSIX shell unavailable: install dash or posh to check shell syntax')
+
+
 def safe_path(value):
     if not value or '\\' in value or any(c.isspace() for c in value):
         error('manifest path must be a plain relative path')
@@ -332,10 +343,12 @@ def validate(args):
             require(beta_notice(readme), 'README beta notice is required below 1.0')
     check('plugin metadata, versions and required beta notice', metadata)
     def syntax():
+        shell = posix_shell()
+        print(f'Shell syntax checker: {shell}')
         for name in files:
             p = ROOT / name
             if p.suffix == '.sh' or name == '.githooks/commit-msg':
-                subprocess.run(['sh', '-n', str(p)], check=True)
+                subprocess.run([shell, '-n', str(p)], check=True)
             elif p.suffix == '.py':
                 compile(p.read_text(), name, 'exec')
             elif p.suffix == '.json':

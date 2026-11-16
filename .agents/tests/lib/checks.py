@@ -77,6 +77,9 @@ def source_rules(work):
     mutation('.agents/tools/kit-inventory.txt', lambda t: t + 'command fifth\n', 'exactly the four hosting commands')
     mutation('release-manifest.txt', lambda t: t + '.agents/maintainer-skills|\n', 'maintainer or undeclared material')
     mutation('.claude-plugin/plugin.json', lambda t: t.replace('"0.0.1"', '"0.0.2"'), 'version markers disagree')
+    mutation('.agents/tools/validate-kit.sh',
+             lambda t: t + '\nfor ((i=0; i<1; i++)); do :; done\n',
+             'script and configuration syntax')
     # The scanner reports the path, never the planted value.
     fake = 'gh' + 'p_' + ('X' * 36)
     output = mutation('README.md', lambda t: t + '\n' + fake + '\n', 'possible secret, value withheld')

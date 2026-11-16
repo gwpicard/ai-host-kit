@@ -1,15 +1,17 @@
-#!/bin/bash
+#!/bin/sh
 # Launch order and IPv4 apt handling adapted from coolify-launchpad; see docs/SOURCES.md.
-set -euo pipefail
+set -eu
 export DEBIAN_FRONTEND=noninteractive
 printf '%s\n' 'Acquire::ForceIPv4 "true";' > /etc/apt/apt.conf.d/99force-ipv4
 printf '%s\n' 'DPkg::Lock::Timeout "300";' > /etc/apt/apt.conf.d/99lock-timeout
 apt-get -o Acquire::ForceIPv4=true update
 apt-get -o Acquire::ForceIPv4=true install -y curl ca-certificates
-curl -4 -fsSL https://tailscale.com/install.sh | sh
 install -d -m 700 /run/ai-host-kit
+curl -4 -fsSL https://tailscale.com/install.sh -o /run/ai-host-kit/tailscale-install.sh
+sh /run/ai-host-kit/tailscale-install.sh
+rm -f /run/ai-host-kit/tailscale-install.sh
 TAILSCALE_KEY_FILE=/run/ai-host-kit/tailscale-auth-key
-trap 'rm -f "$TAILSCALE_KEY_FILE"' EXIT
+trap 'rm -f "$TAILSCALE_KEY_FILE"' 0
 (umask 077 && base64 -d > "$TAILSCALE_KEY_FILE" <<'HOST_KIT_KEY'
 {{TAILSCALE_KEY_B64}}
 HOST_KIT_KEY
@@ -81,7 +83,8 @@ if ! wait "$installer_pid"; then
     exit 1
 fi
 # Require Docker health, including realtime, rather than only the HTTP API.
-for ((waited=0; waited<=600; waited+=10)); do
+waited=0
+while [ "$waited" -le 600 ]; do
     health=$(docker inspect coolify 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin)[0]["State"].get("Health", {}).get("Status", "unknown"))' 2>/dev/null || true)
     if [ "$health" = healthy ]; then
         printf '%s\n' 'Coolify is healthy.'
@@ -91,6 +94,7 @@ for ((waited=0; waited<=600; waited+=10)); do
         printf 'Coolify is not yet healthy; waited %s seconds.\n' "$waited"
         sleep 10
     fi
+    waited=$((waited + 10))
 done
 printf '%s\n' 'Coolify did not become healthy within 10 minutes.' >&2
 exit 1

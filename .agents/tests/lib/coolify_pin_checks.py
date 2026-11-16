@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parents[3]
 RECIPE = ROOT/'.agents/skills/recipes/coolify-hetzner'
 sys.path.insert(0, str(ROOT/'.agents/tools'))
 from check_coolify_pin import check, FILES
+from kit import posix_shell
 sys.path.insert(0, str(RECIPE/'scripts'))
 import node
 
@@ -71,7 +72,7 @@ def install(work):
     original_hash = hashlib.sha256((upstream/'install.sh').read_bytes()).hexdigest()
     section = section.replace('/run/ai-host-kit/coolify', str(work/'cache')).replace('/data/coolify/source', str(work/'destination'))
     (work/'destination').mkdir()
-    prefix = '''set -euo pipefail
+    prefix = '''set -eu
 sha256sum() { shasum -a 256 --check --status; }
 export OS_TYPE=synthetic
 export LC_ALL=C
@@ -90,7 +91,7 @@ docker() {
     health = work/'health';health.write_text('healthy')
     def run(corrupt='', text=section):
         target = work/'run.sh';target.write_text(prefix+text)
-        return subprocess.run(['bash', str(target)], env=dict(os.environ, UPSTREAM=str(upstream), HEALTH=str(health), CORRUPT=corrupt), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        return subprocess.run([posix_shell(), str(target)], env=dict(os.environ, UPSTREAM=str(upstream), HEALTH=str(health), CORRUPT=corrupt), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     result = run();assert result.returncode == 0, result.stderr.decode()
     assert b'Coolify is healthy.' in result.stdout
     prepared = (work/'cache/install.sh').read_text()

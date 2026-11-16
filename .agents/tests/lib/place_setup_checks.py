@@ -268,20 +268,22 @@ def cli(work,flow,gate,reader,config,choice,facts,journal_probes=True):
 
 def cloud_init(work,recipe):
     import base64
+    from place_checks import ROOT, load
+    shell = load(ROOT/'.agents/tools/kit.py').posix_shell()
     source=(recipe/'tofu/hetzner-server/cloud-init.sh').read_text()
     marker='tskey-auth-synthetic-only'
     encoded=base64.b64encode(marker.encode()).decode()
     script=source.replace('{{TAILSCALE_KEY_B64}}',encoded).replace('{{PLACE_NAME}}','test-place')
     assert marker not in script and script.count(encoded)==1
     assert script.index('apt-get')<script.index('tailscale up')<script.index('COOLIFY_VERSION=4.7.5')
-    section=script[script.index('install -d'):script.index('# Verify every release file')] + 'curl synthetic-install\n'
+    section=script[script.index('TAILSCALE_KEY_FILE='):script.index('# Verify every release file')] + 'curl synthetic-install\n'
     def outcome(text,fail):
         root=work/'boot-run';shutil.rmtree(root,ignore_errors=True);root.mkdir()
         key=root/'tailscale-auth-key';mode=root/'mode';installed=root/'installed'
         # Functions are local command stand-ins; the shell still executes traps,
         # umask, file write and deletion for real in this throwaway folder.
-        prefix='''#!/bin/bash
-set -euo pipefail
+        prefix='''#!/bin/sh
+set -eu
 tailscale() {
  if [ "$1" = up ]; then
    stat -f '%Lp' "$BOOT_KEY" > "$BOOT_MODE"
@@ -297,13 +299,13 @@ curl() { test ! -e "$BOOT_KEY" || exit 44; touch "$BOOT_INSTALLED"; }
         if sys.platform!='darwin':prefix=prefix.replace("stat -f '%Lp'","stat -c '%a'")
         target=root/'run.sh';target.write_text(prefix+text.replace('/run/ai-host-kit',str(root)))
         env=dict(os.environ,BOOT_KEY=str(key),BOOT_MODE=str(mode),BOOT_INSTALLED=str(installed),BOOT_FAIL=str(fail))
-        result=subprocess.run(['bash',str(target)],env=env,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+        result=subprocess.run([shell,str(target)],env=env,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
         assert marker.encode() not in result.stdout+result.stderr and encoded.encode() not in result.stdout+result.stderr
         return result.returncode,key.exists(),installed.exists(),mode.read_text().strip()
     assert outcome(section,0)==(0,False,True,'600')
     code,exists,installed,mode=outcome(section,1)
     assert code!=0 and not exists and not installed and mode=='600'
-    assert outcome(section.replace('trap \'rm -f "$TAILSCALE_KEY_FILE"\' EXIT','true'),1)[1]
+    assert outcome(section.replace('trap \'rm -f "$TAILSCALE_KEY_FILE"\' 0','true'),1)[1]
     assert outcome(section.replace('    exit 1','    true'),1)[0]==0
     assert outcome(section.replace('rm -f "$TAILSCALE_KEY_FILE"\ntailscale ip','true\ntailscale ip'),0)[0]!=0
     print('Protection removals detected: failed-join cleanup, hard failure and cleanup before Coolify.')
