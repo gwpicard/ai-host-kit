@@ -232,11 +232,12 @@ def apply_case(gate, project, case):
     assert SECRET not in output and PASSPHRASE not in output
 
 
-def terminal_run(skill, project, destination, piped=False, wrong=False, words='I approve the local fixture changes.', before_words=None):
+def terminal_run(skill, project, destination, piped=False, wrong=False, words='I approve the local fixture changes.', before_words=None, show_plan=None):
     # A synthetic terminal is test machinery, not evidence of a real person's approval.
     sha = hashlib.sha256((project / 'first.plan').read_bytes()).hexdigest()
     confirmation = 'approve ' + '-'.join(sha[n:n+4] for n in (0,4,8))
     if wrong: confirmation = 'approve 0000-0000-0000'
+    sys.stdout.flush(); sys.stderr.flush()
     pid, fd = pty.fork()
     if pid == 0:
         os.chdir(project)
@@ -247,6 +248,18 @@ def terminal_run(skill, project, destination, piped=False, wrong=False, words='I
             os.dup2(read_fd, 0)
             os.close(read_fd)
         os.environ.update(ENV)
+        if show_plan is not None:
+            gate = load(skill)
+            actual = gate.tofu
+            def shown(*args):
+                if args[0] == 'show':
+                    return subprocess.CompletedProcess(args, 0, json.dumps(show_plan).encode(), b'')
+                return actual(*args)
+            with patch.object(gate, 'tofu', side_effect=shown), patch.object(sys, 'argv',
+                    ['approval_gate', 'approve', 'first.plan', str(destination)]):
+                status = gate.main()
+            sys.stdout.flush(); sys.stderr.flush()
+            os._exit(status)
         os.execv(sys.executable, [sys.executable, str(skill / 'scripts/approval_gate.py'),
                                  'approve', 'first.plan', str(destination)])
     output = b''
