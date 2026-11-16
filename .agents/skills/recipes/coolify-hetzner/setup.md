@@ -25,7 +25,7 @@ domain for the later public-lane run and the separately kept state passphrase.
 This empty-place canary uses the tailnet domain; the test domain is not changed.
 
 Use OpenTofu 1.13.2, the Python schema requirements and the installed, verified
-`@masonator/coolify-mcp` 3.9.0 package. Its tarball integrity is in
+`@masonator/coolify-mcp` 3.10.1 package. Its tarball integrity is in
 `dependencies.json`. Installation is reviewed separately; the runner never
 fetches a package. docktail 1.8.6 runs as an unmodified container. No model or
 agent is installed on the server.
@@ -86,7 +86,7 @@ created place, not invented in advance.
    python3 "$SETUP" apply --progress "$PROGRESS" --plan "$CREATE" --approval "$PLACE/create-approval.json"
    ```
 
-4. Wait for cloud-init to finish. Find the server's tailnet address using the
+4. Find the server's tailnet address using the
    person's Tailscale client. After permission for reads, check the bootstrap.
    This step neither fixes the node nor installs anything.
 
@@ -98,7 +98,9 @@ created place, not invented in advance.
    Replace `test-place` with the approved place name. Bootstrap requires the
    Hetzner instance ID to match, the node name and address to match, the key
    file to be gone, `tag:server`, disabled node-key expiry, Tailscale SSH and
-   completed cloud-init. A missing read stops the flow.
+   completed cloud-init and a healthy Coolify container. It waits up to twenty
+   minutes for cloud-init, with progress. A failed row reports its reason and,
+   where recognised, the failed cloud-init module. A missing read stops the flow.
 
 5. Prepare and approve the first-administrator effect. The person runs the
    approval command, then the run command. The runner records that the attempt
@@ -130,7 +132,7 @@ created place, not invented in advance.
    it separately for each line below. Do not run a loop or approve on their
    behalf. Each run prompts for the Coolify token. The API has no current-token
    abilities route; the script says when scope remains a declaration. Check
-   the actual token's scopes in Coolify before proceeding.
+   the actual token's scopes and whole-team access in Coolify before proceeding.
 
    ```sh
    stage() {

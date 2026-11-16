@@ -1,10 +1,10 @@
 {
-  "coolify": "4.3.23",
+  "coolify": "4.7.5",
   "hcloud": "1.70.2",
   "mcp": {
     "package": "@masonator/coolify-mcp",
-    "version": "3.9.0",
-    "integrity": "sha512-tjCqT2oa0v8+oD4rgaMtRXfORFsSnB0CWdX+vphcEfT+xu6ZsOT/ZyIHkumLM6qecx8oWZhiZbSpcaoHOxdwiQ==",
+    "version": "3.10.1",
+    "integrity": "sha512-a3vdgvMDVp3YUxdgJdSQYKBVYwvgpg/HGcBM8iLzVnxbHSZjlx5jr35ogL5JOwLVx3cCPN25aiQqyaMiaIMjRQ==",
     "licence": "MIT"
   },
   "docktail": {
@@ -15,5 +15,33 @@
   "canary": {
     "image": "traefik/whoami:v1.11.0",
     "purpose": "Empty-place tailnet connectivity check"
+  },
+  "checked_at": "2026-11-16",
+  "coolify_helper": "1.0.19",
+  "coolify_files": {
+    "install.sh": {
+      "url": "https://raw.githubusercontent.com/coollabsio/coolify/v4.7.5/scripts/install.sh",
+      "sha256": "c221f81e0bc9b47541f47bf671da76c79cfb61ce4741c3cb0800d7a18b99f137"
+    },
+    "upgrade.sh": {
+      "url": "https://raw.githubusercontent.com/coollabsio/coolify/v4.7.5/scripts/upgrade.sh",
+      "sha256": "d99cc100ce9e706d691980591aab6dee238eea59710ec8abacc84aedb79973d7"
+    },
+    "upgrade-postgres.sh": {
+      "url": "https://raw.githubusercontent.com/coollabsio/coolify/v4.7.5/scripts/upgrade-postgres.sh",
+      "sha256": "aa65c277fc13ab5b27c349fbfef12defc59c084b244e4b258329e1f6c570ae8d"
+    },
+    "docker-compose.yml": {
+      "url": "https://raw.githubusercontent.com/coollabsio/coolify/v4.7.5/docker-compose.yml",
+      "sha256": "2532ee9258e10ad4e86cb3c2b46c29fe9329f5a0dace0f7da410744feec279bd"
+    },
+    "docker-compose.prod.yml": {
+      "url": "https://raw.githubusercontent.com/coollabsio/coolify/v4.7.5/docker-compose.prod.yml",
+      "sha256": "f8b104aadfca48d0033fdee6cb87fea13c68bc5c67c63ba18b1934e9f901ff5d"
+    },
+    ".env.production": {
+      "url": "https://raw.githubusercontent.com/coollabsio/coolify/v4.7.5/.env.production",
+      "sha256": "7895e54f7c9d40063e76afec9b35839048d91e5c3b5107d64ea49ef6987c304a"
+    }
   }
 }

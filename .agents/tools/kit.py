@@ -260,6 +260,10 @@ def validate(args):
         if not condition:
             error(message)
     files = tracked()
+    def coolify_pin():
+        from check_coolify_pin import check as check_pin
+        check_pin(ROOT / '.agents/skills/recipes/coolify-hetzner')
+    check('Coolify release files and runtime pins agree', coolify_pin)
     def source_rules():
         # Build forbidden samples in parts so the checker never exempts itself.
         attribution = re.compile(r'^\s*co-' + r'authored-by:|^\s*(?:claude|codex|gemini)-session:|'

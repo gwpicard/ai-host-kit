@@ -97,11 +97,11 @@ def outcomes(ops, gate, work):
     assert len(api.writes) == 1
     calls = []
     rows = ops.check_place(record, lambda host, port: calls.append(port) or False,
-                           lambda address: '4.3.23', lambda: '3.9.0')
+                           lambda address: '4.7.5', lambda: '3.10.1')
     assert 8080 in calls and all(status == 'passed' for _, status in rows)
-    assert ops.check_place(record, lambda *a: True, lambda a: '4.3.23', lambda:'3.9.0')[0][1] == 'failed'
-    assert ops.scoped_mcp(['read','read:sensitive','write','deploy'],'3.9.0')['args'][-1].endswith('@3.9.0')
-    refused(lambda: ops.scoped_mcp(['root'],'3.9.0'))
+    assert ops.check_place(record, lambda *a: True, lambda a: '4.7.5', lambda:'3.10.1')[0][1] == 'failed'
+    assert ops.scoped_mcp(['read','read:sensitive','write','deploy'],'3.10.1')['args'][-1].endswith('@3.10.1')
+    refused(lambda: ops.scoped_mcp(['root'],'3.10.1'))
     refused(lambda: ops.scoped_mcp(['read','read:sensitive','write','deploy'],'latest'))
     destroyed = []
     apply = lambda plan, approval: destroyed.append(plan)
