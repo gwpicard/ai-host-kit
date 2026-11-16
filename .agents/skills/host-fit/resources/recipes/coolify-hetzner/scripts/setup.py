@@ -272,7 +272,7 @@ def main():
             try:
                 sys.argv=['retire','--record',str(Path(args.choice).resolve()),'--plan',args.plan,'--approval',args.approval]
                 if args.partial: sys.argv += ['--partial-progress',str(progress)]
-                return retire.main()
+                return retire.main(gate=gate, token=os.environ['TF_VAR_hcloud_token'])
             finally: sys.argv=previous
         if args.command in ('init','plan','plan-destroy','summary','approve','apply'):
 

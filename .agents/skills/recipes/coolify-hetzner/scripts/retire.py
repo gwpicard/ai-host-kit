@@ -8,7 +8,7 @@ from check import load_reader
 from place import destroy_plan_matches, retire, fingerprint
 
 
-def main():
+def main(gate=None, token=None):
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--partial-progress')
     parser.add_argument('--record',default='hosting/place-record.json')
@@ -25,7 +25,7 @@ def main():
         else:
             if reader.validate('place-record',args.record): return 1
             record=reader.read_json(args.record)
-        gate=approval_gate()
+        if gate is None: gate=approval_gate()
         # Read only the same encrypted bytes that the saved-plan gate will apply.
         gate.require_encryption(); gate.check_version()
         with gate.saved_plan(args.plan) as (snapshot,sha):
@@ -33,7 +33,7 @@ def main():
             shown=gate.tofu('show','-json',snapshot)
             if shown.returncode: raise ValueError('Destroy plan could not be read.')
             destroy_plan_matches(record,json.loads(shown.stdout),partial)
-        token=hidden_value(gate,'Hetzner project token')
+        if token is None: token=hidden_value(gate,'Hetzner project token')
         if partial and progress.get('provider_plans',{}).get(sha)!=fingerprint(token):
             raise ValueError('The project token differs from the saved plan.')
         api=API(record,token)

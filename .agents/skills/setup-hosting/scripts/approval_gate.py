@@ -333,9 +333,19 @@ def environment():
 
 
 def tofu(*args):
+    # Every invocation, including direct state reads, receives the hidden pair.
+    metadata = Path('.terraform/terraform.tfstate')
+    remote = metadata.is_file() and records.read_json(metadata).get('backend', {}).get('type') == 's3'
+    if remote:
+        storage_credentials()
     try:
-        return subprocess.run(['tofu', *map(str, args)], env=environment(), stdin=subprocess.DEVNULL,
+        result = subprocess.run(['tofu', *map(str, args)], env=environment(), stdin=subprocess.DEVNULL,
                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+        if remote and result.returncode and args[0] in ('show', 'output', 'state'):
+            print('Could not read the encrypted state in the bucket: check the storage keys and passphrase. Values are withheld.', file=sys.stderr)
+        elif remote and result.returncode and args[0] in ('plan', 'apply', 'init', 'workspace'):
+            print('OpenTofu could not complete the bucket state operation. Check the storage keys and passphrase, then review the configuration. Values are withheld.', file=sys.stderr)
+        return result
     except OSError:
         refuse('OpenTofu could not start. Install the pinned version and try again.')
 
