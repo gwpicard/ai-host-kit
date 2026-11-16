@@ -56,7 +56,9 @@ Preserve facts and conditions, use natural verbs, and cut unsupported claims.
 
 ## Checks and their limits
 
-The checks require Git, a POSIX shell, Python 3 and Ruby for YAML parsing.
+The checks require Git, dash or posh for shell syntax checks, Python 3 and Ruby
+for YAML parsing. The validator refuses to run its syntax checks without dash
+or posh; it does not fall back to the system `sh`, which may accept Bash syntax.
 The contract tests also use pinned Python packages. Prepare an environment
 outside the repository and activate it before running the suite or rehearsal:
 

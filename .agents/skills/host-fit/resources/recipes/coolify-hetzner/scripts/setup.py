@@ -15,7 +15,7 @@ import tempfile
 from api import API, approval_gate, hidden_value as prompt
 from check import load_reader
 from mcp import MCP
-from node import bootstrap, read_node
+from node import bootstrap, read_node, wait_bootstrap, BootstrapFailed
 from place import OperationRefused, PINS, SCOPES, fingerprint, require, scoped_mcp, tailnet_address, write_record, start_attempt, finish_attempt, partial_record, journal_identity, place_lock
 
 STEPS = ['claim', 'project', 'docktail', 'oauth-id', 'oauth-secret', 'start-docktail',
@@ -336,8 +336,11 @@ def main():
                     server_id=int(outputs['server_id']),firewall_id=int(outputs['firewall_id']),ssh_key_id=int(outputs['ssh_key_id']),
                     journal=state['journal'],public_ipv4=outputs['ipv4_address'],tailnet_ipv4=tailnet_address(args.address),versions=PINS))
             validate_record(reader,record)
-            facts=read_node(record['infrastructure']['tailnet_ipv4'])
-            bootstrap(record,lambda address:facts)
+            try:
+                facts=wait_bootstrap(record,read_node)
+            except BootstrapFailed as error:
+                print(str(error),file=sys.stderr)
+                return 1
             suffix=facts.get('status',{}).get('MagicDNSSuffix','')
             require(re.fullmatch(r'[a-z0-9-]+\.ts\.net',suffix), 'Read a supported MagicDNS suffix from the joined server.')
             state['tailnet_suffix']=suffix

@@ -22,7 +22,7 @@ def exercise(work, checks):
         import mcp
         gate=checks.load(); reader=flow.load_reader()
         record=json.loads((FIXTURE/'place-record.json').read_text())
-        facts=dict(status=dict(BackendState='Running',Self=dict(HostName='test-place',TailscaleIPs=['100.64.0.10'],Tags=['tag:server'],KeyExpiry=None)),prefs=dict(RunSSH=True),key_file_gone=True,instance_id='101',cloud_init={'v1':{'errors':[]}})
+        facts=dict(coolify_healthy=True,cloud_init_state='done',status=dict(BackendState='Running',Self=dict(HostName='test-place',TailscaleIPs=['100.64.0.10'],Tags=['tag:server'],KeyExpiry=None)),prefs=dict(RunSSH=True),key_file_gone=True,instance_id='101',cloud_init={'v1':{'errors':[]}})
         assert all(status=='passed' for _,status in node.bootstrap(record,lambda address:facts))
         bads=[('key_file_gone',False),('instance_id','999'),('prefs',{'RunSSH':False}),('cloud_init',{'v1':{'errors':['failed']}})]
         for field,value in bads:
@@ -268,20 +268,22 @@ def cli(work,flow,gate,reader,config,choice,facts,journal_probes=True):
 
 def cloud_init(work,recipe):
     import base64
+    from place_checks import ROOT, load
+    shell = load(ROOT/'.agents/tools/kit.py').posix_shell()
     source=(recipe/'tofu/hetzner-server/cloud-init.sh').read_text()
     marker='tskey-auth-synthetic-only'
     encoded=base64.b64encode(marker.encode()).decode()
     script=source.replace('{{TAILSCALE_KEY_B64}}',encoded).replace('{{PLACE_NAME}}','test-place')
     assert marker not in script and script.count(encoded)==1
-    assert script.index('apt-get')<script.index('tailscale up')<script.index('bash -s 4.3.23')
-    section=script[script.index('install -d'):]
+    assert script.index('apt-get')<script.index('tailscale up')<script.index('COOLIFY_VERSION=4.7.5')
+    section=script[script.index('TAILSCALE_KEY_FILE='):script.index('# Verify every release file')] + 'curl synthetic-install\n'
     def outcome(text,fail):
         root=work/'boot-run';shutil.rmtree(root,ignore_errors=True);root.mkdir()
         key=root/'tailscale-auth-key';mode=root/'mode';installed=root/'installed'
         # Functions are local command stand-ins; the shell still executes traps,
         # umask, file write and deletion for real in this throwaway folder.
-        prefix='''#!/bin/bash
-set -euo pipefail
+        prefix='''#!/bin/sh
+set -eu
 tailscale() {
  if [ "$1" = up ]; then
    stat -f '%Lp' "$BOOT_KEY" > "$BOOT_MODE"
@@ -297,13 +299,13 @@ curl() { test ! -e "$BOOT_KEY" || exit 44; touch "$BOOT_INSTALLED"; }
         if sys.platform!='darwin':prefix=prefix.replace("stat -f '%Lp'","stat -c '%a'")
         target=root/'run.sh';target.write_text(prefix+text.replace('/run/ai-host-kit',str(root)))
         env=dict(os.environ,BOOT_KEY=str(key),BOOT_MODE=str(mode),BOOT_INSTALLED=str(installed),BOOT_FAIL=str(fail))
-        result=subprocess.run(['bash',str(target)],env=env,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+        result=subprocess.run([shell,str(target)],env=env,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
         assert marker.encode() not in result.stdout+result.stderr and encoded.encode() not in result.stdout+result.stderr
         return result.returncode,key.exists(),installed.exists(),mode.read_text().strip()
     assert outcome(section,0)==(0,False,True,'600')
     code,exists,installed,mode=outcome(section,1)
     assert code!=0 and not exists and not installed and mode=='600'
-    assert outcome(section.replace('trap \'rm -f "$TAILSCALE_KEY_FILE"\' EXIT','true'),1)[1]
+    assert outcome(section.replace('trap \'rm -f "$TAILSCALE_KEY_FILE"\' 0','true'),1)[1]
     assert outcome(section.replace('    exit 1','    true'),1)[0]==0
     assert outcome(section.replace('rm -f "$TAILSCALE_KEY_FILE"\ntailscale ip','true\ntailscale ip'),0)[0]!=0
     print('Protection removals detected: failed-join cleanup, hard failure and cleanup before Coolify.')
@@ -316,12 +318,12 @@ def protocol(work,mcp,flow,package=None):
 for line in sys.stdin:
  r=json.loads(line)
  if 'id' not in r: continue
- if r['method']=='initialize': result={'serverInfo':{'version':'3.9.0'}}
- else: result={'content':[{'type':'text','text':json.dumps({'version':'3.9.0','uuid':'synthetic-service'})}]}
+ if r['method']=='initialize': result={'serverInfo':{'version':'3.10.1'}}
+ else: result={'content':[{'type':'text','text':json.dumps({'version':'3.10.1','uuid':'synthetic-service'})}]}
  print(json.dumps({'jsonrpc':'2.0','id':r['id'],'result':result}),flush=True)
 ''')
     folder=work/'package';folder.mkdir(exist_ok=True)
-    (folder/'package.json').write_text(json.dumps(dict(name='@masonator/coolify-mcp',version='3.9.0')))
+    (folder/'package.json').write_text(json.dumps(dict(name='@masonator/coolify-mcp',version='3.10.1')))
     original=subprocess.Popen;calls=[]
     def spawn(command,**kwargs):
         assert command[0]=='node' and kwargs['env']['COOLIFY_BASE_URL']=='http://100.64.0.10:8000'
@@ -344,10 +346,10 @@ def protocol_guards(work,mcp,flow):
     child=work/'guard-stdio.py'
     original=subprocess.Popen
     def attempt(module,kind):
-        version='9.0.0' if kind=='package' else '3.9.0'
+        version='9.0.0' if kind=='package' else '3.10.1'
         package.write_text(json.dumps(dict(name='@masonator/coolify-mcp',version=version)))
-        hello='9.0.0' if kind=='hello' else '3.9.0'
-        tool='9.0.0' if kind=='tool' else '3.9.0'
+        hello='9.0.0' if kind=='hello' else '3.10.1'
+        tool='9.0.0' if kind=='tool' else '3.10.1'
         child.write_text("import sys,json\nfor line in sys.stdin:\n r=json.loads(line)\n if 'id' not in r: continue\n result={'serverInfo':{'version':"+repr(hello)+"}} if r['method']=='initialize' else {'content':[{'type':'text','text':json.dumps({'version':"+repr(tool)+"})}]}\n print(json.dumps({'jsonrpc':'2.0','id':r['id'],'result':result}),flush=True)\n")
         def spawn(command,**kwargs):return original([sys.executable,'-u',str(child)],**kwargs)
         with patch.object(module.subprocess,'Popen',side_effect=spawn):
@@ -376,7 +378,7 @@ def actual_package(work,mcp,flow,package):
         def log_message(self,*args):pass
         def do_GET(self):
             calls.append(('GET',self.path,None))
-            self.send_response(200);self.end_headers();self.wfile.write(b'"4.3.23"')
+            self.send_response(200);self.end_headers();self.wfile.write(b'"4.7.5"')
         def do_POST(self):
             body=json.loads(self.rfile.read(int(self.headers.get('Content-Length','0')))) if int(self.headers.get('Content-Length','0')) else None if int(self.headers.get('Content-Length','0')) else None
             calls.append(('POST',self.path,body))
@@ -402,5 +404,5 @@ def actual_package(work,mcp,flow,package):
         posted=next(body for method,path,body in calls if path=='/api/v1/services' and method=='POST')
         assert base64.b64decode(posted['docker_compose_raw']).decode()==flow.DOCKTAIL and posted['instant_deploy'] is False
         assert any(path=='/api/v1/services/synthetic-service/start' for method,path,body in calls)
-        print('Unmodified MCP 3.9.0 created and started a synthetic service against a loopback API stand-in.')
+        print('Unmodified MCP 3.10.1 created and started a synthetic service against a loopback API stand-in.')
     finally:server.shutdown();server.server_close();thread.join()

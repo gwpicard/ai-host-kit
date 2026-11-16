@@ -13,7 +13,7 @@ from pathlib import Path
 import socket
 import sys
 
-PINS = dict(coolify="4.3.23", mcp="3.9.0", docktail="1.8.6", hcloud="1.70.2")
+PINS = dict(coolify="4.7.5", mcp="3.10.1", docktail="1.8.6", hcloud="1.70.2")
 SCOPES = {"read", "read:sensitive", "write", "deploy"}
 PROBE_PORTS = {22, 80, 443, 8000, 8080, 6001, 6002}
 

@@ -390,10 +390,10 @@
           "additionalProperties": false,
           "properties": {
             "coolify": {
-              "const": "4.3.23"
+              "const": "4.7.5"
             },
             "mcp": {
-              "const": "3.9.0"
+              "const": "3.10.1"
             },
             "docktail": {
               "const": "1.8.6"

@@ -38,7 +38,7 @@ and retirement ownership checks are from launchpad. Lane separation, explicit do
 service port and the control-plane write-once port check are from coolify-devops.
 Closely adapted files carry source headers. Both MIT notices remain intact.
 
-`@masonator/coolify-mcp` 3.9.0 is the MIT runtime dependency, from
+`@masonator/coolify-mcp` 3.10.1 is the MIT runtime dependency, from
 [StuMason/coolify-mcp](https://github.com/StuMason/coolify-mcp). Its npm tarball
 was verified against its published SHA-512 integrity before reading. The exact
 pin and integrity are in the recipe's `dependencies.json`; no MCP source is
@@ -51,3 +51,17 @@ dependency, run unmodified as its own container. No docktail code is copied,
 modified or bundled. The exit route is to remove its service labels and
 container after a separate approval and manage Tailscale Services directly.
 The kit does not depend on a patched docktail or distribute its image.
+
+[Coolify v4.7.5](https://github.com/coollabsio/coolify/tree/v4.7.5), commit
+`378ce3735c4522ebb6b68e93b909b0511f278763`, supplies the fresh-install files.
+They are fetched on the new server, never bundled here. `dependencies.json`
+records the tagged URLs and SHA-256 of the installer, upgrade and PostgreSQL
+upgrade scripts, both compose files and the production environment template.
+Cloud-init verifies them before use, then changes the installer and upgrade
+script locally to copy the verified files. It replaces live version discovery
+with Coolify 4.7.5 and helper 1.0.19, extends installer waits and disables automatic
+updates. Docker installation and operating-system packages retain upstream
+behaviour; this pins Coolify's release files, not the whole machine image.
+Coolify's Apache-2.0 licence is preserved in NOTICES, including for these local
+changes. Its tagged OpenAPI and routes confirm rollback and token abilities;
+the recipe owns those facts and their limits. No Coolify source is bundled.

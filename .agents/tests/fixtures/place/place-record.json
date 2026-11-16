@@ -31,8 +31,8 @@
     "public_ipv4": "192.0.2.10",
     "tailnet_ipv4": "100.64.0.10",
     "versions": {
-      "coolify": "4.3.23",
-      "mcp": "3.9.0",
+      "coolify": "4.7.5",
+      "mcp": "3.10.1",
       "docktail": "1.8.6",
       "hcloud": "1.70.2"
     }
