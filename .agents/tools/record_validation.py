@@ -134,6 +134,14 @@ def unknown_fields(value, schema, path=()):
             yield from unknown_fields(child, schema.get('items', {}), path + (index,))
 
 
+def withheld_assignment(value):
+    """Recognise complete redacted values from the plan summary renderer."""
+    placeholder = r'(?:not set|value withheld|withheld \(sensitive or unknown\))'
+    structural = r'structural change \(empty container added, removed or changed\); values withheld'
+    network_note = re.escape(' Possibly affects who can reach the tool. Treat new or wider sources as possible internet access; unknown sources need review.')
+    return re.fullmatch(r'\s*(?:' + placeholder + r'(?: -> ' + placeholder + r')?|' + structural + r')\.?(?:' + network_note + r')?', value) is not None
+
+
 def secret_fields(value, path=(), *, field_name=False):
     """Find obvious secret content without returning or printing the content."""
     if isinstance(value, dict):
@@ -155,7 +163,8 @@ def secret_fields(value, path=(), *, field_name=False):
                 isinstance(path[1], int) and path[2] == 'image'):
             # The schema checks digest syntax; a digest is public image metadata.
             value = re.sub(r'@sha256:[0-9a-f]{64}$', '', value)
-        if re.search(r'(?i)(?:^|[^a-z0-9])(?:key|token|sig|password)\s*[:=]', value) or re.search(r'-----BEGIN (?:[A-Z ]+ )?PRIVATE KEY-----', value):
+        assignments = re.finditer(r'(?i)(?:^|[^a-z0-9])(?:key|token|sig|password)\s*[:=]', value)
+        if any(not withheld_assignment(value[match.end():]) for match in assignments) or re.search(r'-----BEGIN (?:[A-Z ]+ )?PRIVATE KEY-----', value):
             yield path
             return
         for run in re.findall(r'[A-Za-z0-9+/_=-]{32,}', value):

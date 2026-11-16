@@ -174,6 +174,8 @@ def run_regressions(checks, work):
     results['real_empty_container'] = empty_check(gate)
     print('Review regression passed: real_empty_container')
     original = local_project(checks, work, 'target', 'resource "terraform_data" "target" { input = "synthetic" }\n')
+    from approval_public_key_checks import run_checks as public_key_checks
+    public_key_checks(checks, original, work / 'public-key')
     approval = work / 'target-approval.json'
     status, output = checks.terminal_run(checks.SKILL, original, approval)
     assert status == 0
