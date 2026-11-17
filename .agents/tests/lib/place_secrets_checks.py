@@ -117,10 +117,10 @@ def stage_input_boundaries(work):
     class MCP:
         def __init__(self,*args):pass
         def close(self):pass
-    for step,target in [('claim','Coolify'),('oauth-id','TAILSCALE_OAUTH_CLIENT_ID'),
+    for step,target in [('claim','Coolify'),('claim','Hetzner'),('oauth-id','TAILSCALE_OAUTH_CLIENT_ID'),
                         ('oauth-secret','TAILSCALE_OAUTH_CLIENT_SECRET'),('register','Tailscale API'),
                         ('start-register','Tailscale API'),('record','Tailscale API')]:
-        folder=work/step;folder.mkdir()
+        folder=work/(step+'-'+target.replace(' ','-'));folder.mkdir()
         choice=folder/'choice.json';choice.write_text('{}')
         journal=folder/'place-attempts'
         state=dict(root=str(folder),record=record,done=flow.STEPS[:flow.STEPS.index(step)],uncertain=None,
@@ -165,7 +165,7 @@ def exercise(work):
         def request(self,method,url,*args):
             requests.append(url)
             if url.endswith('/destinations'): return [{'uuid':'destination-one'}]
-            return {'ip':'127.0.0.1'}
+            return {'ip':'host.docker.internal','name':'localhost'}
         def token_abilities(self): return None # Real pinned API has no introspection.
         def firewall_rules(self,*args): return []
         def owned_resources(self,**kwargs): return resources(record)

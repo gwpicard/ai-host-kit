@@ -12,11 +12,14 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
+import urllib.error
 from api import API, approval_gate, hidden_value as prompt
 from check import load_reader
 from mcp import MCP
 from node import bootstrap, read_node, wait_bootstrap, BootstrapFailed
-from place import OperationRefused, PINS, SCOPES, fingerprint, require, scoped_mcp, tailnet_address, write_record, start_attempt, finish_attempt, partial_record, journal_identity, place_lock
+from place import OperationRefused, PINS, SCOPES, fingerprint, require, scoped_mcp, tailnet_address, write_record, start_attempt, finish_attempt, mark_dispatch, partial_record, journal_identity, place_lock
+from place import JOURNAL_MESSAGE
 
 STEPS = ['claim', 'project', 'docktail', 'oauth-id', 'oauth-secret', 'start-docktail',
          'register', 'start-register', 'record']
@@ -172,7 +175,7 @@ def effect_for(state, step):
                      ', tailnet TCP 443 to container port 80. It becomes reachable by the people allowed by the existing tailnet policy when started. No public ports.')
     elif step in ('oauth-id','oauth-secret'):
         tool='env_vars'; key='TAILSCALE_OAUTH_CLIENT_'+('ID' if step=='oauth-id' else 'SECRET')
-        args=dict(resource='service',action='create',uuid=state['docktail_uuid'],key=key,
+        args=dict(resource='service',action='set',uuid=state['docktail_uuid'],key=key,
                   is_buildtime=False,is_runtime=True,is_preview=False)
         description='Store the person-supplied '+key+' in the docktail Coolify runtime environment. The approved value comes from the protected file or prompt; the kit saves no local copy. Docktail will gain the abilities of that OAuth client.'
     elif step in ('start-docktail','start-register'):
@@ -184,14 +187,22 @@ def effect_for(state, step):
     return dict(**common,effect=description,tool=tool,arguments=args)
 
 
-def run_stage(state, step, approval, gate, api, mcp, confirm, service_definition, reachable, oauth_value=None):
+def read_require(condition, message):
+    if not condition: raise OperationRefused(message)
+
+
+def check_claim(record, api, confirm):
+    read_require(api.firewall_rules(record['infrastructure']['firewall_id'])==[], 'Keep all inbound rules closed until the claim is confirmed.')
+    read_require(confirm(record['place']['name'])=='claimed '+record['place']['name'], 'The person must confirm their own administrator claim.')
+    read_require(api.registration_closed() and api.coolify_team() is not None, 'Registration must redirect to login and the person\'s team token must work.')
+
+
+def run_stage(state, step, approval, gate, api, mcp, confirm, service_definition, reachable, oauth_value=None, dispatch=lambda:None):
     effect=effect_for(state,step)
     gate.match_effect(effect,approval)
     record=state['record']
     if step=='claim':
-        require(api.firewall_rules(record['infrastructure']['firewall_id'])==[], 'Keep all inbound rules closed until the claim is confirmed.')
-        require(confirm(record['place']['name'])=='claimed '+record['place']['name'], 'The person must confirm their own administrator claim.')
-        require(api.registration_closed() and api.coolify_team() is not None, 'Registration must redirect to login and the person\'s team token must work.')
+        check_claim(record,api,confirm)
         return {}
     require(api.registration_closed(), 'Coolify registration is open or unreadable; no write is allowed.')
     if step=='record':
@@ -204,24 +215,111 @@ def run_stage(state, step, approval, gate, api, mcp, confirm, service_definition
         require(before is None or before.get('ports')==['tcp:443'], 'Refused different write-once service ports; repair needs separate approval.')
     args=copy.deepcopy(effect['arguments'])
     if step in ('oauth-id','oauth-secret'):
+        rows=mcp.call('env_vars',dict(resource='service',action='list',uuid=args['uuid'],key=args['key'],reveal=False))
+        read_require(isinstance(rows,list), 'Coolify environment read returned no list; no value was sent.')
+        existing=[row for row in rows if row.get('key')==args['key'] and row.get('is_preview') is False]
+        read_require(len(existing)<=1 and all(row.get('is_preview') in (True,False) for row in rows),
+                'Coolify environment scope is ambiguous; no value was sent.')
+        args['action']='update' if existing else 'create'
         args['value']=oauth_value if oauth_value is not None else prompt(gate,args['key'])
-    result=mcp.call(effect['tool'],args)
+    dispatch()
+    try:
+        result=mcp.call(effect['tool'],args)
+    except ValueError:
+        if step in ('oauth-id','oauth-secret'):
+            raise OperationRefused('Coolify refused the environment write. Inspect the key and scope for a conflict; no fallback write was sent.') from None
+        raise
     require(isinstance(result,dict), 'The MCP write returned an unexpected result; inspect the place before retrying.')
+    if step in ('oauth-id','oauth-secret'):
+        rows=api.service_env_state(args['uuid'],args['key'])
+        read_require(len(rows)==1 and rows[0]==dict(is_set=True,is_runtime=True,is_buildtime=False,is_preview=False),
+                'Coolify did not confirm a set production runtime value; inspect the uncertain stage.')
     if step in ('project','docktail','register'):
         require(isinstance(result.get('uuid'),str) and bool(result['uuid']), 'The MCP write returned no identity; inspect the place before retrying.')
         return {step+'_uuid':result['uuid']}
     return {}
 
 
-def record_created(state, reader):
+def record_candidate(state, reader):
     require(fingerprint(reader.read_json(state['choice_path']))==state['choice_sha256'],
             'The choice changed during the reads; do not overwrite it.')
     record=copy.deepcopy(state['record'])
     record['infrastructure']['plumbing']=dict(project_uuid=state['project_uuid'],docktail_uuid=state['docktail_uuid'],
         canary_uuid=state['register_uuid'],tailnet_service_name=state['config']['canary_name'])
     validate_record(reader,record)
+    return record
+
+
+def record_created(state, reader):
+    record=record_candidate(state,reader)
     save(state['choice_path'],record)
     return record
+
+
+def wait_canary(definition, reachable, name, limit=300, interval=5):
+    deadline=time.monotonic()+limit
+    reason='The canary definition is absent.'
+    while True:
+        try:
+            observed=definition(name)
+        except urllib.error.HTTPError as error:
+            raise OperationRefused('Canary definition read failed with HTTP '+str(error.code)+'.') from None
+        if observed is not None:
+            if not isinstance(observed,dict) or observed.get('ports')!=['tcp:443']:
+                raise OperationRefused('The canary declares different ports; separate repair approval is required.')
+            try:
+                if reachable(): return
+                reason='The canary HTTPS response is not 200.'
+            except (OSError,TimeoutError):
+                reason='The canary HTTPS connection or certificate is not ready.'
+        remaining=deadline-time.monotonic()
+        if remaining<=0:
+            raise OperationRefused('Canary readiness timed out. '+reason+' No record attempt was made.')
+        print('Waiting for the canary definition and HTTPS certificate. '+reason,flush=True)
+        time.sleep(min(interval,remaining))
+
+
+def recovery_context(state, step, original, reader):
+    read_require(step in STEPS and state.get('uncertain') in (None,step),
+            'Recovery must name the current uncertain stage.')
+    effect=effect_for(dict(state,uncertain=None),step)
+    read_require(reader.read_json(original)==effect, 'The original attempt effect differs from this progress.')
+    journal=Path(state['choice_path']).parent/'place-attempts'
+    require(state['journal']==journal_identity(journal,create=False), JOURNAL_MESSAGE)
+    receipt=journal/(fingerprint(effect)+'.json')
+    require(not receipt.is_symlink(), 'The attempt receipt must not be a symlink.')
+    saved=reader.read_json(receipt)
+    read_require(saved.get('effect_sha256')==fingerprint(effect) and saved.get('status')=='uncertain',
+            'Recovery needs the matching uncertain receipt; a closed receipt cannot be reused.')
+    return effect,receipt,saved
+
+
+def recovery_effect(state, step, original, reader, abandon):
+    effect,receipt,saved=recovery_context(state,step,original,reader)
+    require(abandon or step=='claim', 'Only the administrator claim can be completed by this recovery.')
+    return dict(action='place-abandon' if abandon else 'place-recover-claim',journal=state['journal'],
+        progress_sha256=fingerprint(state),place_sha256=fingerprint(state['record']),
+        receipt_sha256=fingerprint(saved),attempt_sha256=fingerprint(effect),step=step,
+        effect=('Record the '+step+' attempt as abandoned only with proof that no write occurred. Keep its spent receipt marked not-written. A new attempt needs a new effect and approval. No host or access changes.' if abandon else
+                'Repeat the administrator claim checks and typed confirmation. Complete only this uncertain claim and its receipt if every check passes. No host or access changes.'))
+
+
+def abandon_reason(state, step, effect, receipt, api):
+    if step!='claim' and receipt.get('write_state')=='not-sent':
+        return 'The runner recorded that no write was dispatched.'
+    if step in ('project','docktail','register'):
+        team=api.coolify_team()
+        read_require(receipt.get('coolify_team_id') is not None and isinstance(team,dict)
+                     and team.get('id')==receipt['coolify_team_id'],
+                     'An absence read needs the same Coolify team recorded at the attempt; the stage stays uncertain.')
+        kind='projects' if step=='project' else 'services'
+        rows=api.coolify_resources(kind)
+        read_require(isinstance(rows,list) and all(isinstance(row,dict) and isinstance(row.get('name'),str) for row in rows),
+                'The resource inventory could not prove absence; the attempt stays uncertain.')
+        read_require(not any(row['name']==effect['arguments']['name'] for row in rows),
+                'The named resource exists; the attempt stays uncertain.')
+        return 'A complete Coolify inventory contains no resource with the approved name.'
+    raise OperationRefused('No retained evidence proves that this write was not sent. The attempt stays uncertain.')
 
 
 def bind_provider(state, plan, token, gate, remember=False):
@@ -236,8 +334,10 @@ def bind_provider(state, plan, token, gate, remember=False):
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command',choices=['root','init','plan','summary','approve','apply','bootstrap','prepare','run','candidate','discover','plan-destroy','retire'])
+    parser.add_argument('command',choices=['root','init','plan','summary','approve','apply','bootstrap','prepare','run','candidate','discover','plan-destroy','retire','prepare-recovery','recover'])
     parser.add_argument('--partial',action='store_true')
+    parser.add_argument('--abandon',action='store_true')
+    parser.add_argument('--attempt-effect')
     parser.add_argument('--config'); parser.add_argument('--choice',default='hosting/place-record.json')
     parser.add_argument('--secrets')
     parser.add_argument('--directory',default='hosting/tofu'); parser.add_argument('--progress',default='hosting/place-progress.json')
@@ -246,7 +346,7 @@ def main():
     parser.add_argument('--server-uuid'); parser.add_argument('--destination-uuid'); parser.add_argument('--canary-url')
     args=parser.parse_args(); locks=ExitStack(); client=None; state=None; gate=None; previous_directory=Path.cwd()
     if args.secrets: args.secrets=str(Path(args.secrets).expanduser().absolute())
-    for field in ('plan','approval','effect','choice','mcp_package'):
+    for field in ('plan','approval','effect','choice','mcp_package','attempt_effect'):
         value=getattr(args,field)
         if value: setattr(args,field,str(Path(value).resolve()))
     try:
@@ -259,11 +359,45 @@ def main():
         progress=Path(args.progress).resolve(); state=reader.read_json(progress)
         gate.configure_secrets(args.secrets or state['config'].get('secrets'),state['config']['place']['name'])
         root=Path(state['root']); record=state.get('record')
-        if args.command=='run':
+        if args.command in ('run','prepare-recovery','recover','discover'):
             locks.enter_context(place_lock(record))
             state=reader.read_json(progress); record=state.get('record')
             require(state['journal']==journal_identity(Path(state['choice_path']).parent/'place-attempts',create=False),
                     'Receipt journal is missing or replaced. Inspect the live state and approve afresh.')
+        if args.command in ('prepare-recovery','recover'):
+            validate_record(reader,record)
+            require(args.step and args.attempt_effect and args.effect, 'Name the stage, original attempt effect and recovery effect path.')
+            recovery=recovery_effect(state,args.step,args.attempt_effect,reader,args.abandon)
+            if args.command=='prepare-recovery':
+                write_record(recovery,args.effect,lambda value:None); print(recovery['effect']); return 0
+            require(args.approval and reader.read_json(args.effect)==recovery, 'The recovery effect differs from current progress or receipt.')
+            gate.match_effect(recovery,args.approval)
+            original,receipt,saved=recovery_context(state,args.step,args.attempt_effect,reader)
+            if args.abandon:
+                token=prompt(gate,'Coolify scoped token')
+                api=API(record,'',token)
+                reason=abandon_reason(state,args.step,original,saved,api)
+                saved['status']='not-written'; saved['reason']=reason
+                # Close first. A crash here blocks another recovery rather than
+                # allowing the consumed approval to become usable again.
+                save(receipt,saved)
+                state.setdefault('abandoned_attempts',[]).append(dict(step=args.step,receipt=receipt.name,reason=reason))
+                state['uncertain']=None; save(progress,state)
+                print('Recorded the abandoned attempt. Prepare a new effect and obtain fresh approval.'); return 0
+            print('The Hetzner project token reads the firewall to confirm that inbound access is closed.')
+            hcloud=prompt(gate,'Hetzner project token')
+            token=prompt(gate,'Coolify scoped token')
+            api=API(record,hcloud,token)
+            observed=api.token_abilities()
+            if observed is not None:
+                try: scoped_mcp(observed,PINS['mcp'])
+                except ValueError: raise OperationRefused('Coolify reports token abilities outside the required team scopes; the claim stays uncertain.') from None
+            else: print('Coolify reports no current-token abilities; check the declared scopes in Coolify.')
+            answer=prompt(gate,'After creating your own account, type claimed '+record['place']['name'])
+            check_claim(record,api,lambda name:answer)
+            state['done'].append('claim'); state['uncertain']=None; save(progress,state)
+            finish_attempt(receipt)
+            print('Completed the checked administrator claim and its receipt.'); return 0
         if args.command=='prepare':
             require(args.step and args.effect, 'Name the stage and new effect path.')
             effect=effect_for(state,args.step)
@@ -368,7 +502,8 @@ def main():
             api=API(record,'',token)
             address=record['infrastructure']['tailnet_ipv4']
             server=api.request('GET','http://'+address+':8000/api/v1/servers/'+args.server_uuid,token)
-            require(server.get('ip') in ('127.0.0.1','localhost'), "Select this Coolify instance's localhost server.")
+            read_require(server.get('ip') in ('127.0.0.1','localhost','host.docker.internal') and server.get('name')=='localhost',
+                    "Coolify's built-in server must be named localhost and use a loopback address or host.docker.internal; remote servers are refused.")
             destinations=api.request('GET','http://'+address+':8000/api/v1/servers/'+args.server_uuid+'/destinations',token)
             require(any(item.get('uuid')==args.destination_uuid for item in destinations), 'The destination does not belong to the selected server.')
             state.update(server_uuid=args.server_uuid,destination_uuid=args.destination_uuid); save(progress,state)
@@ -377,18 +512,23 @@ def main():
         effect=effect_for(state,args.step)
         require(reader.read_json(args.effect)==effect,'The prepared effect differs from the current stage.')
         gate.match_effect(effect,args.approval)
-        claim_answer=None
+        claim_answer=None; hcloud=''
         if args.step=='claim':
+            print('The Hetzner project token reads the firewall to confirm that inbound access is closed.')
+            hcloud=prompt(gate,'Hetzner project token')
             print('Open http://'+record['infrastructure']['tailnet_ipv4']+':8000/register yourself under the approved claim effect, create the first administrator and enable two-factor authentication. Then create the scoped team token. Inspect any interrupted claim in Coolify before retrying.')
             claim_answer=prompt(gate,'After creating your own account, type claimed '+record['place']['name'])
             require(claim_answer=='claimed '+record['place']['name'], 'The person must confirm their own administrator claim.')
         token=prompt(gate,'Coolify token with read, read:sensitive, write and deploy, never root')
         service_key=prompt(gate,'Tailscale API read token for service definitions') if args.step in ('register','start-register','record') else None
         oauth_value=prompt(gate,'TAILSCALE_OAUTH_CLIENT_'+('ID' if args.step=='oauth-id' else 'SECRET')) if args.step in ('oauth-id','oauth-secret') else None
-        api=API(record,'',token)
+        api=API(record,hcloud,token)
         observed=api.token_abilities()
         if observed is not None: scoped_mcp(observed,PINS['mcp'])
         else: print('Coolify does not expose current-token abilities here. The scope setting remains a declaration; check it in Coolify before proceeding.')
+        team=api.coolify_team()
+        read_require(isinstance(team,dict) and type(team.get('id')) is int and team['id']>=0,
+                     'Coolify must return a team identity before recording an attempt.')
         if args.step not in ('claim','record'):
             require(args.mcp_package,'Supply the installed pinned MCP package.json path.')
             client=MCP(args.mcp_package,record['infrastructure']['tailnet_ipv4'],token,state['config']['scopes'],observed)
@@ -412,18 +552,25 @@ def main():
             with api.opener.open(url.geturl(),timeout=45) as response: return response.status==200
         if args.step=='record':
             require(fingerprint(reader.read_json(state['choice_path']))==state['choice_sha256'],'The choice changed; do not overwrite it.')
-            require(reachable(), 'The canary must answer over HTTPS before recording.')
+            wait_canary(definition,reachable,state['config']['canary_name'])
+            run_stage(state,args.step,args.approval,gate,api,None,confirm,definition,reachable)
+            candidate=record_candidate(state,reader)
         # Writes are not retried automatically if the process or read-back fails.
         state_before=copy.deepcopy(state)
-        receipt=start_attempt(effect,args.approval,Path(state['choice_path']).parent/'place-attempts')
+        receipt=start_attempt(effect,args.approval,Path(state['choice_path']).parent/'place-attempts',not_sent=args.step!='claim',coolify_team_id=team['id'])
         state['uncertain']=args.step; save(progress,state)
-        update=run_stage(state_before,args.step,args.approval,gate,api,client,confirm,definition,reachable,oauth_value)
-        if args.step=='record': state['record']=record_created(state,reader)
+        if args.step=='record':
+            mark_dispatch(receipt)
+            save(state['choice_path'],candidate); state['record']=candidate; update={}
+        else:
+            update=run_stage(state_before,args.step,args.approval,gate,api,client,confirm,definition,reachable,oauth_value,lambda:mark_dispatch(receipt))
         state.update(update); state['done'].append(args.step); state['uncertain']=None; save(progress,state)
         finish_attempt(receipt)
         print('Completed '+args.step+'. The place remains empty; use /check-live to read it.')
         return 0
     except (OSError,ValueError,KeyError,TypeError,subprocess.TimeoutExpired) as error:
+        if isinstance(error,urllib.error.HTTPError): print('Read or write refused with HTTP '+str(error.code)+'; response values withheld.',file=sys.stderr)
+        if args.command in ('recover','prepare-recovery','discover') and type(error) is ValueError: print('Recovery or discovery checks failed; the stage and receipt were not completed.',file=sys.stderr)
         if isinstance(error,OperationRefused) or (gate is not None and isinstance(error,gate.InputRefused)): print(str(error),file=sys.stderr)
         if isinstance(state,dict):
             infra=state.get('record',{}).get('infrastructure',{})

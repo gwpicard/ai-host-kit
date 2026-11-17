@@ -58,12 +58,15 @@ def attempt_effect(effect, observed, journal=None, create=True):
     return dict(effect, observed=observed, attempt=uuid.uuid4().hex, journal=journal_identity(journal, create=create))
 
 
-def start_attempt(effect, approval, journal=None):
+def start_attempt(effect, approval, journal=None, not_sent=False, coolify_team_id=None):
     # Apply never creates a journal. Its identity survives outside the directory.
     require(effect.get('journal') == journal_identity(journal, create=False), JOURNAL_MESSAGE)
     path = Path(journal or 'hosting/place-attempts') / (fingerprint(effect) + '.json')
     with os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'w') as out:
-        json.dump(dict(effect_sha256=fingerprint(effect), status='uncertain'), out)
+        receipt=dict(effect_sha256=fingerprint(effect), status='uncertain')
+        if not_sent: receipt['write_state']='not-sent'
+        if coolify_team_id is not None: receipt['coolify_team_id']=coolify_team_id
+        json.dump(receipt, out)
         out.flush()
         os.fsync(out.fileno())
     descriptor=os.open(path.parent,os.O_RDONLY)
@@ -99,6 +102,16 @@ def locked(operation):
         with place_lock(record):
             return operation(record, *args, **kwargs)
     return run
+
+
+def mark_dispatch(path):
+    with path.open('r+') as out:
+        receipt=json.load(out)
+        require(receipt.get('status')=='uncertain' and receipt.get('write_state')=='not-sent',
+                'Only an unspent dispatch marker may precede a stage write.')
+        receipt['write_state']='dispatched'
+        out.seek(0); json.dump(receipt,out); out.truncate()
+        out.flush(); os.fsync(out.fileno())
 
 
 def finish_attempt(path):

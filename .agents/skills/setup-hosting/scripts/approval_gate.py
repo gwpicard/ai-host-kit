@@ -730,11 +730,12 @@ class Arguments(argparse.ArgumentParser):
 
 
 def effect_sha(effect):
-    if (not isinstance(effect, dict) or effect.get('action') not in ('set-lane', 'register-docktail', 'claim-admin', 'place-claim', 'place-project', 'place-docktail', 'place-oauth-id', 'place-oauth-secret', 'place-start-docktail', 'place-register', 'place-start-register', 'place-record')
+    if (not isinstance(effect, dict) or effect.get('action') not in ('set-lane', 'register-docktail', 'claim-admin', 'place-claim', 'place-project', 'place-docktail', 'place-oauth-id', 'place-oauth-secret', 'place-start-docktail', 'place-register', 'place-start-register', 'place-record', 'place-recover-claim', 'place-abandon')
             or not isinstance(effect.get('effect'), str) or not effect['effect']
             or not re.fullmatch(r'[0-9a-f]{64}', effect.get('place_sha256', ''))
             or ('progress_sha256' in effect and not re.fullmatch(r'[0-9a-f]{64}', effect['progress_sha256']))
-            or list(records.secret_fields({k:v for k,v in effect.items() if k not in ('place_sha256','progress_sha256')}))):
+            or any(key in effect and not re.fullmatch(r'[0-9a-f]{64}', effect[key]) for key in ('receipt_sha256','attempt_sha256'))
+            or list(records.secret_fields({k:v for k,v in effect.items() if k not in ('place_sha256','progress_sha256','receipt_sha256','attempt_sha256')}))):
         refuse('The effect is missing, unsupported or contains unsafe text. Values are withheld.')
     return digest(json.dumps(effect, sort_keys=True, separators=(',', ':')).encode())
 

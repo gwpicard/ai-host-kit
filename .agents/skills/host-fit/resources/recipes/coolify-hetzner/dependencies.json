@@ -18,6 +18,18 @@
   },
   "checked_at": "2026-11-16",
   "coolify_helper": "1.0.19",
+  "coolify_builtin_server": {
+    "name": "localhost",
+    "addresses": ["127.0.0.1", "localhost", "host.docker.internal"],
+    "destination_reply": "JSON list, including the coolify Standalone Docker with server_id 0"
+  },
+  "coolify_service_environment": {
+    "compose_creates_empty_oauth_keys": true,
+    "duplicate_create_status": 409,
+    "update_method": "PATCH",
+    "mcp_masks_empty_values": true,
+    "readback": "Local transport projects raw values to set or unset and deployment flags; no reveal call"
+  },
   "coolify_files": {
     "install.sh": {
       "url": "https://raw.githubusercontent.com/coollabsio/coolify/v4.7.5/scripts/install.sh",

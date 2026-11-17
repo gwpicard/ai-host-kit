@@ -254,6 +254,10 @@ a real approval record. Synthetic approval records belong to offline tests only.
 The staged Place runner uses this gate for each Coolify MCP write, the
 person-led administrator claim and final record assembly. The recipe owns
 the exact sequence and failure recovery. An approval record alone does not perform the action.
+Claim completion and abandonment use separate recovery effects bound to the
+current progress and uncertain receipt. Their approval cannot be used for the
+original remote write. Abandonment retains a `not-written` receipt and changes
+progress so that a retry requires a new effect checksum and approval.
 
 A destroy plan is saved through the same controlled identity command:
 

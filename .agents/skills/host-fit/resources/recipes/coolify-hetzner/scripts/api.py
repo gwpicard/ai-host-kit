@@ -75,6 +75,22 @@ class API:
         address=tailnet_address(self.record['infrastructure']['tailnet_ipv4'])
         return self.request('GET','http://'+address+':8000/api/v1/team',self.coolify_token)
 
+    def service_env_state(self, uuid, key):
+        # Reduce raw response values at the transport boundary. Callers receive
+        # only presence and deployment flags, never a value or its last digits.
+        from urllib.parse import quote
+        address=tailnet_address(self.record['infrastructure']['tailnet_ipv4'])
+        rows=self.request('GET','http://'+address+':8000/api/v1/services/'+quote(uuid,safe='')+'/envs',self.coolify_token)
+        return [dict(is_set=isinstance(row.get('value'),str) and bool(row['value']),
+                     is_runtime=row.get('is_runtime'),is_buildtime=row.get('is_buildtime'),is_preview=row.get('is_preview'))
+                for row in rows if row.get('key')==key and row.get('is_preview') is False]
+
+    def coolify_resources(self, kind):
+        from place import require
+        require(kind in ('projects','services'), 'Use a supported recovery inventory.')
+        address=tailnet_address(self.record['infrastructure']['tailnet_ipv4'])
+        return self.request('GET','http://'+address+':8000/api/v1/'+kind,self.coolify_token)
+
     def registration_closed(self):
         import urllib.error
         from urllib.parse import urljoin
