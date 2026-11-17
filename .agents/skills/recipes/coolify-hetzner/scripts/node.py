@@ -1,6 +1,7 @@
 """Read node facts and reopen the claim over Tailscale SSH with fixed commands."""
 # Node checks adapted from coolify-launchpad; see docs/SOURCES.md.
 import json
+import os
 import subprocess
 import time
 from place import OperationRefused, require, tailnet_address
@@ -40,7 +41,7 @@ HOST_KIT_NODE
 def read_node(address):
     result = subprocess.run(['tailscale','ssh','root@'+tailnet_address(address),'sh','-s'],
                             input=PROBE.encode(), stdout=subprocess.PIPE,
-                            stderr=subprocess.DEVNULL, timeout=45)
+                            stderr=subprocess.DEVNULL, timeout=45, env={'PATH': os.environ.get('PATH', '')})
     require(result.returncode == 0, 'The node read failed.')
     return json.loads(result.stdout)
 
@@ -124,7 +125,7 @@ def reopen_claim(address):
     try:
         result = subprocess.run(['tailscale', 'ssh', 'root@'+tailnet_address(address), 'sh', '-s'],
                                 input=REOPEN_CLAIM.encode(), stdout=subprocess.DEVNULL,
-                                stderr=subprocess.DEVNULL, timeout=150)
+                                stderr=subprocess.DEVNULL, timeout=150, env={'PATH': os.environ.get('PATH', '')})
     except (OSError, subprocess.TimeoutExpired):
         raise OperationRefused('Could not confirm the Coolify restart over Tailscale SSH. Inspect the uncertain claim before retrying.') from None
     if result.returncode:

@@ -36,6 +36,45 @@ class InputRefused(GateRefused):
     """Fixed input refusals that callers may report without exposing values."""
 
 
+def secrets_directory_safe(directory, real):
+    """Check the opened directory and its ancestors before reading any values."""
+    reason='Keep the secrets file outside every Git repository, including tracked files.'
+    identity=lambda info:(info.st_dev,info.st_ino)
+    if identity(os.fstat(directory)) != identity(real.parent.stat()):
+        raise InputRefused('The secrets file directory changed during its safety checks.')
+    ancestor=os.dup(directory)
+    try:
+        while True:
+            def exists(name):
+                try: os.stat(name,dir_fd=ancestor,follow_symlinks=False)
+                except FileNotFoundError: return False
+                return True
+            if exists('.git') or all(exists(name) for name in ('HEAD','objects','refs')):
+                raise InputRefused(reason)
+            parent=os.open('..',os.O_RDONLY | os.O_DIRECTORY,dir_fd=ancestor)
+            if identity(os.fstat(parent))==identity(os.fstat(ancestor)):
+                os.close(parent); break
+            os.close(ancestor); ancestor=parent
+    finally: os.close(ancestor)
+    # fchdir in a separate Python process binds Git to the open directory on
+    # macOS and Linux without changing this process's working directory.
+    child={'PATH':os.environ.get('PATH',''),'GIT_CONFIG_NOSYSTEM':'1','GIT_CONFIG_GLOBAL':'/dev/null'}
+    def probe(*args):
+        command=[sys.executable,'-I','-c',
+                 'import os,sys; fd=int(sys.argv[1]); os.fchdir(fd); os.close(fd); os.execvp("git", ["git", *sys.argv[2:]])',
+                 str(directory),*args]
+        return subprocess.run(command,env=child,pass_fds=(directory,),stdin=subprocess.DEVNULL,
+                              stdout=subprocess.PIPE,stderr=subprocess.DEVNULL)
+    membership=probe('rev-parse','--show-toplevel')
+    tracking=probe('ls-files','--error-unmatch','--',real.name)
+    if identity(os.fstat(directory)) != identity(real.parent.stat()):
+        raise InputRefused('The secrets file directory changed during its safety checks.')
+    if membership.returncode==0 or tracking.returncode==0:
+        raise InputRefused(reason)
+    if membership.returncode!=128 or tracking.returncode!=128:
+        raise InputRefused('The secrets file repository checks could not be completed.')
+
+
 def configure_secrets(path=None, place=None):
     global SECRET_VALUES, S3_CREDENTIALS
     SECRET_VALUES = {}
@@ -58,32 +97,26 @@ def configure_secrets(path=None, place=None):
         if stat.S_IMODE(info.st_mode) != 0o600:
             raise InputRefused('Set the secrets file mode to 600 before using it.')
         real = path.resolve(strict=True)
-        for parent in real.parents:
-            if (parent/'.git').exists() or ((parent/'HEAD').is_file() and (parent/'objects').is_dir() and (parent/'refs').is_dir()):
-                raise InputRefused('Keep the secrets file outside every Git repository, including tracked files.')
-        # Detect a work tree whose metadata is kept elsewhere. Do not inherit
-        # Git overrides or any provider credentials into this read-only child.
-        result = subprocess.run(['git', '-C', str(real.parent), 'rev-parse', '--show-toplevel'],
-                                env={'PATH': os.environ.get('PATH', ''), 'GIT_CONFIG_NOSYSTEM': '1',
-                                     'GIT_CONFIG_GLOBAL': '/dev/null'},
-                                stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-        if result.returncode == 0:
-            raise InputRefused('Keep the secrets file outside every Git repository, including tracked files.')
-        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
-        with os.fdopen(descriptor) as source:
-            opened = os.fstat(source.fileno())
-            if (opened.st_dev, opened.st_ino, opened.st_uid, opened.st_mode) != (info.st_dev, info.st_ino, info.st_uid, info.st_mode) or path.resolve() != real:
-                raise InputRefused('The secrets file changed during its safety checks.')
-            values = {}
-            for line in source:
-                line = line.rstrip('\r\n')
-                if not line.strip() or line.lstrip().startswith('#'):
-                    continue
-                key, separator, value = line.partition('=')
-                if not separator or not re.fullmatch(r'[A-Z][A-Z0-9_]*', key) or key in values or any(ord(c) < 32 for c in value):
-                    raise InputRefused('Use one plain KEY=value per line in the secrets file, without duplicate keys or control characters.')
-                values[key] = value
-            SECRET_VALUES = values
+        directory=os.open(real.parent,os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            secrets_directory_safe(directory,real)
+            descriptor=os.open(real.name,os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK,dir_fd=directory)
+            with os.fdopen(descriptor) as source:
+                opened=os.fstat(source.fileno())
+                if (opened.st_dev,opened.st_ino,opened.st_uid,opened.st_mode) != (info.st_dev,info.st_ino,info.st_uid,info.st_mode) or path.resolve()!=real:
+                    raise InputRefused('The secrets file changed during its safety checks.')
+                secrets_directory_safe(directory,real)
+                values = {}
+                for line in source:
+                    line = line.rstrip('\r\n')
+                    if not line.strip() or line.lstrip().startswith('#'):
+                        continue
+                    key, separator, value = line.partition('=')
+                    if not separator or not re.fullmatch(r'[A-Z][A-Z0-9_]*', key) or key in values or any(ord(c) < 32 for c in value):
+                        raise InputRefused('Use one plain KEY=value per line in the secrets file, without duplicate keys or control characters.')
+                    values[key] = value
+                SECRET_VALUES = values
+        finally: os.close(directory)
     except (OSError, UnicodeError):
         raise InputRefused('The protected secrets file could not be read. Check its path and permissions.') from None
 

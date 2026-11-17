@@ -67,6 +67,8 @@ class Services:
             return 200,dict(ports=self.ports),{}
         if path=='/canary':
             return (200,{}, {}) if not self.never and self.started is not None and self.clock.now-self.started>=50 else (503,{}, {})
+        if method=='GET' and path.split('?')[0] in ('/api/v1/services','/api/v1/projects'):
+            return 200,self.inventory,{}
         if path in ('/api/v1/services','/api/v1/projects'):
             if method=='GET':return 200,self.inventory,{}
             self.writes.append((method,path,copy.deepcopy(body)))
@@ -196,8 +198,11 @@ def standins(service):
         if command[0]=='node':
             kwargs['env']['COOLIFY_BASE_URL']=base
         return original_spawn(command,**kwargs)
+    @contextmanager
+    def terminal(): yield None
+    gate=flow.approval_gate()
     try:
-        with patch.object(subprocess,'run',side_effect=ssh),patch.object(urllib.request,'build_opener',return_value=Rewrite()),patch.object(flow,'MCP',protocol.MCP if os.environ.get('PLACE_STAGE_MCP_PACKAGE') else MCP),patch.object(subprocess,'Popen',side_effect=spawn),patch.object(flow,'prompt',side_effect=inputs),patch.object(flow,'time',service.clock,create=True):
+        with patch.object(flow,'approval_gate',return_value=gate),patch.object(gate,'terminal',terminal),patch.object(subprocess,'run',side_effect=ssh),patch.object(urllib.request,'build_opener',return_value=Rewrite()),patch.object(flow,'MCP',protocol.MCP if os.environ.get('PLACE_STAGE_MCP_PACKAGE') else MCP),patch.object(subprocess,'Popen',side_effect=spawn),patch.object(flow,'prompt',side_effect=inputs),patch.object(flow,'time',service.clock,create=True):
             yield
     finally:server.shutdown();server.server_close();thread.join()
 
@@ -459,7 +464,7 @@ def abandon(work):
         before=case.progress.read_bytes()
         assert case.recover()[0]!=0 and case.progress.read_bytes()==before
         svc.team_id=0
-        svc.inventory=[dict(name='test-place-register')]
+        svc.inventory=[dict(uuid='existing',name='test-place-register')]
         assert case.recover()[0]!=0 and case.progress.read_bytes()==before
         svc.inventory={'data':[]}
         assert case.recover()[0]!=0 and case.progress.read_bytes()==before

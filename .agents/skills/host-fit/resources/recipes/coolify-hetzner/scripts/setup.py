@@ -522,6 +522,8 @@ def main():
             api=API(record,hcloud)
             read_require(api.firewall_rules(record['infrastructure']['firewall_id'])==[], 'Keep all inbound rules closed until the claim is confirmed.')
             read_require(api.registration_state() != 'claimed', 'Coolify already has an administrator. Inspect the existing claim; no restart was sent.')
+            # The person must be able to confirm the claim before its effect is spent.
+            with gate.terminal(): pass
             receipt=start_attempt(effect,args.approval,Path(state['choice_path']).parent/'place-attempts')
             state['uncertain']='claim'; save(progress,state)
             reopen_claim(record['infrastructure']['tailnet_ipv4'])

@@ -89,7 +89,22 @@ class API:
         from place import require
         require(kind in ('projects','services'), 'Use a supported recovery inventory.')
         address=tailnet_address(self.record['infrastructure']['tailnet_ipv4'])
-        return self.request('GET','http://'+address+':8000/api/v1/'+kind,self.coolify_token)
+        rows=[]; seen=set()
+        reason='The resource inventory could not prove completeness; the attempt stays uncertain.'
+        # The pinned MCP uses page/per_page and receives arrays. Read through
+        # an empty terminal page, even after a short page. Reject ignored
+        # pagination, duplicate identities and unbounded inventories.
+        for page in range(1,1001):
+            batch=self.request('GET','http://'+address+':8000/api/v1/'+kind+
+                               '?page='+str(page)+'&per_page=50',self.coolify_token)
+            require(isinstance(batch,list) and len(batch)<=50 and all(
+                isinstance(row,dict) and isinstance(row.get('name'),str) and
+                isinstance(row.get('uuid'),str) and row['uuid'] for row in batch),reason)
+            if not batch: return rows
+            identities=[row['uuid'] for row in batch]
+            require(len(set(identities))==len(identities) and not seen.intersection(identities),reason)
+            seen.update(identities); rows.extend(batch)
+        require(False,reason)
 
     def registration_state(self):
         import urllib.error

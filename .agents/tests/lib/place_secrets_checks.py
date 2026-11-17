@@ -1,5 +1,5 @@
 """Synthetic file and terminal inputs through the real Place command entry points."""
-from contextlib import redirect_stdout, redirect_stderr
+from contextlib import contextmanager, redirect_stdout, redirect_stderr
 import copy
 import io
 import json
@@ -117,6 +117,8 @@ def stage_input_boundaries(work):
     class MCP:
         def __init__(self,*args):pass
         def close(self):pass
+    @contextmanager
+    def terminal():yield None
     for step,target in [('claim','Coolify'),('claim','Hetzner'),('oauth-id','TAILSCALE_OAUTH_CLIENT_ID'),
                         ('oauth-secret','TAILSCALE_OAUTH_CLIENT_SECRET'),('register','Tailscale API'),
                         ('start-register','Tailscale API'),('record','Tailscale API')]:
@@ -131,11 +133,15 @@ def stage_input_boundaries(work):
         effect=flow.effect_for(state,step);effect_path=folder/'effect.json';effect_path.write_text(json.dumps(effect))
         approved=folder/'approval.json';approved.write_text(json.dumps(dict(effect_sha256=gate.effect_sha(effect),effect=effect['effect'],words='Synthetic fixture approval',approved_at='2026-11-17T12:00:00Z',method='foreground-terminal')))
         before=progress.read_bytes();receipts=list(journal.iterdir())
+        requested=[]
         def missing(g,label):
-            if label.startswith(target):raise flow.OperationRefused('Synthetic missing input.')
+            if label.startswith(target):
+                requested.append(label)
+                raise flow.OperationRefused('Synthetic missing input.')
             return 'claimed '+record['place']['name'] if 'type claimed' in label else 'synthetic-only'
-        with patch.object(gate,'configure_secrets'),patch.object(gate,'SECRET_VALUES',{'COOLIFY_TEAM_TOKEN':'synthetic-only'}),patch.object(flow,'approval_gate',return_value=gate),patch.object(flow,'prompt',side_effect=missing),patch.object(flow,'API',API),patch.object(flow,'MCP',MCP):
+        with patch.object(gate,'terminal',terminal),patch.object(gate,'configure_secrets'),patch.object(gate,'SECRET_VALUES',{'COOLIFY_TEAM_TOKEN':'synthetic-only'}),patch.object(flow,'approval_gate',return_value=gate),patch.object(flow,'prompt',side_effect=missing),patch.object(flow,'API',API),patch.object(flow,'MCP',MCP):
             assert invoke(flow,'run','--step',step,'--progress',progress,'--effect',effect_path,'--approval',approved,'--mcp-package',folder/'package.json')[0]!=0
+        assert requested, 'The fixture did not reach the missing input at '+step
         assert progress.read_bytes()==before and list(journal.iterdir())==receipts, 'Input failure consumed approval at '+step
         gate.match_effect(effect,approved)
     print('Existing stage inputs fail before an attempt is recorded.')
@@ -246,17 +252,19 @@ def exercise(work):
         assert invoke(check,'--record',place,'--mcp-package',package,'--config',settings)[0]==0
     with patch.object(lane,'approval_gate',return_value=gate),patch.object(lane,'API',API):
         assert invoke(lane,'prepare','--record',place,'--lane','internal','--effect',work/'lane-effect.json','--config',settings)[0]==0
-    # A missing person-only confirmation leaves the restarted claim uncertain.
+    # A missing person-only confirmation must leave the claim approval unused.
     state['done']=[];flow.save(progress,state)
     effect=work/'claim.json';approved=work/'claim-approval.json'
     assert command('prepare','--step','claim','--effect',effect)[0]==0
     value=json.loads(effect.read_text())
     approved.write_text(json.dumps(dict(effect_sha256=gate.effect_sha(value),effect=value['effect'],words='Synthetic fixture approval',
         approved_at='2026-11-17T12:00:00Z',method='foreground-terminal')))
-    with patch.object(flow,'reopen_claim'),patch.object(flow,'API',API):
+    before=progress.read_bytes();receipts=list(journal.iterdir())
+    with patch.object(flow,'reopen_claim') as restart,patch.object(flow,'API',API):
         assert command('run','--step','claim','--effect',effect,'--approval',approved)[0]!=0
-    assert json.loads(progress.read_text())['uncertain']=='claim'
-    assert json.loads((journal/(flow.fingerprint(value)+'.json')).read_text())['status']=='uncertain'
+    restart.assert_not_called()
+    assert progress.read_bytes()==before and list(journal.iterdir())==receipts
+    gate.match_effect(value,approved)
     # Retirement gets its file values, then refuses the typed name without a TTY.
     destroy=dict(resource_changes=[dict(type='hcloud_'+kind,change=dict(actions=['delete'],before=value)) for kind,value in resources(record).items()])
     from contextlib import contextmanager

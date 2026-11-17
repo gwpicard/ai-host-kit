@@ -296,6 +296,13 @@ def rehearsal_runner(work):
     assert '0 of 1 rehearsals passed' in result.stdout
     assert '0 failed; 1 could not run' in result.stdout
     assert 'OpenTofu' in result.stdout
+    stopped = suite('terminated', {'a-stop.sh':'kill -TERM "$(cat runner.pid)"\n',
+                                    'b-later.sh':'touch later-ran\n'})
+    scratch = stopped / 'scratch'; scratch.mkdir()
+    result = run(['/bin/sh', '-c', 'echo $$ > runner.pid; exec .agents/tests/run-all.sh'],
+                 cwd=stopped, expected=143, env={'TMPDIR': str(scratch)})
+    assert not (stopped / 'later-ran').exists(), result.stdout
+    assert not list(scratch.iterdir()), 'Termination left scratch files behind'
     print('Missing OpenTofu reported as could not run by the real approval group.')
     print('Missing Python, Git and Ruby reported as could not run before the group started.')
     print('Runner continued after failure and never counted an incomplete or crashed check as passed.')

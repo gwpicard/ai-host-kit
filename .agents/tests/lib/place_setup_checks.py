@@ -217,7 +217,9 @@ def cli(work,flow,gate,reader,config,choice,facts,journal_probes=True):
         def close(self):pass
     def prompt(g,label):return 'claimed test-place' if 'type claimed' in label else 'synthetic-only'
     reuse_results=[]
-    with patch.object(flow,'reopen_claim'),patch.object(flow,'API',API),patch.object(flow,'MCP',MCP),patch.object(flow,'prompt',side_effect=prompt):
+    @contextmanager
+    def terminal():yield None
+    with patch.object(gate,'terminal',terminal),patch.object(flow,'reopen_claim'),patch.object(flow,'API',API),patch.object(flow,'MCP',MCP),patch.object(flow,'prompt',side_effect=prompt):
         for step in flow.STEPS:
             effect=folder/(step+'.json');approval=folder/(step+'-approval.json')
             assert command('prepare','--step',step,'--effect',str(effect))==0
