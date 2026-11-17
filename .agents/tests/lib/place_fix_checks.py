@@ -128,7 +128,7 @@ def recovery_cli(work, checks):
         @contextmanager
         def terminal():yield None
         applied=[]
-        gate=SimpleNamespace(require_encryption=lambda:None,check_version=lambda:None,saved_plan=saved,
+        gate=SimpleNamespace(configure_secrets=lambda *a:None,InputRefused=checks.load().InputRefused,require_encryption=lambda:None,check_version=lambda:None,saved_plan=saved,
             planned_identity=lambda *a:None,tofu=lambda *a:subprocess.CompletedProcess(a,0,json.dumps(plan).encode(),b''),
             apply=lambda *a:applied.append(a),terminal=terminal,typed=lambda *a:record['place']['name'])
         api=StandIn();api.owned_resources=lambda partial:dict(firewall=owned['firewall'])

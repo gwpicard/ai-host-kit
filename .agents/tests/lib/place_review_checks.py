@@ -50,7 +50,7 @@ def lane_wrapper(ops, gate, work):
     reader=SimpleNamespace(validate=lambda *a:False,read_json=lambda p:json.loads(Path(p).read_text()),
         dependencies=lambda:None)
     def command(command,lane,ports,effect,approved=None):
-        args=['lane',command,'--record',str(record_path),'--lane',lane,'--effect',str(effect)]
+        args=['lane',command,'--record',str(record_path),'--lane',lane,'--effect',str(effect),'--secrets',str(work/'absent-secrets.env')]
         for port in ports:args+=['--port',str(port)]
         if approved:args+=['--approval',str(approved),'--new-record',str(work/'new.json')]
         with patch.object(sys,'argv',args):return cli.main()
@@ -110,7 +110,7 @@ def retirement(ops,work):
     @contextmanager
     def terminal():yield None
     destroyed=[]
-    gate=SimpleNamespace(require_encryption=lambda:None,check_version=lambda:None,saved_plan=saved,planned_identity=lambda *a:None,
+    gate=SimpleNamespace(configure_secrets=lambda *a:None,InputRefused=type('FixtureInputRefused',(ValueError,),{}),require_encryption=lambda:None,check_version=lambda:None,saved_plan=saved,planned_identity=lambda *a:None,
         tofu=lambda *a:subprocess.CompletedProcess(a,0,json.dumps(plan).encode(),b''),apply=lambda *a:destroyed.append(True),terminal=terminal,typed=lambda *a:record['place']['name'])
     api=StandIn();api.owned_resources=lambda:owned
     visited=[]

@@ -94,7 +94,7 @@ def prepare_root(config, choice_path, directory, progress_path, reader, gate):
     validate_record(reader,choice)
     require(choice.get('choice',{}).get('host')=='coolify-hetzner' and 'infrastructure' not in choice,
             'Record the Coolify on Hetzner choice before creating a fresh place.')
-    require(set(config)=={'place','encrypted_state','backend','inputs','scopes','canary_name'},
+    require(set(config)-{'secrets'}=={'place','encrypted_state','backend','inputs','scopes','canary_name'},
             'Use the recipe setup template; extra fields are refused.')
     scoped_mcp(config['scopes'],PINS['mcp'])
     backend=gate.s3_settings(config['backend'])
@@ -113,6 +113,10 @@ def prepare_root(config, choice_path, directory, progress_path, reader, gate):
             and settings['expiry_seconds']>0 and settings['shortest_available'] is True,
             'Use a one-off, pre-approved, non-ephemeral server key with the shortest available expiry.')
     canary(config['canary_name'])
+    config=copy.deepcopy(config)
+    config.setdefault('secrets',str(Path.home()/'.config/ai-host-kit/places'/(config['place']['name']+'.env')))
+    require(isinstance(config['secrets'],str) and bool(config['secrets']), 'Supply a non-secret secrets file path.')
+    config['secrets']=str(Path(config['secrets']).expanduser().absolute())
     require(not Path(directory).exists() and not Path(progress_path).exists(), 'Choose new root and progress paths.')
     # Validate the assembled non-secret declaration before making a root.
     candidate=dict(schema_version='1.0',phase='place',place=config['place'],choice=choice['choice'],
@@ -170,7 +174,7 @@ def effect_for(state, step):
         tool='env_vars'; key='TAILSCALE_OAUTH_CLIENT_'+('ID' if step=='oauth-id' else 'SECRET')
         args=dict(resource='service',action='create',uuid=state['docktail_uuid'],key=key,
                   is_buildtime=False,is_runtime=True,is_preview=False)
-        description='Store the person-supplied '+key+' in the docktail Coolify runtime environment. The approved value is entered through the hidden prompt, never saved locally. Docktail will gain the abilities of that OAuth client.'
+        description='Store the person-supplied '+key+' in the docktail Coolify runtime environment. The approved value comes from the protected file or prompt; the kit saves no local copy. Docktail will gain the abilities of that OAuth client.'
     elif step in ('start-docktail','start-register'):
         tool='control'; args=dict(resource='service',action='start',uuid=state['docktail_uuid' if step=='start-docktail' else 'register_uuid'])
         description=('Start docktail 1.8.6. It watches Docker labels and can change Tailscale service registrations using its OAuth client.' if step=='start-docktail' else
@@ -180,7 +184,7 @@ def effect_for(state, step):
     return dict(**common,effect=description,tool=tool,arguments=args)
 
 
-def run_stage(state, step, approval, gate, api, mcp, confirm, service_definition, reachable):
+def run_stage(state, step, approval, gate, api, mcp, confirm, service_definition, reachable, oauth_value=None):
     effect=effect_for(state,step)
     gate.match_effect(effect,approval)
     record=state['record']
@@ -200,7 +204,7 @@ def run_stage(state, step, approval, gate, api, mcp, confirm, service_definition
         require(before is None or before.get('ports')==['tcp:443'], 'Refused different write-once service ports; repair needs separate approval.')
     args=copy.deepcopy(effect['arguments'])
     if step in ('oauth-id','oauth-secret'):
-        args['value']=prompt(gate,args['key'])
+        args['value']=oauth_value if oauth_value is not None else prompt(gate,args['key'])
     result=mcp.call(effect['tool'],args)
     require(isinstance(result,dict), 'The MCP write returned an unexpected result; inspect the place before retrying.')
     if step in ('project','docktail','register'):
@@ -235,11 +239,13 @@ def main():
     parser.add_argument('command',choices=['root','init','plan','summary','approve','apply','bootstrap','prepare','run','candidate','discover','plan-destroy','retire'])
     parser.add_argument('--partial',action='store_true')
     parser.add_argument('--config'); parser.add_argument('--choice',default='hosting/place-record.json')
+    parser.add_argument('--secrets')
     parser.add_argument('--directory',default='hosting/tofu'); parser.add_argument('--progress',default='hosting/place-progress.json')
     parser.add_argument('--plan'); parser.add_argument('--approval'); parser.add_argument('--effect')
     parser.add_argument('--step',choices=STEPS); parser.add_argument('--address'); parser.add_argument('--mcp-package')
     parser.add_argument('--server-uuid'); parser.add_argument('--destination-uuid'); parser.add_argument('--canary-url')
-    args=parser.parse_args(); locks=ExitStack(); client=None; state=None; previous_directory=Path.cwd()
+    args=parser.parse_args(); locks=ExitStack(); client=None; state=None; gate=None; previous_directory=Path.cwd()
+    if args.secrets: args.secrets=str(Path(args.secrets).expanduser().absolute())
     for field in ('plan','approval','effect','choice','mcp_package'):
         value=getattr(args,field)
         if value: setattr(args,field,str(Path(value).resolve()))
@@ -247,8 +253,11 @@ def main():
         reader=load_reader(); gate=approval_gate()
         if args.command=='root':
             require(args.config is not None, 'Supply the non-secret setup settings.')
-            prepare_root(reader.read_json(args.config),args.choice,args.directory,args.progress,reader,gate); return 0
+            config=reader.read_json(args.config)
+            if args.secrets: config['secrets']=args.secrets
+            prepare_root(config,args.choice,args.directory,args.progress,reader,gate); return 0
         progress=Path(args.progress).resolve(); state=reader.read_json(progress)
+        gate.configure_secrets(args.secrets or state['config'].get('secrets'),state['config']['place']['name'])
         root=Path(state['root']); record=state.get('record')
         if args.command=='run':
             locks.enter_context(place_lock(record))
@@ -259,7 +268,7 @@ def main():
             require(args.step and args.effect, 'Name the stage and new effect path.')
             effect=effect_for(state,args.step)
             write_record(effect,args.effect,lambda value:None); print(effect['effect'])
-            if args.step=='claim': print('After approval, run this stage. It records the attempt before guiding the administrator claim.')
+            if args.step=='claim': print('After approval, run this stage. It collects local inputs before recording the claim attempt.')
             return 0
         if args.command=='retire':
             require(args.plan and args.approval, 'Supply the saved destroy plan and its approval.')
@@ -314,8 +323,9 @@ def main():
                 bind_provider(state,args.plan,os.environ['TF_VAR_hcloud_token'],gate)
                 # Check approval before recording uncertainty, and let apply check again.
                 with gate.saved_plan(args.plan) as (snapshot,sha):
-                    gate.match_record(gate.validate_record(args.approval),sha,gate.read_plan(snapshot))
-                    gate.planned_identity(args.plan,sha)
+                    approved=gate.validate_record(args.approval)
+                    gate.match_record(approved,sha,gate.read_plan(snapshot))
+                    gate.match_target(approved,gate.planned_identity(args.plan,sha))
                 state['uncertain']='apply'; save(progress,state)
                 gate.apply(args.plan,args.approval)
                 result=gate.tofu('output','-json')
@@ -367,12 +377,14 @@ def main():
         effect=effect_for(state,args.step)
         require(reader.read_json(args.effect)==effect,'The prepared effect differs from the current stage.')
         gate.match_effect(effect,args.approval)
+        claim_answer=None
         if args.step=='claim':
-            state_before=copy.deepcopy(state)
-            receipt=start_attempt(effect,args.approval,Path(state['choice_path']).parent/'place-attempts')
-            state['uncertain']=args.step; save(progress,state)
-            print('Open http://'+record['infrastructure']['tailnet_ipv4']+':8000/register yourself, create the first administrator and enable two-factor authentication. Then create the scoped team token for the hidden prompt. This attempt has started; inspect any uncertain claim before recovery.')
+            print('Open http://'+record['infrastructure']['tailnet_ipv4']+':8000/register yourself under the approved claim effect, create the first administrator and enable two-factor authentication. Then create the scoped team token. Inspect any interrupted claim in Coolify before retrying.')
+            claim_answer=prompt(gate,'After creating your own account, type claimed '+record['place']['name'])
+            require(claim_answer=='claimed '+record['place']['name'], 'The person must confirm their own administrator claim.')
         token=prompt(gate,'Coolify token with read, read:sensitive, write and deploy, never root')
+        service_key=prompt(gate,'Tailscale API read token for service definitions') if args.step in ('register','start-register','record') else None
+        oauth_value=prompt(gate,'TAILSCALE_OAUTH_CLIENT_'+('ID' if args.step=='oauth-id' else 'SECRET')) if args.step in ('oauth-id','oauth-secret') else None
         api=API(record,'',token)
         observed=api.token_abilities()
         if observed is not None: scoped_mcp(observed,PINS['mcp'])
@@ -381,13 +393,10 @@ def main():
             require(args.mcp_package,'Supply the installed pinned MCP package.json path.')
             client=MCP(args.mcp_package,record['infrastructure']['tailnet_ipv4'],token,state['config']['scopes'],observed)
         def confirm(name):
-            address=record['infrastructure']['tailnet_ipv4']
-            print('Open http://'+address+':8000/register yourself, create the first administrator and enable two-factor authentication. Nothing is public. Then create the scoped team token. A failed form can return HTTP 429; wait ten minutes before one careful retry.')
-            return prompt(gate,'After creating your own account, type claimed '+name)
+            return claim_answer
         def definition(name):
             import urllib.error
-            key=prompt(gate,'Tailscale API read token for service definitions')
-            try: return api.request('GET','https://api.tailscale.com/api/v2/tailnet/-/services/svc:'+name,key)
+            try: return api.request('GET','https://api.tailscale.com/api/v2/tailnet/-/services/svc:'+name,service_key)
             except urllib.error.HTTPError as error:
                 if error.code==404: return None
                 raise
@@ -403,19 +412,19 @@ def main():
             with api.opener.open(url.geturl(),timeout=45) as response: return response.status==200
         if args.step=='record':
             require(fingerprint(reader.read_json(state['choice_path']))==state['choice_sha256'],'The choice changed; do not overwrite it.')
+            require(reachable(), 'The canary must answer over HTTPS before recording.')
         # Writes are not retried automatically if the process or read-back fails.
-        if args.step!='claim':
-            state_before=copy.deepcopy(state)
-            receipt=start_attempt(effect,args.approval,Path(state['choice_path']).parent/'place-attempts')
-            state['uncertain']=args.step; save(progress,state)
-        update=run_stage(state_before,args.step,args.approval,gate,api,client,confirm,definition,reachable)
+        state_before=copy.deepcopy(state)
+        receipt=start_attempt(effect,args.approval,Path(state['choice_path']).parent/'place-attempts')
+        state['uncertain']=args.step; save(progress,state)
+        update=run_stage(state_before,args.step,args.approval,gate,api,client,confirm,definition,reachable,oauth_value)
         if args.step=='record': state['record']=record_created(state,reader)
         state.update(update); state['done'].append(args.step); state['uncertain']=None; save(progress,state)
         finish_attempt(receipt)
         print('Completed '+args.step+'. The place remains empty; use /check-live to read it.')
         return 0
     except (OSError,ValueError,KeyError,TypeError,subprocess.TimeoutExpired) as error:
-        if isinstance(error,OperationRefused): print(str(error),file=sys.stderr)
+        if isinstance(error,OperationRefused) or (gate is not None and isinstance(error,gate.InputRefused)): print(str(error),file=sys.stderr)
         if isinstance(state,dict):
             infra=state.get('record',{}).get('infrastructure',{})
             if all(type(infra.get(key)) is int and infra[key]>0 for key in ('server_id','firewall_id','ssh_key_id')):

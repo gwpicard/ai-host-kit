@@ -89,9 +89,9 @@ def exercise(work, checks):
    assert 'check the storage keys and passphrase' in errors.getvalue()
    assert 'wrong-synthetic-passphrase' not in errors.getvalue()
    # A workspace selects a distinct object prefix and is identity-bound.
-   gate.tofu('workspace','new','other')
+   assert gate.tofu('workspace','new','other').returncode == 0
    assert gate.target_identity() != original
-   gate.tofu('workspace','select','default')
+   assert gate.tofu('workspace','select','default').returncode == 0
    assert gate.target_identity() == original
   print('S3 loopback checks passed: encrypted state, lock lifecycle, approval, destination and credential identity, overrides and workspaces.')
  finally:
@@ -145,14 +145,17 @@ def credential_order(gate, creds):
  @contextmanager
  def terminal(): yield None
  def child(*args, **kwargs):
+  if args[0][1]=='version':
+   assert 'AWS_ACCESS_KEY_ID' not in kwargs['env'] and 'AWS_SECRET_ACCESS_KEY' not in kwargs['env']
+   return subprocess.CompletedProcess(args,0,b'{}',b'')
   assert kwargs['env'].get('AWS_ACCESS_KEY_ID') == creds[0], 'OpenTofu reached S3 before storage credentials'
   assert kwargs['env'].get('AWS_SECRET_ACCESS_KEY') == creds[1], 'OpenTofu reached S3 without the secret key'
   return subprocess.CompletedProcess(args,0,b'{}',b'')
  for command in [('show','-json'),('output','-json'),('state','pull'),('workspace','show'),('plan',),('apply',),('init',),('version','-json')]:
-  gate.S3_CREDENTIALS=None
+  gate.configure_secrets()
   with patch.object(gate,'terminal',terminal), patch.object(gate,'typed',side_effect=list(creds)), patch.object(gate.subprocess,'run',side_effect=child):
    gate.tofu(*command)
-  assert gate.S3_CREDENTIALS == creds
+  assert gate.S3_CREDENTIALS == (None if command[0]=='version' else creds)
 
 
 def partial_cli(p, checks, gate, creds):
@@ -177,6 +180,11 @@ def partial_cli(p, checks, gate, creds):
              choice_path=str(choice),choice_sha256=flow.fingerprint(json.loads(choice.read_text())),
              journal=flow.journal_identity(p/'place-attempts'),done=[])
   flow.bind_provider(state,p/'plan','synthetic-state-passphrase',gate,remember=True)
+  flow.save(progress,state)
+  secrets=p/'fixture-secrets.env'
+  secrets.write_text('STORAGE_ACCESS_KEY='+creds[0]+'\nSTORAGE_SECRET_KEY='+creds[1]+'\n')
+  secrets.chmod(0o600)
+  state['config']['secrets']=str(secrets)
   flow.save(progress,state)
   def command(*args):
    with patch.object(sys,'argv',['setup',*args,'--progress',str(progress)]), patch.object(flow,'approval_gate',return_value=gate), patch.object(flow,'prompt',return_value='synthetic-state-passphrase'):

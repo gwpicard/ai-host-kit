@@ -28,7 +28,9 @@ def main():
         gate.target_identity()
         print('Initialised the reviewed storage destination. No storage key was saved by the kit.')
         return 0
-    except (OSError, ValueError, KeyError, TypeError):
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        if isinstance(error,gate.InputRefused):
+            print(str(error),file=sys.stderr)
         print('Refused: backend settings, tools or terminal input failed. Values are withheld.', file=sys.stderr)
         return 1
 

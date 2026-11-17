@@ -1,9 +1,10 @@
 """Retire only the owned resources in an approved encrypted destroy plan."""
 import argparse
 import json
+import os
 from pathlib import Path
 import sys
-from api import API, approval_gate, hidden_value
+from api import API, approval_gate, hidden_value, secrets_options, configure_place_secrets
 from check import load_reader
 from place import destroy_plan_matches, retire, fingerprint
 
@@ -14,7 +15,10 @@ def main(gate=None, token=None):
     parser.add_argument('--record',default='hosting/place-record.json')
     parser.add_argument('--plan',required=True)
     parser.add_argument('--approval',required=True)
+    secrets_options(parser)
     args=parser.parse_args()
+    own_gate=gate is None
+    previous_passphrase=os.environ.get('TF_VAR_host_state_passphrase')
     try:
         reader=load_reader()
         partial=bool(args.partial_progress)
@@ -25,7 +29,10 @@ def main(gate=None, token=None):
         else:
             if reader.validate('place-record',args.record): return 1
             record=reader.read_json(args.record)
-        if gate is None: gate=approval_gate()
+        if gate is None:
+            gate=approval_gate()
+            configure_place_secrets(gate,args,record)
+            os.environ['TF_VAR_host_state_passphrase']=hidden_value(gate,'State passphrase')
         # Read only the same encrypted bytes that the saved-plan gate will apply.
         gate.require_encryption(); gate.check_version()
         with gate.saved_plan(args.plan) as (snapshot,sha):
@@ -39,7 +46,7 @@ def main(gate=None, token=None):
         api=API(record,token)
         def confirm(name):
             with gate.terminal() as tty:
-                return gate.typed(tty,'This destroys the place and its disk. Type '+name+': ')
+                return gate.typed(tty,'This destroys the place and its disk. Type '+name+' (shown): ')
         def apply(plan,approval):
             # Re-read and match owned deletions immediately before gated apply.
             with gate.saved_plan(plan) as (snapshot,sha):
@@ -62,9 +69,14 @@ def main(gate=None, token=None):
             print('Retirement incomplete: destruction completed, but inventory checks remain unchecked.')
             return 2
         return 0
-    except (OSError,ValueError,KeyError,TypeError):
+    except (OSError,ValueError,KeyError,TypeError) as error:
+        if gate is not None and isinstance(error,gate.InputRefused): print(str(error),file=sys.stderr)
         print('Refused: retirement inputs, ownership, approval or transport failed. Inspect the place privately; values are withheld.',file=sys.stderr)
         return 1
+    finally:
+        if own_gate:
+            if previous_passphrase is None: os.environ.pop('TF_VAR_host_state_passphrase',None)
+            else: os.environ['TF_VAR_host_state_passphrase']=previous_passphrase
 
 
 if __name__=='__main__': sys.exit(main())

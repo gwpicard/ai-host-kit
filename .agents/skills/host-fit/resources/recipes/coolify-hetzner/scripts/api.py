@@ -19,10 +19,33 @@ def approval_gate():
 
 
 def hidden_value(gate, label):
-    with gate.terminal() as tty:
-        value=gate.typed(tty,label+' (hidden): ')
-    if not value: raise ValueError('A required hidden value was empty.')
+    if 'type claimed' in label:
+        with gate.terminal() as tty:
+            return gate.typed(tty,label+' (shown): ')
+    if label == 'State passphrase': key='STATE_PASSPHRASE'
+    elif label == 'Hetzner project token': key='HETZNER_PROJECT_TOKEN'
+    elif label.startswith('Single-use'): key='TAILSCALE_AUTH_KEY'
+    elif label.startswith('Tailscale API'): key='TAILSCALE_API_TOKEN'
+    elif label.startswith('Coolify'): key='COOLIFY_TEAM_TOKEN'
+    elif label in ('TAILSCALE_OAUTH_CLIENT_ID','TAILSCALE_OAUTH_CLIENT_SECRET'): key=label
+    else: raise ValueError('Unknown secret input label.')
+    value=gate.secret(key,label,shown=key=='TAILSCALE_OAUTH_CLIENT_ID')
+    if not value: raise gate.InputRefused('A required input was empty.')
+    if key=='STATE_PASSPHRASE' and len(value)<16:
+        raise gate.InputRefused('Use a state passphrase of at least 16 characters.')
     return value
+
+
+def secrets_options(parser):
+    parser.add_argument('--secrets')
+    parser.add_argument('--config',default='setup.json')
+
+
+def configure_place_secrets(gate, args, record):
+    from pathlib import Path
+    config=Path(args.config)
+    settings=json.loads(config.read_text()) if config.is_file() else {}
+    gate.configure_secrets(args.secrets or settings.get('secrets'),record['place']['name'])
 
 
 class API:

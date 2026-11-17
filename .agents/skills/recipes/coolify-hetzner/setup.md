@@ -24,6 +24,45 @@ The person also provides a read token for Tailscale service definitions, a test
 domain for the later public-lane run and the separately kept state passphrase.
 This empty-place canary uses the tailnet domain; the test domain is not changed.
 
+Copy `secrets.example.env` to `~/.config/ai-host-kit/places/<place-name>.env`,
+outside every Git repository. Set mode 600 with `chmod 600` before adding
+values. The file must be a regular file owned by you, with no symlink and no
+group or other permissions. The kit checks these conditions before reading it.
+The template names each console, whether a value is shown only once and which
+commands need it. Use plain `KEY=value` lines and full-line comments. There is
+no shell expansion, quote removal or `export` syntax. Do not source this file.
+An optional `op://vault/item/field` value is resolved by `op read`; install and
+unlock the 1Password CLI first. Its output and errors are withheld.
+
+`setup.json` names the non-secret path in `secrets`; omission uses the default
+above. `root` retains that path in progress. Every command accepts `--secrets`
+to override it. `check.py`, `lane.py` and standalone `retire.py` also read the
+path from `--config` (default `setup.json`), then use the place-name default.
+A missing file or blank field falls back to the terminal prompt. Unsafe files
+are refused. File values are never printed. Hidden prompts confirm only the
+length and last four characters, withholding the suffix for four or fewer
+characters. All local inputs are collected before recording an attempt or
+spending approval. An input refusal leaves neither a receipt nor an uncertain
+marker. A write or failed read-back after an attempt still needs inspection.
+
+With all required values in the file, `init`, `plan`, `plan-destroy`, `summary`,
+`bootstrap`, `discover` and `check.py` can run from the coding agent's shell.
+Approvals and typed claim and retirement confirmations still require the
+person's foreground terminal. See the [approval limits](https://github.com/gwpicard/ai-host-kit/blob/main/docs/PROMISES.md#protected-place-secrets)
+for the Claude Code deny rule and the limits of that boundary.
+
+### Prompt visibility
+
+This table owns prompt visibility for the Place flow. Shown input is checked
+for secret-shaped text before being displayed. This can reject harmless text
+and cannot detect every secret. Each prompt names its visibility.
+
+| Input | Visibility |
+|---|---|
+| State passphrase, Hetzner project token, storage secret key, one-off Tailscale auth key, Coolify team token, Tailscale API token, docktail OAuth secret | Hidden; length and last four characters only after entry |
+| Storage access key, docktail OAuth client ID | Shown identifiers |
+| Place name at retirement, approval checksum and words, `claimed <place-name>` | Shown; foreground terminal required |
+
 Use OpenTofu 1.13.2, the Python schema requirements and the installed, verified
 `@masonator/coolify-mcp` 3.10.1 package. Its tarball integrity is in
 `dependencies.json`. Installation is reviewed separately; the runner never
@@ -57,18 +96,17 @@ created place, not invented in advance.
 
    Review `hosting/tofu/`, its module snapshot and `backend.json`. The person
    approves initialisation against that exact bucket, key, endpoint and region,
-   then runs the next command themselves. It prompts for the state passphrase
-   and storage key pair. It does not create the bucket or migrate state.
+   then runs the next command. It reads the state passphrase
+   and storage key pair from the protected file, prompting for missing values. It does not create the bucket or migrate state.
 
    ```sh
    python3 "$SETUP" init --progress "$PROGRESS"
    ```
 
 2. After permission for provider reads, save a real plan and show its summary.
-   The plan command prompts for the passphrase, project token, one-off tailnet
-   key and storage pair. Later summary and approval commands prompt for the
-   passphrase and same storage pair. No value is printed or kept in a local
-   settings file. The one-off key is in Hetzner user data and encrypted plans
+   The plan command reads the passphrase, project token, one-off tailnet
+   key and storage pair from the protected file. Summary and approval need the
+   passphrase and same storage pair. Missing values use prompts. The one-off key is in Hetzner user data and encrypted plans
    and state; server cloud-init copies can remain. The summary says these
    copies cannot be recalled and why a spent or expired key is worthless.
 
@@ -79,7 +117,7 @@ created place, not invented in advance.
 
 3. The person reviews the exact summary and runs approval themselves, typing
    its checksum and their words. Only that saved plan may be applied. Apply
-   asks for the passphrase, project token and storage pair again.
+   reads the passphrase, project token and storage pair from the same file.
 
    ```sh
    python3 "$SETUP" approve --progress "$PROGRESS" --plan "$CREATE" --approval "$PLACE/create-approval.json"
@@ -103,13 +141,13 @@ created place, not invented in advance.
    where recognised, the failed cloud-init module. A missing read stops the flow.
 
 5. Prepare and approve the first-administrator effect. The person runs the
-   approval command, then the run command. The runner records that the attempt
-   has started before displaying the tailnet `/register` address. The person
+   approval command, then the run command. The runner displays the tailnet `/register` address under the approved claim
+   effect. It collects the confirmation and token before recording an attempt. The person
    opens that address themselves. They create the first administrator, enable two-factor
    authentication and create a team token with exactly `read`, `read:sensitive`,
    `write`, `deploy`, never `root`. Nothing is public. The password goes only
    into Coolify. An HTTP 429 is not a completed claim; wait ten minutes before
-   one careful retry. The run command asks for that token and the hidden
+   one careful retry. The run command asks for that token and the shown
    confirmation `claimed <place-name>` and requires registration to redirect
    to this instance's login page and the authenticated team read to succeed.
 
@@ -130,7 +168,7 @@ created place, not invented in advance.
 7. The following helper prepares one effect, lets the person approve it in
    their foreground terminal, then performs that one stage. The person calls
    it separately for each line below. Do not run a loop or approve on their
-   behalf. Each run prompts for the Coolify token. The API has no current-token
+   behalf. Each run reads the Coolify token from the file or prompts if it is missing. The API has no current-token
    abilities route; the script says when scope remains a declaration. Check
    the actual token's scopes and whole-team access in Coolify before proceeding.
 
@@ -190,7 +228,8 @@ created place, not invented in advance.
 
    This example opens TCP 80 and 443 to the internet, with no tool deployed.
    Approve that reachability explicitly. Other ports are refused. The command
-   prompts for the project token and Coolify read token and saves a new record.
+   reads the project token and Coolify read token from the file, prompting for
+   missing values, and saves a new record.
    The person reviews and adopts that local record before checking again.
 
    ```sh
@@ -261,8 +300,8 @@ python3 "$SETUP" approve --progress "$PROGRESS" --plan "$DESTROY" --approval "$P
 python3 "$SETUP" retire --partial --progress "$PROGRESS" --plan "$DESTROY" --approval "$PLACE/retire-approval.json"
 ```
 
-These commands request the state passphrase, project token and storage pair
-through hidden terminal prompts. Partial mode reads the encrypted state into
+These commands read the state passphrase, project token and storage pair from
+the protected file, prompting for missing values. Partial mode reads the encrypted state into
 a recovery record in the progress file. It accepts only resources at the kit's
 three generated addresses, checks their live identities, names and ownership
 labels against that record, requires the typed place name and applies only

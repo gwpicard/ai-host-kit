@@ -39,6 +39,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--record', default='hosting/place-record.json')
     parser.add_argument('--mcp-package', required=True, help='Local installed MCP package.json; no package is fetched.')
+    from api import secrets_options, configure_place_secrets, hidden_value
+    secrets_options(parser)
     args = parser.parse_args()
     try:
         reader = load_reader()
@@ -48,12 +50,11 @@ def main():
         package = reader.read_json(args.mcp_package)
         if package.get('name') != '@masonator/coolify-mcp':
             raise ValueError('The local package is not the pinned Coolify MCP.')
-        # API version is an authenticated read. Token is entered by the person;
-        # no credential helper, environment file or keychain is read.
+        # API version is an authenticated read using the protected file or prompt.
         from api import approval_gate
         gate = approval_gate()
-        with gate.terminal() as tty:
-            token = gate.typed(tty, 'Coolify read token (hidden): ')
+        configure_place_secrets(gate,args,record)
+        token = hidden_value(gate,'Coolify read token')
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
         def coolify(address):
             url = 'http://' + tailnet_address(address) + ':8000/api/v1/version'
@@ -71,7 +72,8 @@ def main():
         for name, status in rows:
             print(name + ': ' + status)
         return 0 if all(status == 'passed' for _, status in rows) else 1
-    except (OSError, ValueError, KeyError, TypeError):
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        if 'gate' in locals() and isinstance(error,gate.InputRefused): print(str(error),file=sys.stderr)
         print('could not run: place inputs or read transport failed; values are withheld.', file=sys.stderr)
         return 2
 

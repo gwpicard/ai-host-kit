@@ -56,5 +56,6 @@
     "write",
     "deploy"
   ],
-  "canary_name": "place-canary"
+  "canary_name": "place-canary",
+  "secrets": "~/.config/ai-host-kit/places/test-place.env"
 }

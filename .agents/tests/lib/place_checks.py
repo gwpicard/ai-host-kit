@@ -280,7 +280,7 @@ def adapter_checks():
             folder=Path(tmp)
             effect=folder/'effect.json'; approval=folder/'approval.json'; new_record=folder/'record.json'
             input_record=folder/'input-record.json';shutil.copyfile(FIXTURE/'place-record.json',input_record)
-            command=['lane','prepare','--record',str(input_record),'--lane','public','--port','443','--effect',str(effect)]
+            command=['lane','prepare','--record',str(input_record),'--lane','public','--port','443','--effect',str(effect),'--secrets',str(folder/'absent-secrets.env')]
             fake=StandIn(); fake.owned_resources=lambda:resources(record)
             with patch.object(sys,'argv',command), patch.object(lane_cli,'API',return_value=fake), patch.object(lane_cli,'hidden_value',return_value='synthetic-only'): assert lane_cli.main()==0
             gate=checks.load(); value=json.loads(effect.read_text())
@@ -310,7 +310,7 @@ def adapter_checks():
             @contextmanager
             def terminal(): yield None
             applied=[]
-            retired=SimpleNamespace(require_encryption=lambda:None,check_version=lambda:None,saved_plan=saved,
+            retired=SimpleNamespace(configure_secrets=lambda *a:None,InputRefused=checks.load().InputRefused,require_encryption=lambda:None,check_version=lambda:None,saved_plan=saved,
                  planned_identity=lambda *a:None,tofu=lambda *a:subprocess.CompletedProcess(a,0,json.dumps(destroy).encode(),b''),
                  apply=lambda *a:applied.append(a),terminal=terminal,typed=lambda *a:record['place']['name'])
             command=['retire','--record',str(FIXTURE/'place-record.json'),'--plan','synthetic-plan','--approval',str(approval)]

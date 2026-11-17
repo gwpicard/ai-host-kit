@@ -276,7 +276,7 @@ def terminal_run(skill, project, destination, piped=False, wrong=False, words='I
                 output += chunk
             if b'Type approve followed' in output and not sent_confirmation:
                 os.write(fd, (confirmation + '\n').encode()); sent_confirmation = True
-            if b'Input is hidden:' in output and not sent_words:
+            if b'In your own words, what do you approve?' in output and not sent_words:
                 if before_words is not None:
                     before_words()
                 os.write(fd, (words + '\n').encode()); sent_words = True

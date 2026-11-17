@@ -4,7 +4,7 @@ import copy
 import json
 from pathlib import Path
 import sys
-from api import API, approval_gate, hidden_value
+from api import API, approval_gate, hidden_value, secrets_options, configure_place_secrets
 from check import load_reader
 from place import OperationRefused, lane_effect, set_lane, write_record, attempt_effect, journal_identity
 
@@ -18,12 +18,15 @@ def main():
     parser.add_argument('--effect',required=True)
     parser.add_argument('--approval')
     parser.add_argument('--new-record')
+    secrets_options(parser)
     args=parser.parse_args()
+    gate=None
     try:
         reader=load_reader()
         if reader.validate('place-record',args.record): return 1
         record=reader.read_json(args.record)
         gate=approval_gate()
+        configure_place_secrets(gate,args,record)
         api=API(record,hidden_value(gate,'Hetzner project token'),hidden_value(gate,'Coolify read token'))
         effect=lane_effect(record,args.lane,args.port)
         if args.command=='prepare':
@@ -36,7 +39,6 @@ def main():
             return 0
         if not args.approval or not args.new_record:
             raise ValueError('Apply requires effect approval and a new record path.')
-        gate=approval_gate()
         effect=reader.read_json(args.effect)
         gate.match_effect(effect,args.approval)
         # Refuse an existing destination before a cloud write.
@@ -56,7 +58,7 @@ def main():
         print('Applied the approved lane and saved a new record for review.')
         return 0
     except (OSError,ValueError,KeyError,TypeError) as error:
-        if isinstance(error,OperationRefused): print(str(error),file=sys.stderr)
+        if isinstance(error,OperationRefused) or (gate is not None and isinstance(error,gate.InputRefused)): print(str(error),file=sys.stderr)
         print('Refused: lane inputs, approval or transport failed. Read the live rules, prepare a new effect and obtain fresh approval before retrying; values are withheld.',file=sys.stderr)
         return 1
 

@@ -44,7 +44,7 @@ def exercise(work, checks):
                 if all(status=='passed' for _,status in mutated.node_rows(record,bad)): detected=True
             assert detected,old
             print('Protection removal detected: node '+old.split('(')[0])
-        config=dict(place=record['place'],encrypted_state=record['encrypted_state'],
+        config=dict(place=record['place'],encrypted_state=record['encrypted_state'],secrets=str(work/'absent-secrets.env'),
                     backend=json.loads((RECIPE/'tofu/backend.example.json').read_text()),
                     inputs=dict(place_name='test-place',location='fsn1',server_type='cx23',ssh_public_key='ssh-ed25519 c3ludGhldGlj test',
                                 tailnet_key_settings=dict(reusable=False,ephemeral=False,preauthorised=True,tags=['tag:server'],expiry_seconds=3600,shortest_available=True)),
