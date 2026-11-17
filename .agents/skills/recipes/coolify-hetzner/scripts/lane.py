@@ -58,7 +58,8 @@ def main():
         print('Applied the approved lane and saved a new record for review.')
         return 0
     except (OSError,ValueError,KeyError,TypeError) as error:
-        if isinstance(error,OperationRefused) or (gate is not None and isinstance(error,gate.InputRefused)): print(str(error),file=sys.stderr)
+        from api import report_refusal
+        report_refusal(error, locals().get('gate'))
         print('Refused: lane inputs, approval or transport failed. Read the live rules, prepare a new effect and obtain fresh approval before retrying; values are withheld.',file=sys.stderr)
         return 1
 

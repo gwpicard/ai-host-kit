@@ -36,15 +36,15 @@ How it is checked: Provider mocks check resources, firewall attachment, closed
 inbound rules, IPv4 apt and complete rendering. Local shell stand-ins exercise
 file permissions, command arguments, cleanup on both paths and hard failure.
 Visible reusable, ephemeral, unapproved and untagged key settings are refused.
-The person declares the shortest available expiry, aiming for one hour; the
-kit cannot infer key settings from the opaque auth key. Removal tests cover
+The person declares the shortest available expiry: one day, Tailscale's
+shortest option. The kit cannot infer key settings from the opaque auth key. Removal tests cover
 these guards and the summary warning.
 Script: `tofu/hetzner-server/main.tf`, `tofu/hetzner-server/cloud-init.sh`.
 Who runs it: The person supplies keys and approves the saved plan. The agent
 prepares the reviewable root and summary. No real provisioning is proved.
 Ask: Create a single-use, pre-approved key for `tag:server`, not an ephemeral
-node, with the shortest expiry that covers apply. Aim for one hour and record
-the actual expiry in setup settings. The pinned provider cannot accept an
+node, with the shortest available expiry that covers apply. Use one day,
+Tailscale's shortest option, and record the actual expiry in setup settings. The pinned provider cannot accept an
 ephemeral value in user data. The key therefore reaches Hetzner in user data
 and remains in encrypted OpenTofu plans and state. Server cloud-init copies
 can remain too. These copies cannot be recalled. The choice is acceptable

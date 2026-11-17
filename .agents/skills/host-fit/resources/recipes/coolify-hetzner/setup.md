@@ -11,7 +11,8 @@ public key, the server type, an existing Object Storage bucket and key path,
 and the name of the state-key custodian. Copy `setup.example.json` into that
 repository and replace its non-secret example settings. Never put a key,
 password or token in that file. Record the actual tailnet key expiry and
-confirm that it is the shortest option that covers apply, aiming for one hour.
+confirm that it uses the shortest available expiry that covers apply: one day,
+Tailscale's shortest option.
 
 Console work has its own approvals. The person approves creating a project
 token for the selected Hetzner project, a storage key for the selected bucket,
@@ -141,18 +142,25 @@ created place, not invented in advance.
    where recognised, the failed cloud-init module. A missing read stops the flow.
 
 5. Prepare and approve the first-administrator effect. The person runs the
-   approval command, then the run command. The runner displays the tailnet `/register` address under the approved claim
-   effect. It collects the confirmation and token before recording an attempt. The person
-   opens that address themselves. They create the first administrator, enable two-factor
-   authentication and create a team token with exactly `read`, `read:sensitive`,
-   `write`, `deploy`, never `root`. Nothing is public. The password goes only
-   into Coolify. An HTTP 429 is not a completed claim; wait ten minutes before
-   one careful retry. The run command asks for that token and the shown
-   confirmation `claimed <place-name>` and requires registration to redirect
-   to this instance's login page and the authenticated team read to succeed.
-   It also reads the Hetzner project token from the protected file or prompt
-   before recording an attempt. That token is needed to read the firewall and
-   confirm that no inbound rules are open.
+   approval command, then the run command. The runner reads the Hetzner project
+   token, resolves any stored Coolify token and checks the closed firewall
+   before recording an attempt. Under
+   that approval it restarts the `coolify` container over Tailscale SSH and
+   waits for health, then displays the tailnet `/register` address. The person
+   has ten minutes from the restart to create the first administrator. Nothing
+   is public. The password goes only into Coolify.
+
+   On **Welcome to Coolify**, choose **Skip setup**. Enable two-factor
+   authentication at avatar > **Profile** > **Configure 2FA**. Switch on
+   **Settings > Advanced > API and MCP > API access**. Create the token at
+   **Keys & Tokens > API Tokens > New token** with **Read**, **Write**,
+   **Deploy** and **Read sensitive data**, never **Root** or **Delete**.
+   The run command asks for the shown confirmation `claimed <place-name>` and
+   that token. It requires registration to redirect to this instance's login
+   page and the authenticated team read to succeed. A closed setup window is
+   reported as not claimed, with its consumed receipt retained. Prepare a new
+   effect and obtain fresh approval to restart and reopen the window. An HTTP
+   429 is not a completed claim; inspect it before reviewed recovery.
 
    ```sh
    python3 "$SETUP" prepare --progress "$PROGRESS" --step claim --effect "$PLACE/claim-effect.json"

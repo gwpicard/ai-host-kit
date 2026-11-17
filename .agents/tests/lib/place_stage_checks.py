@@ -24,6 +24,7 @@ sys.path.insert(0,str(RECIPE/'scripts'))
 import setup as flow
 import api as transport
 import mcp as protocol
+import node
 from place import fingerprint, journal_identity, place_lock
 
 CLOUD='synthetic-project-only'
@@ -45,7 +46,7 @@ class Services:
                          settings=dict(is_build_server=False,is_usable=True,is_reachable=True))
         self.closed=True;self.started=None;self.never=False;self.ports=['tcp:443']
         self.inventory=[];self.empty_readback=False;self.conflict=False;self.bad_env=False
-        self.team_id=0
+        self.team_id=0;self.window_closed=False;self.expire_during_claim=False;self.restarts=0;self.claim_active=False;self.restart_failed=False;self.keep_window_closed=False
 
     def handle(self,method,path,token,body):
         self.calls.append((method,path))
@@ -53,7 +54,9 @@ class Services:
         if path not in ('/register','/canary') and token!='Bearer '+expected:
             return 401,dict(message='Unauthorised'),{}
         if path=='/hetzner/v1/firewalls/102':return 200,dict(firewall=dict(rules=self.rules)),{}
-        if path=='/register':return (302,{},dict(Location='/login')) if self.closed else (200,{}, {})
+        if path=='/register':
+            if self.window_closed:return 200,'Setup window closed. You can create the root account only in the first 10 minutes after Coolify starts. To open the window again, run this command on the server, then reload this page: docker restart coolify',{}
+            return (302,{},dict(Location='/login')) if self.closed else (200,'<form>Register</form>', {})
         if path=='/api/v1/team':return 200,dict(id=self.team_id),{}
         if path=='/api/v1/version':return 200,'4.7.5',{}
         if path=='/api/v1/servers/server-one':return 200,self.server,{}
@@ -102,7 +105,10 @@ def standins(service):
             status,value,headers=service.handle(self.command,self.path,self.headers.get('Authorization',''),body)
             self.send_response(status)
             for key,val in headers.items():self.send_header(key,val)
-            self.end_headers();self.wfile.write(json.dumps(value).encode())
+            page=self.path=='/register' and isinstance(value,str)
+            self.send_header('Content-Type','text/html' if page else 'application/json')
+            self.end_headers()
+            self.wfile.write(('<html><body>'+value+'</body></html>').encode() if page else json.dumps(value).encode())
         do_GET=do_POST=do_PATCH=dispatch
     server=ThreadingHTTPServer(('127.0.0.1',0),Handler)
     assert server.server_port!=3000
@@ -126,10 +132,13 @@ def standins(service):
             method='GET' if isinstance(request,str) else request.method
             # Registration needs the redirect as an HTTPError for its own check.
             if target==base+'/register':
-                if service.closed:
+                if service.closed and not service.window_closed:
                     service.calls.append(('GET','/register'))
                     raise urllib.error.HTTPError(url,302,'Found',{'Location':'/login'},None)
-            return opener.open(urllib.request.Request(target,data=data,headers=headers,method=method),**kwargs)
+            try:
+                return opener.open(urllib.request.Request(target,data=data,headers=headers,method=method),**kwargs)
+            except urllib.error.HTTPError as error:
+                raise urllib.error.HTTPError(url,error.code,'Provider reply',error.headers,error) from None
     class MCP:
         def __init__(self,*args):self.api=transport.API({},'',COOLIFY)
         def close(self):pass
@@ -149,19 +158,46 @@ def standins(service):
             if tool=='control':return self.api.request('GET',base+'/api/v1/services/'+args['uuid']+'/start',COOLIFY)
             raise AssertionError(tool)
     def inputs(gate,label):
-        if 'type claimed' in label:return 'claimed test-place'
+        if 'type claimed' in label:
+            if service.expire_during_claim:service.window_closed=True
+            elif service.claim_active:service.closed=True
+            return 'claimed test-place'
         if label.startswith('Hetzner'):return CLOUD
         if label.startswith('Coolify'):return COOLIFY
         if label.startswith('Tailscale API'):return TAILSCALE
         if label.startswith('TAILSCALE_OAUTH'):return OAUTH
         raise AssertionError(label)
+    original_run=subprocess.run
+    def ssh(command,**kwargs):
+        if command[0]=='tailscale':
+            assert command==['tailscale','ssh','root@100.64.0.10','sh','-s']
+            assert kwargs['input']==node.REOPEN_CLAIM.encode()
+            # A restart is a write: its effect must already be consumed.
+            receipts=list(Path(service.progress).parent.joinpath('place-attempts').glob('*.json'))
+            assert any(json.loads(p.read_text()).get('status')=='uncertain' for p in receipts)
+            assert json.loads(Path(service.progress).read_text())['uncertain']=='claim'
+            service.restarts+=1;service.claim_active=True;service.window_closed=service.keep_window_closed;service.closed=False
+            # Execute the fixed remote shell locally with strict Docker stand-ins.
+            # Health is initially starting, then healthy. No real sleep or Docker.
+            tools=Path(service.progress).parent/'ssh-tools';tools.mkdir(exist_ok=True)
+            log=tools/'calls';log.write_text('')
+            docker=tools/'docker'
+            docker.write_text("#!/bin/sh\necho \"$1\" >> \"$CLAIM_LOG\"\ncase $1 in\nrestart) exit "+('1' if service.restart_failed else '0')+";;\ninspect) if [ -f \"$CLAIM_READY\" ]; then echo healthy; else touch \"$CLAIM_READY\"; echo starting; fi;;\n*) exit 42;;\nesac\n")
+            sleep=tools/'sleep';sleep.write_text('#!/bin/sh\nexit 0\n')
+            docker.chmod(0o755);sleep.chmod(0o755)
+            ready=tools/'ready';ready.unlink(missing_ok=True)
+            result=original_run(['sh','-s'],input=kwargs['input'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,
+                                env=dict(os.environ,PATH=str(tools)+':'+os.environ['PATH'],CLAIM_LOG=str(log),CLAIM_READY=str(ready)))
+            assert log.read_text().splitlines()==(['restart'] if service.restart_failed else ['restart','inspect','inspect'])
+            return result
+        return original_run(command,**kwargs)
     original_spawn=subprocess.Popen
     def spawn(command,**kwargs):
         if command[0]=='node':
             kwargs['env']['COOLIFY_BASE_URL']=base
         return original_spawn(command,**kwargs)
     try:
-        with patch.object(urllib.request,'build_opener',return_value=Rewrite()),patch.object(flow,'MCP',protocol.MCP if os.environ.get('PLACE_STAGE_MCP_PACKAGE') else MCP),patch.object(subprocess,'Popen',side_effect=spawn),patch.object(flow,'prompt',side_effect=inputs),patch.object(flow,'time',service.clock,create=True):
+        with patch.object(subprocess,'run',side_effect=ssh),patch.object(urllib.request,'build_opener',return_value=Rewrite()),patch.object(flow,'MCP',protocol.MCP if os.environ.get('PLACE_STAGE_MCP_PACKAGE') else MCP),patch.object(subprocess,'Popen',side_effect=spawn),patch.object(flow,'prompt',side_effect=inputs),patch.object(flow,'time',service.clock,create=True):
             yield
     finally:server.shutdown();server.server_close();thread.join()
 
@@ -208,15 +244,69 @@ class Scenario:
 
 
 def claim(work):
-    svc=Services();case=Scenario(work,'claim')
+    svc=Services();case=Scenario(work,'claim');svc.progress=case.progress;svc.closed=False
     with standins(svc):
         # Exercise the actual transport: the service refuses both missing and wrong tokens.
         for token in ('','wrong'):
             try:transport.API(case.state['record'],token).firewall_rules(102)
             except urllib.error.HTTPError as error:assert error.code==401
             else:raise AssertionError('Hetzner accepted an invalid bearer')
+        svc.window_closed=True # The first container start was hours ago.
         status,text=case.run();assert status==0,text
+        assert svc.restarts==1 and 'ten minutes' in text and 'Skip setup' in text
+        assert 'Configure 2FA' in text and 'API and MCP > API access' in text
+        assert 'Read sensitive data, never Root or Delete' in text
     assert case.read()['done']==['claim'] and json.loads(case.receipt().read_text())['status']=='completed'
+
+
+
+def closed_window(work):
+    svc=Services();case=Scenario(work,'claim');svc.progress=case.progress;svc.closed=False
+    assert 'Restart the coolify container over Tailscale SSH' in json.loads(case.effect.read_text())['effect']
+    with standins(svc):
+        svc.expire_during_claim=True
+        status,text=case.run()
+        assert status!=0 and 'Coolify setup window closed.' in text,text
+        assert case.read()['uncertain'] is None and case.read()['done']==[]
+        assert json.loads(case.receipt().read_text())['status']=='not-claimed'
+        assert svc.restarts==1
+        assert case.run()[0]!=0 and svc.restarts==1 # Consumed approval cannot restart.
+        fresh=work/'fresh.json'
+        assert case.command('prepare','--step','claim','--effect',fresh)[0]==0
+        case.effect=fresh
+        assert case.run()[0]!=0 and svc.restarts==1 # Old approval mismatches.
+        case.approve(fresh,case.approval);svc.expire_during_claim=False
+        assert case.run()[0]==0 and svc.restarts==2
+        assert case.read()['done']==['claim']
+
+
+
+def restart_boundaries(work):
+    for mode in ('closed','failed','approval'):
+        svc=Services();case=Scenario(work/mode,'claim');svc.progress=case.progress;svc.closed=False
+        svc.restart_failed=mode=='failed';svc.keep_window_closed=mode=='closed'
+        if mode=='approval':case.approval.write_text('{}')
+        with standins(svc):
+            status,text=case.run()
+            assert status!=0 and ':8000/register now' not in text,text
+            if mode=='approval':
+                assert svc.restarts==0 and not case.receipt().exists() and case.read()['uncertain'] is None
+            elif mode=='closed':
+                assert 'Coolify setup window closed.' in text
+                assert case.read()['uncertain'] is None and json.loads(case.receipt().read_text())['status']=='not-claimed'
+            else:
+                assert 'Coolify did not become healthy' in text
+                assert case.read()['uncertain']=='claim' and json.loads(case.receipt().read_text())['status']=='uncertain'
+
+
+
+def http_status(work):
+    svc=Services();case=Scenario(work,'claim');svc.progress=case.progress;svc.closed=False
+    with standins(svc),patch.object(flow,'prompt',return_value='synthetic-private-marker'):
+        status,text=case.run()
+    assert status!=0 and 'Hetzner answered 401.' in text,text
+    assert 'synthetic-private-marker' not in text
+    assert not case.receipt().exists() and svc.restarts==0 and case.read()['uncertain'] is None
 
 
 def discover(work):
@@ -290,10 +380,11 @@ def failed_record(work):
 
 
 def recover_claim(work):
-    svc=Services();case=Scenario(work,'claim')
+    svc=Services();case=Scenario(work,'claim');svc.progress=case.progress;svc.closed=False
     with standins(svc):
+        with patch.object(flow,'reopen_claim',side_effect=OSError('Synthetic restart interruption')):
+            assert case.run()[0]!=0 and case.read()['uncertain']=='claim'
         svc.rules=[dict(direction='in',protocol='tcp',port='22',source_ips=['0.0.0.0/0'])]
-        assert case.run()[0]!=0 and case.read()['uncertain']=='claim'
         case.recovery()
         before=case.progress.read_bytes();receipt=case.receipt().read_bytes()
         assert case.recover()[0]!=0 and case.progress.read_bytes()==before and case.receipt().read_bytes()==receipt
@@ -408,7 +499,7 @@ def oauth_edges(work):
 
 
 def main():
-    cases={'claim':claim,'discover':discover,'oauth-id':lambda w:oauth(w,'oauth-id'),
+    cases={'http-status':http_status,'restart-boundaries':restart_boundaries,'closed-window':closed_window,'claim':claim,'discover':discover,'oauth-id':lambda w:oauth(w,'oauth-id'),
            'oauth-secret':lambda w:oauth(w,'oauth-secret'),'record':record,'record-failures':failed_record,
            'recover-claim':recover_claim,'abandon':abandon,'oauth-edges':oauth_edges}
     parser=argparse.ArgumentParser();parser.add_argument('--case',choices=list(cases)+['all'],default='all');args=parser.parse_args()

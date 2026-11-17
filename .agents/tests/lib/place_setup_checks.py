@@ -47,7 +47,7 @@ def exercise(work, checks):
         config=dict(place=record['place'],encrypted_state=record['encrypted_state'],secrets=str(work/'absent-secrets.env'),
                     backend=json.loads((RECIPE/'tofu/backend.example.json').read_text()),
                     inputs=dict(place_name='test-place',location='fsn1',server_type='cx23',ssh_public_key='ssh-ed25519 c3ludGhldGlj test',
-                                tailnet_key_settings=dict(reusable=False,ephemeral=False,preauthorised=True,tags=['tag:server'],expiry_seconds=3600,shortest_available=True)),
+                                tailnet_key_settings=dict(reusable=False,ephemeral=False,preauthorised=True,tags=['tag:server'],expiry_seconds=86400,shortest_available=True)),
                     scopes=sorted(flow.SCOPES),canary_name='place-canary')
         choice=dict(schema_version='1.0',choice=dict(host='coolify-hetzner',proven=False,answers={},accepted_shortfalls=[]))
         path=work/'choice.json';path.write_text(json.dumps(choice))
@@ -198,6 +198,7 @@ def cli(work,flow,gate,reader,config,choice,facts,journal_probes=True):
     class API:
         opener=SimpleNamespace(open=lambda *args,**kwargs:Response())
         def __init__(self,*args): pass
+        def registration_state(self):return "open"
         def registration_closed(self):return True
         def coolify_team(self):return {'id':1}
         def token_abilities(self):return sorted(flow.SCOPES)
@@ -216,7 +217,7 @@ def cli(work,flow,gate,reader,config,choice,facts,journal_probes=True):
         def close(self):pass
     def prompt(g,label):return 'claimed test-place' if 'type claimed' in label else 'synthetic-only'
     reuse_results=[]
-    with patch.object(flow,'API',API),patch.object(flow,'MCP',MCP),patch.object(flow,'prompt',side_effect=prompt):
+    with patch.object(flow,'reopen_claim'),patch.object(flow,'API',API),patch.object(flow,'MCP',MCP),patch.object(flow,'prompt',side_effect=prompt):
         for step in flow.STEPS:
             effect=folder/(step+'.json');approval=folder/(step+'-approval.json')
             assert command('prepare','--step',step,'--effect',str(effect))==0

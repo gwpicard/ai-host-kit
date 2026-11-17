@@ -28,7 +28,11 @@ S3_CREDENTIALS = None
 SECRET_VALUES = {}
 
 
-class InputRefused(ValueError):
+class GateRefused(ValueError):
+    """Fixed gate refusals that callers may report without exposing values."""
+
+
+class InputRefused(GateRefused):
     """Fixed input refusals that callers may report without exposing values."""
 
 
@@ -137,7 +141,7 @@ SOURCES = {'source_ips', 'destination_ips', 'cidr_blocks', 'ipv6_cidr_blocks',
 
 
 def refuse(message):
-    raise ValueError(message)
+    raise GateRefused(message)
 
 
 def digest(data):
@@ -279,7 +283,7 @@ def summarise(plan):
         if change.get('importing') is not None or resource.get('previous_address'):
             result['changes'].append(f'{name}: import or address move; review the ownership change.')
         if kind == 'hcloud_server' and 'create' in actions:
-            result['irreversible'].append(f'{name}: the one-off tailnet auth key is sent in user data to Hetzner and retained in encrypted OpenTofu plans and state. Server cloud-init copies can remain. These copies cannot be recalled. The key is single use, uses the shortest available expiry that covers apply (aim for one hour) and is worthless once used or expired. Only tag:server joins are intended; tailnet policy controls access.')
+            result['irreversible'].append(f'{name}: the one-off tailnet auth key is sent in user data to Hetzner and retained in encrypted OpenTofu plans and state. Server cloud-init copies can remain. These copies cannot be recalled. The key is single use, uses the shortest available expiry that covers apply (one day, Tailscale\'s shortest option) and is worthless once used or expired. Only tag:server joins are intended; tailnet policy controls access.')
         if 'delete' in actions:
             result['irreversible'].append(f'{name}: destruction can lose data, including any stored volumes or bucket contents. Recovery needs a separate tested backup.')
         if actions != ['no-op'] and isinstance(kind, str) and re.search(r'bucket|volume|disk|database|db_instance', kind):

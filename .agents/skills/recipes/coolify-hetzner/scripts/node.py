@@ -1,9 +1,9 @@
-"""Read fixed node facts over Tailscale SSH; never run a supplied command."""
+"""Read node facts and reopen the claim over Tailscale SSH with fixed commands."""
 # Node checks adapted from coolify-launchpad; see docs/SOURCES.md.
 import json
 import subprocess
 import time
-from place import require, tailnet_address
+from place import OperationRefused, require, tailnet_address
 
 KEY_PATH = '/run/ai-host-kit/tailscale-auth-key'
 PROBE = r"""python3 - <<'HOST_KIT_NODE'
@@ -106,3 +106,26 @@ def wait_bootstrap(record, read=read_node, timeout=1200, sleep=time.sleep, clock
             return facts
         report('Cloud-init completed: Cloud-init is still running; checking again in 15 seconds.')
         sleep(min(15, max(0, deadline - clock())))
+
+
+REOPEN_CLAIM = """set -eu
+docker restart coolify >/dev/null
+for attempt in $(seq 1 60); do
+    if [ "$(docker inspect --format '{{.State.Health.Status}}' coolify)" = healthy ]; then
+        exit 0
+    fi
+    sleep 2
+done
+exit 1
+"""
+
+
+def reopen_claim(address):
+    try:
+        result = subprocess.run(['tailscale', 'ssh', 'root@'+tailnet_address(address), 'sh', '-s'],
+                                input=REOPEN_CLAIM.encode(), stdout=subprocess.DEVNULL,
+                                stderr=subprocess.DEVNULL, timeout=150)
+    except (OSError, subprocess.TimeoutExpired):
+        raise OperationRefused('Could not confirm the Coolify restart over Tailscale SSH. Inspect the uncertain claim before retrying.') from None
+    if result.returncode:
+        raise OperationRefused('Coolify did not become healthy after the restart. Inspect the uncertain claim before retrying.')

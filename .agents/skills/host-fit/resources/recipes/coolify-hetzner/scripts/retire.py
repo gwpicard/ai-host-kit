@@ -70,7 +70,8 @@ def main(gate=None, token=None):
             return 2
         return 0
     except (OSError,ValueError,KeyError,TypeError) as error:
-        if gate is not None and isinstance(error,gate.InputRefused): print(str(error),file=sys.stderr)
+        from api import report_refusal
+        report_refusal(error, locals().get('gate'))
         print('Refused: retirement inputs, ownership, approval or transport failed. Inspect the place privately; values are withheld.',file=sys.stderr)
         return 1
     finally:

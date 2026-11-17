@@ -17,7 +17,7 @@ import urllib.error
 from api import API, approval_gate, hidden_value as prompt
 from check import load_reader
 from mcp import MCP
-from node import bootstrap, read_node, wait_bootstrap, BootstrapFailed
+from node import bootstrap, read_node, wait_bootstrap, BootstrapFailed, reopen_claim
 from place import OperationRefused, PINS, SCOPES, fingerprint, require, scoped_mcp, tailnet_address, write_record, start_attempt, finish_attempt, mark_dispatch, partial_record, journal_identity, place_lock
 from place import JOURNAL_MESSAGE
 
@@ -159,7 +159,7 @@ def effect_for(state, step):
     common=dict(journal=state['journal'],action='place-'+step,progress_sha256=fingerprint(state),place_sha256=fingerprint(record))
     args={}; tool=None
     if step=='claim':
-        description='Let the person create the first Coolify administrator for '+name+' over the tailnet. That account owns this Coolify instance. No public ports open. The person supplies their password in Coolify and confirms the claim here.'
+        description='Restart the coolify container over Tailscale SSH and wait for health to reopen its ten-minute setup window. Let the person create the first Coolify administrator for '+name+' over the tailnet. That account owns this Coolify instance. No public ports open. The person supplies their password in Coolify and confirms the claim here.'
     elif step=='project':
         tool='projects'; args=dict(action='create',name=name+'-infrastructure')
         description='Create the private Coolify infrastructure project for '+name+'. No tool or public address is created.'
@@ -402,7 +402,7 @@ def main():
             require(args.step and args.effect, 'Name the stage and new effect path.')
             effect=effect_for(state,args.step)
             write_record(effect,args.effect,lambda value:None); print(effect['effect'])
-            if args.step=='claim': print('After approval, run this stage. It collects local inputs before recording the claim attempt.')
+            if args.step=='claim': print('After approval, run this stage. It records the attempt before restarting Coolify, then guides you through the claim.')
             return 0
         if args.command=='retire':
             require(args.plan and args.approval, 'Supply the saved destroy plan and its approval.')
@@ -428,7 +428,7 @@ def main():
             elif args.command=='plan':
                 require(args.plan, 'Supply a new saved-plan path.')
                 os.environ['TF_VAR_hcloud_token']=prompt(gate,'Hetzner project token')
-                os.environ['TF_VAR_tailnet_auth_key']=prompt(gate,'Single-use pre-approved non-ephemeral tag:server Tailscale key, shortest available expiry, aim one hour')
+                os.environ['TF_VAR_tailnet_auth_key']=prompt(gate,'Single-use pre-approved non-ephemeral tag:server Tailscale key, shortest available expiry (one day, Tailscale\'s shortest option)')
                 gate.plan(args.plan)
                 bind_provider(state,args.plan,os.environ['TF_VAR_hcloud_token'],gate,remember=True); save(progress,state)
             elif args.command=='plan-destroy':
@@ -512,14 +512,36 @@ def main():
         effect=effect_for(state,args.step)
         require(reader.read_json(args.effect)==effect,'The prepared effect differs from the current stage.')
         gate.match_effect(effect,args.approval)
-        claim_answer=None; hcloud=''
+        state_before=copy.deepcopy(state)
+        claim_answer=None; claim_token=None; hcloud=''; receipt=None
         if args.step=='claim':
             print('The Hetzner project token reads the firewall to confirm that inbound access is closed.')
             hcloud=prompt(gate,'Hetzner project token')
-            print('Open http://'+record['infrastructure']['tailnet_ipv4']+':8000/register yourself under the approved claim effect, create the first administrator and enable two-factor authentication. Then create the scoped team token. Inspect any interrupted claim in Coolify before retrying.')
+            if getattr(gate,'SECRET_VALUES',{}).get('COOLIFY_TEAM_TOKEN'):
+                claim_token=prompt(gate,'Coolify token with read, read:sensitive, write and deploy, never root or delete')
+            api=API(record,hcloud)
+            read_require(api.firewall_rules(record['infrastructure']['firewall_id'])==[], 'Keep all inbound rules closed until the claim is confirmed.')
+            read_require(api.registration_state() != 'claimed', 'Coolify already has an administrator. Inspect the existing claim; no restart was sent.')
+            receipt=start_attempt(effect,args.approval,Path(state['choice_path']).parent/'place-attempts')
+            state['uncertain']='claim'; save(progress,state)
+            reopen_claim(record['infrastructure']['tailnet_ipv4'])
+            def check_window():
+                if api.registration_state() == 'window-closed':
+                    # The page proves that first-account registration is closed,
+                    # not that an administrator exists. Retain the spent effect.
+                    reason='Coolify setup window closed. The restart completed, but no administrator was claimed. Prepare a new claim effect and obtain fresh approval to reopen the ten-minute window.'
+                    saved=json.loads(receipt.read_text()); saved.update(status='not-claimed',reason=reason)
+                    save(receipt,saved)
+                    state.setdefault('unclaimed_attempts',[]).append(dict(receipt=receipt.name,reason=reason))
+                    state['uncertain']=None; save(progress,state)
+                    raise OperationRefused(reason)
+            check_window()
+            print('Coolify is healthy. Open http://'+record['infrastructure']['tailnet_ipv4']+':8000/register now. You have ten minutes from the container restart to create the first administrator. The password goes only into Coolify.')
+            print('On Welcome to Coolify, choose Skip setup. Enable two-factor authentication: avatar > Profile > Configure 2FA. Switch on Settings > Advanced > API and MCP > API access. At Keys & Tokens > API Tokens > New token, select Read, Write, Deploy and Read sensitive data, never Root or Delete.')
             claim_answer=prompt(gate,'After creating your own account, type claimed '+record['place']['name'])
-            require(claim_answer=='claimed '+record['place']['name'], 'The person must confirm their own administrator claim.')
-        token=prompt(gate,'Coolify token with read, read:sensitive, write and deploy, never root')
+            check_window()
+            read_require(claim_answer=='claimed '+record['place']['name'], 'The person must confirm their own administrator claim.')
+        token=claim_token or prompt(gate,'Coolify token with read, read:sensitive, write and deploy, never root or delete')
         service_key=prompt(gate,'Tailscale API read token for service definitions') if args.step in ('register','start-register','record') else None
         oauth_value=prompt(gate,'TAILSCALE_OAUTH_CLIENT_'+('ID' if args.step=='oauth-id' else 'SECRET')) if args.step in ('oauth-id','oauth-secret') else None
         api=API(record,hcloud,token)
@@ -528,7 +550,7 @@ def main():
         else: print('Coolify does not expose current-token abilities here. The scope setting remains a declaration; check it in Coolify before proceeding.')
         team=api.coolify_team()
         read_require(isinstance(team,dict) and type(team.get('id')) is int and team['id']>=0,
-                     'Coolify must return a team identity before recording an attempt.')
+                     'Coolify must return a team identity before completing the claim or recording a later write attempt.')
         if args.step not in ('claim','record'):
             require(args.mcp_package,'Supply the installed pinned MCP package.json path.')
             client=MCP(args.mcp_package,record['infrastructure']['tailnet_ipv4'],token,state['config']['scopes'],observed)
@@ -556,8 +578,7 @@ def main():
             run_stage(state,args.step,args.approval,gate,api,None,confirm,definition,reachable)
             candidate=record_candidate(state,reader)
         # Writes are not retried automatically if the process or read-back fails.
-        state_before=copy.deepcopy(state)
-        receipt=start_attempt(effect,args.approval,Path(state['choice_path']).parent/'place-attempts',not_sent=args.step!='claim',coolify_team_id=team['id'])
+        if receipt is None: receipt=start_attempt(effect,args.approval,Path(state['choice_path']).parent/'place-attempts',not_sent=args.step!='claim',coolify_team_id=team['id'])
         state['uncertain']=args.step; save(progress,state)
         if args.step=='record':
             mark_dispatch(receipt)
@@ -569,9 +590,9 @@ def main():
         print('Completed '+args.step+'. The place remains empty; use /check-live to read it.')
         return 0
     except (OSError,ValueError,KeyError,TypeError,subprocess.TimeoutExpired) as error:
-        if isinstance(error,urllib.error.HTTPError): print('Read or write refused with HTTP '+str(error.code)+'; response values withheld.',file=sys.stderr)
         if args.command in ('recover','prepare-recovery','discover') and type(error) is ValueError: print('Recovery or discovery checks failed; the stage and receipt were not completed.',file=sys.stderr)
-        if isinstance(error,OperationRefused) or (gate is not None and isinstance(error,gate.InputRefused)): print(str(error),file=sys.stderr)
+        from api import report_refusal
+        report_refusal(error, locals().get('gate'))
         if isinstance(state,dict):
             infra=state.get('record',{}).get('infrastructure',{})
             if all(type(infra.get(key)) is int and infra[key]>0 for key in ('server_id','firewall_id','ssh_key_id')):

@@ -7,6 +7,7 @@ import socket
 import sys
 import subprocess
 import urllib.request
+import urllib.error
 from place import check_place, tailnet_address
 
 
@@ -59,10 +60,15 @@ def main():
         def coolify(address):
             url = 'http://' + tailnet_address(address) + ':8000/api/v1/version'
             request = urllib.request.Request(url, headers={'Authorization':'Bearer ' + token})
-            with opener.open(request, timeout=10) as response:
-                text = response.read(4096).decode().strip()
-                try: return json.loads(text)
-                except ValueError: return text
+            try:
+                with opener.open(request, timeout=10) as response:
+                    text = response.read(4096).decode().strip()
+                    try: return json.loads(text)
+                    except ValueError: return text
+            except urllib.error.HTTPError as error:
+                from api import report_refusal
+                report_refusal(error, gate)
+                raise
         rows = check_place(record, outside_probe, coolify, lambda:package.get('version'))
         from node import read_node, node_rows
         try:
@@ -73,7 +79,8 @@ def main():
             print(name + ': ' + status)
         return 0 if all(status == 'passed' for _, status in rows) else 1
     except (OSError, ValueError, KeyError, TypeError) as error:
-        if 'gate' in locals() and isinstance(error,gate.InputRefused): print(str(error),file=sys.stderr)
+        from api import report_refusal
+        report_refusal(error, locals().get('gate'))
         print('could not run: place inputs or read transport failed; values are withheld.', file=sys.stderr)
         return 2
 

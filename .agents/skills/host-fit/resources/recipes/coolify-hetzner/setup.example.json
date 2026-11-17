@@ -46,7 +46,7 @@
       "tags": [
         "tag:server"
       ],
-      "expiry_seconds": 3600,
+      "expiry_seconds": 86400,
       "shortest_available": true
     }
   },

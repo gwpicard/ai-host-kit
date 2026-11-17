@@ -91,7 +91,7 @@ class API:
         address=tailnet_address(self.record['infrastructure']['tailnet_ipv4'])
         return self.request('GET','http://'+address+':8000/api/v1/'+kind,self.coolify_token)
 
-    def registration_closed(self):
+    def registration_state(self):
         import urllib.error
         from urllib.parse import urljoin
         address=tailnet_address(self.record['infrastructure']['tailnet_ipv4'])
@@ -100,9 +100,16 @@ class API:
         opener=urllib.request.build_opener(urllib.request.ProxyHandler({}),Stop())
         base='http://'+address+':8000'
         try:
-            with opener.open(base+'/register',timeout=10): return False
+            with opener.open(base+'/register',timeout=10) as response:
+                page=response.read(256*1024).decode('utf-8',errors='replace')
+                return 'window-closed' if 'setup window closed' in page.lower() else 'open'
         except urllib.error.HTTPError as error:
-            return error.code in (301,302,303) and urljoin(base+'/',error.headers.get('Location','')) == base+'/login'
+            if error.code in (301,302,303) and urljoin(base+'/',error.headers.get('Location','')) == base+'/login':
+                return 'claimed'
+            raise
+
+    def registration_closed(self):
+        return self.registration_state() == 'claimed'
 
     def token_abilities(self):
         # The pinned Coolify routes have no current-token introspection route.
@@ -137,3 +144,25 @@ class API:
             rows.extend({'id':item['id']} for item in response[kind])
             page=response.get('meta',{}).get('pagination',{}).get('next_page')
             if page is None: return rows
+
+
+def report_refusal(error, gate=None):
+    """Report only known safe text; never include HTTP bodies or addresses."""
+    import sys
+    import urllib.error
+    from urllib.parse import urlsplit
+    from place import OperationRefused
+    if isinstance(error, OperationRefused) or (gate is not None and isinstance(error, (gate.InputRefused, getattr(gate, 'GateRefused', gate.InputRefused)))):
+        print(str(error), file=sys.stderr)
+        return True
+    if isinstance(error, urllib.error.HTTPError):
+        host=urlsplit(error.url).hostname
+        provider='Hetzner' if host == 'api.hetzner.cloud' else 'Tailscale' if host == 'api.tailscale.com' else 'Provider'
+        # Any tailnet IP is the fixed Coolify transport, not a supplied label.
+        try:
+            tailnet_address(host)
+            provider='Coolify'
+        except (ValueError, TypeError): pass
+        print(provider+' answered '+str(int(error.code))+'.', file=sys.stderr)
+        return True
+    return False
