@@ -40,13 +40,14 @@ def terminal(action, answers, live=False):
             import traceback
             traceback.print_exc();status=1
         sys.stdout.flush();sys.stderr.flush();os._exit(status or 0)
-    output=b'';sent=set();deadline=time.monotonic()+20;pending=None;observed=False
+    output=b'';sent=set();deadline=time.monotonic()+20;pending=None;observed=False;reaped=False
     try:
         while time.monotonic()<deadline:
             if select.select([fd],[],[],0.05)[0]:
                 try:chunk=os.read(fd,65536)
                 except OSError:chunk=b''
                 output+=chunk
+            assert b'Type approve followed' not in output, 'Approval still requires the approve prefix instead of the visible checksum alone'
             for i,(marker,answer) in enumerate(answers):
                 if marker in output and i not in sent:
                     if live and i==0 and answer:
@@ -57,6 +58,7 @@ def terminal(action, answers, live=False):
                 os.write(fd,(pending+'\n').encode());pending=None
             done,status=os.waitpid(pid,os.WNOHANG)
             if done:
+                reaped=True
                 while select.select([fd],[],[],0)[0]:
                     try:chunk=os.read(fd,65536)
                     except OSError:break
@@ -64,9 +66,15 @@ def terminal(action, answers, live=False):
                     output+=chunk
                 if live:assert observed and pending is None,'Checksum was not visible before Enter: '+repr(output)
                 return os.waitstatus_to_exitcode(status),output.decode(errors='replace')
-        os.kill(pid,9);os.waitpid(pid,0)
+        os.kill(pid,9);os.waitpid(pid,0);reaped=True
         raise AssertionError('Terminal command did not reach the expected prompt: '+repr(output))
-    finally:os.close(fd)
+    finally:
+        # An assertion about a prompt can leave the terminal child waiting.
+        if not reaped:
+            try:os.kill(pid,9)
+            except ProcessLookupError:pass
+            os.waitpid(pid,0)
+        os.close(fd)
 
 
 class Fixture:
@@ -125,7 +133,7 @@ def summary(f):
     for value in ('name: not set -> test-place','server_type: not set -> cx23','location: not set -> fsn1',
                   'image: not set -> ubuntu-24.04','labels.purpose: not set -> ai-host-kit',
                   'ipv4_enabled: not set -> enabled','ipv6_enabled: not set -> disabled'):
-        assert value in text,value
+        assert value in text,'Summary omitted '+value
     assert text.strip().endswith('Read-back checksum: '+f.gate.short_hash(f.gate.digest(path.read_bytes())))
     assert 'tskey-auth-synthetic-only' not in text and '#!/bin/bash' not in text
     original=copy.deepcopy(f.shown)
@@ -194,6 +202,9 @@ def effect(f):
     for answer,words in [('', ''),('0000-0000-0000',''),(checksum,'password=private-fixture-secret')]:
         status,text=terminal(approve_effect,[(b'Type the checksum alone',answer),(b'Your words, optional',words)])
         assert status!=0 and not approved.exists() and 'private-fixture-secret' not in text
+
+
+def lane_effect(f):
     class API:
         def __init__(self,*args):pass
         def firewall_rules(self,*args):return []
@@ -209,7 +220,7 @@ def effect(f):
 def paths(f):
     # Stale shell names are deliberately set and never used by the command.
     with patch.dict(os.environ,{'CREATE':str(f.root/'first.plan'),'DESTROY':str(f.root/'second.plan')}):
-        status,text=f.command('plan');assert status==0,text
+        status,text=f.command('plan');assert status==0,'Plan command did not choose a default path: '+text
         first=Path(f.load()['saved_plan'])
         assert first==f.home/'.local/share/ai-host-kit/plans/test-place/create-1.plan'
         status,text=f.command('plan');assert status==0,text
@@ -295,7 +306,7 @@ def bootstrap(f):
     reads=[]
     def read(address):reads.append(address);return facts
     with patch.object(node.subprocess,'run',side_effect=client),patch.object(flow,'read_node',side_effect=read):
-        code,text=f.command('bootstrap');assert code==0,text
+        code,text=f.command('bootstrap');assert code==0,'Bootstrap did not discover the approved node: '+text
         assert reads==['100.64.0.10'] and calls
         for peers in ({},{'a':status['Peer']['node'],'b':status['Peer']['node']},
                       {'x':dict(HostName='different',TailscaleIPs=['100.64.0.10'])},
@@ -315,14 +326,14 @@ def guidance(f):
     (f.work/'approved.json').write_text(json.dumps(record))
     status,text=f.command('apply','--plan',f.work/'create.plan','--approval',f.work/'approved.json')
     assert status==0,text
-    assert 'Cloud-init takes several minutes' in text and 'bootstrap waits for it' in text
+    assert 'Cloud-init takes several minutes' in text and 'bootstrap waits for it' in text,'Apply guidance omitted the cloud-init wait'
     assert 'Run bootstrap' in text and 'administrator claim' in text
 
 
 def main():
-    parser=argparse.ArgumentParser();parser.add_argument('--case',choices=['summary','approval','effect','paths','bootstrap','guidance'])
+    parser=argparse.ArgumentParser();parser.add_argument('--case',choices=['summary','approval','effect','lane_effect','paths','bootstrap','guidance'])
     args=parser.parse_args()
-    cases=[args.case] if args.case else ['summary','approval','effect','paths','bootstrap','guidance']
+    cases=[args.case] if args.case else ['summary','approval','effect','lane_effect','paths','bootstrap','guidance']
     for case in cases:
         with tempfile.TemporaryDirectory(prefix='ai-host-kit-guidance-') as temp:
             f=Fixture(Path(temp))

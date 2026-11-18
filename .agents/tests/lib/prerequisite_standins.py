@@ -10,6 +10,11 @@ POLICY = dict(tagOwners={'tag:server':['autogroup:admin'], 'tag:container':['tag
 
 @contextmanager
 def ready(flow):
+    # Older commands have no preflight boundary to replace. Do not invent one:
+    # baseline regressions must enter the command and inspect its behaviour.
+    if not hasattr(flow, 'preflight'):
+        yield
+        return
     def read(self, method, url, token):
         assert method=='GET' and token=='synthetic-preflight-only'
         base='https://api.tailscale.com/api/v2/tailnet/-/'

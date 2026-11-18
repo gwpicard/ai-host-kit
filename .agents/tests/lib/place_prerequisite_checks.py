@@ -1,5 +1,6 @@
 """Exercise prerequisites and installation through the real offline commands."""
 from contextlib import redirect_stdout, redirect_stderr
+import argparse
 import copy
 import hashlib
 import hmac
@@ -20,6 +21,10 @@ from checks import ROOT
 SOURCE=Path(os.environ.get('PREREQUISITE_SOURCE_ROOT',ROOT))
 sys.path.insert(0,str(SOURCE/'.agents/skills/recipes/coolify-hetzner/scripts'))
 import setup as flow
+# These modules provide fixture pins, read replies and patch targets. On an
+# older source tree they are absent, so find the current fixture helpers only
+# after importing its command. Never attach them to that command.
+sys.path.append(str(ROOT/'.agents/skills/recipes/coolify-hetzner/scripts'))
 import toolchain
 import preflight
 import tailscale_reads
@@ -32,7 +37,8 @@ from prerequisite_standins import POLICY
 def command(gate, *args):
     out=io.StringIO()
     with patch.object(flow,'approval_gate',return_value=gate),patch.object(sys,'argv',['setup',*map(str,args)]),redirect_stdout(out),redirect_stderr(out):
-        status=flow.main()
+        try:status=flow.main()
+        except SystemExit as error:status=error.code
     text=out.getvalue()
     assert not any(value in text for value in ('synthetic-read-secret','synthetic-bearer','synthetic-storage-private','synthetic-access-id'))
     return status,text
@@ -101,7 +107,7 @@ def prerequisites(work):
     # replace only the read transports; no policy write or tofu plan is allowed.
     with patch.object(toolchain,'verify_tools'),patch.object(preflight.urllib.request,'build_opener',return_value=reads), \
          patch.object(gate,'plan',side_effect=AssertionError('A refused preflight reached planning')):
-        status,text=command(gate,'preflight',*base);assert status==0,text
+        status,text=command(gate,'preflight',*base);assert status==0,'Preflight command did not accept valid read prerequisites: '+text
         assert 'Preflight passed' in text and progress.read_bytes()==saved
         for section in ('tagOwners','autoApprovers','ssh'):
             reads.policy=copy.deepcopy(POLICY);reads.policy.pop(section)
@@ -220,7 +226,7 @@ def oauth_stage(work):
                     return original.open(request,**kwargs)
             with patch.object(urllib.request,'build_opener',return_value=OAuth()):
                 status,text=scenario.run()
-        assert exchanges==[['services:read']],text
+        assert exchanges==[['services:read']],'Register did not exchange the read credential for services:read: '+text
         if invalid:
             assert status!=0 and not service.writes and scenario.progress.read_bytes()==before,text
             assert not list(scenario.journal.glob('*.json')),'Invalid OAuth input consumed approval'
@@ -232,7 +238,7 @@ def update_effects(work):
     from place_stage_checks import Scenario
     for step in ('docktail','start-docktail'):
         scenario=Scenario(work/step,step)
-        assert 'update_check=true' in json.loads(scenario.effect.read_text())['effect']
+        assert 'update_check=true' in json.loads(scenario.effect.read_text())['effect'],'Prepared '+step+' effect omitted update_check=true'
     dependency=json.loads((SOURCE/'.agents/skills/recipes/coolify-hetzner/dependencies.json').read_text())['docktail']
     assert dependency['update_check'] is True and dependency['update_check_reason']
     print('Passed: prepared create and start effects disclose the retained outbound update check')
@@ -279,7 +285,7 @@ def installer(work):
              patch.object(toolchain,'CHECKSUMS',{'linux_amd64':checksum}),patch.object(toolchain.urllib.request,'build_opener',return_value=Download()), \
              patch.object(toolchain.subprocess,'run',side_effect=process),patch.object(toolchain.shutil,'which',return_value='/fixture/tool'),patch.object(gate,'secrets_directory_safe'):
             status,text=command(gate,'install-tools','--tools-home',target)
-            assert (status==0)==(case=='good'),(case,text)
+            assert (status==0)==(case=='good'),'Installer result differed for '+case+': '+text
             if case=='good':
                 assert 'SHA-256' in text and 'SHA-512' in text and 'lifecycle scripts were disabled' in text
                 assert 'Tools installed' in text
@@ -297,7 +303,7 @@ def pages(work):
             for key,item in data['entries'].items():
                 assert all(field in item for field in ('url','menu_path','button','field','shown_once'))
                 status,text=command(gate,'console','--page',provider+'.'+key,'--address','100.64.0.10')
-                assert status==0 and data['version'] in text and 'Button:' in text and 'Value shown only once:' in text,text
+                assert status==0 and data['version'] in text and 'Button:' in text and 'Value shown only once:' in text,'Console command omitted versioned page guidance: '+text
         assert len(opened)==sum(len(p['entries']) for p in json.loads(console_pages.MAP.read_text())['providers'].values())
     # The gate's shared prompt path must open guidance before reading values,
     # including the storage pair used outside setup.py.
@@ -344,7 +350,7 @@ def retirement_pages(work):
     text=out.getvalue();assert status==0 and len(applied)==1,text
     for value in ('Services > svc:place-canary','Delete service','Machines > test-place','Remove',
                   'Settings > Trust credentials','Revoke','API access tokens'):
-        assert value in text,value
+        assert value in text,'Retirement guidance omitted '+value
     for page in ('services','machines','settings/trust-credentials','settings/keys'):
         assert 'https://login.tailscale.com/admin/'+page in text,page
     # An interrupted setup can retire before plumbing reaches the final
@@ -356,8 +362,14 @@ def retirement_pages(work):
     print('Passed: real retire command lists service, machine, OAuth credentials and API token with pages and buttons')
 
 
+CASES = ('prerequisites','oauth_stage','update_effects','installer','pages','retirement_pages')
+
+
 def main():
-    for case in (prerequisites,oauth_stage,update_effects,installer,pages,retirement_pages):
+    parser=argparse.ArgumentParser();parser.add_argument('--case',choices=CASES)
+    args=parser.parse_args()
+    for name in ([args.case] if args.case else CASES):
+        case=globals()[name]
         with tempfile.TemporaryDirectory(prefix='ai-host-kit-prerequisites-') as temp:
             case(Path(temp).resolve())
     return 0
