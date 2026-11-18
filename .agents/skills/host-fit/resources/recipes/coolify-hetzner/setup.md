@@ -76,8 +76,13 @@ After approval for local downloads and installation, run
 `~/.local/share/ai-host-kit/`. It compares published and pinned OpenTofu
 checksums, permits only Python wheels and verifies installed versions, and uses
 `npm install --ignore-scripts --save-exact` with the lock-file integrity in
-`dependencies.json`. It reports each verification and refuses existing tool
-destinations. It checks checksums over HTTPS, without release signatures.
+`dependencies.json`. Two separate empty config files in the MCP folder exclude
+user and global npm settings. It reports each verification and refuses existing
+tool destinations. If installation fails, it names the failed step and remaining
+folders, and shows npm's short error summary when available. It removes nothing.
+Inspect and remove existing tool destinations before retrying, or use
+`--tools-home` with a new home. It checks checksums over HTTPS, without release
+signatures.
 Install Node, npm and Tailscale separately. Put the printed opentofu and
 venv/bin folders on PATH and use the printed MCP package path.
 

@@ -740,6 +740,7 @@ def main():
         if args.command in ('recover','prepare-recovery','discover') and type(error) is ValueError: print('Recovery or discovery checks failed; the stage and receipt were not completed.',file=sys.stderr)
         from api import report_refusal
         report_refusal(error, locals().get('gate'))
+        if args.command=='install-tools': return 1
         if isinstance(state,dict):
             infra=state.get('record',{}).get('infrastructure',{})
             if all(type(infra.get(key)) is int and infra[key]>0 for key in ('server_id','firewall_id','ssh_key_id')):
