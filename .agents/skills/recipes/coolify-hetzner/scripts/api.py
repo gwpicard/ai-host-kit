@@ -19,10 +19,33 @@ def approval_gate():
 
 
 def hidden_value(gate, label):
-    with gate.terminal() as tty:
-        value=gate.typed(tty,label+' (hidden): ')
-    if not value: raise ValueError('A required hidden value was empty.')
+    if 'type claimed' in label:
+        with gate.terminal() as tty:
+            return gate.typed(tty,label+' (shown): ')
+    if label == 'State passphrase': key='STATE_PASSPHRASE'
+    elif label == 'Hetzner project token': key='HETZNER_PROJECT_TOKEN'
+    elif label.startswith('Single-use'): key='TAILSCALE_AUTH_KEY'
+    elif label.startswith('Tailscale API'): key='TAILSCALE_API_TOKEN'
+    elif label.startswith('Coolify'): key='COOLIFY_TEAM_TOKEN'
+    elif label in ('TAILSCALE_OAUTH_CLIENT_ID','TAILSCALE_OAUTH_CLIENT_SECRET'): key=label
+    else: raise ValueError('Unknown secret input label.')
+    value=gate.secret(key,label,shown=key=='TAILSCALE_OAUTH_CLIENT_ID')
+    if not value: raise gate.InputRefused('A required input was empty.')
+    if key=='STATE_PASSPHRASE' and len(value)<16:
+        raise gate.InputRefused('Use a state passphrase of at least 16 characters.')
     return value
+
+
+def secrets_options(parser):
+    parser.add_argument('--secrets')
+    parser.add_argument('--config',default='setup.json')
+
+
+def configure_place_secrets(gate, args, record):
+    from pathlib import Path
+    config=Path(args.config)
+    settings=json.loads(config.read_text()) if config.is_file() else {}
+    gate.configure_secrets(args.secrets or settings.get('secrets'),record['place']['name'])
 
 
 class API:
@@ -52,7 +75,38 @@ class API:
         address=tailnet_address(self.record['infrastructure']['tailnet_ipv4'])
         return self.request('GET','http://'+address+':8000/api/v1/team',self.coolify_token)
 
-    def registration_closed(self):
+    def service_env_state(self, uuid, key):
+        # Reduce raw response values at the transport boundary. Callers receive
+        # only presence and deployment flags, never a value or its last digits.
+        from urllib.parse import quote
+        address=tailnet_address(self.record['infrastructure']['tailnet_ipv4'])
+        rows=self.request('GET','http://'+address+':8000/api/v1/services/'+quote(uuid,safe='')+'/envs',self.coolify_token)
+        return [dict(is_set=isinstance(row.get('value'),str) and bool(row['value']),
+                     is_runtime=row.get('is_runtime'),is_buildtime=row.get('is_buildtime'),is_preview=row.get('is_preview'))
+                for row in rows if row.get('key')==key and row.get('is_preview') is False]
+
+    def coolify_resources(self, kind):
+        from place import require
+        require(kind in ('projects','services'), 'Use a supported recovery inventory.')
+        address=tailnet_address(self.record['infrastructure']['tailnet_ipv4'])
+        rows=[]; seen=set()
+        reason='The resource inventory could not prove completeness; the attempt stays uncertain.'
+        # The pinned MCP uses page/per_page and receives arrays. Read through
+        # an empty terminal page, even after a short page. Reject ignored
+        # pagination, duplicate identities and unbounded inventories.
+        for page in range(1,1001):
+            batch=self.request('GET','http://'+address+':8000/api/v1/'+kind+
+                               '?page='+str(page)+'&per_page=50',self.coolify_token)
+            require(isinstance(batch,list) and len(batch)<=50 and all(
+                isinstance(row,dict) and isinstance(row.get('name'),str) and
+                isinstance(row.get('uuid'),str) and row['uuid'] for row in batch),reason)
+            if not batch: return rows
+            identities=[row['uuid'] for row in batch]
+            require(len(set(identities))==len(identities) and not seen.intersection(identities),reason)
+            seen.update(identities); rows.extend(batch)
+        require(False,reason)
+
+    def registration_state(self):
         import urllib.error
         from urllib.parse import urljoin
         address=tailnet_address(self.record['infrastructure']['tailnet_ipv4'])
@@ -61,9 +115,16 @@ class API:
         opener=urllib.request.build_opener(urllib.request.ProxyHandler({}),Stop())
         base='http://'+address+':8000'
         try:
-            with opener.open(base+'/register',timeout=10): return False
+            with opener.open(base+'/register',timeout=10) as response:
+                page=response.read(256*1024).decode('utf-8',errors='replace')
+                return 'window-closed' if 'setup window closed' in page.lower() else 'open'
         except urllib.error.HTTPError as error:
-            return error.code in (301,302,303) and urljoin(base+'/',error.headers.get('Location','')) == base+'/login'
+            if error.code in (301,302,303) and urljoin(base+'/',error.headers.get('Location','')) == base+'/login':
+                return 'claimed'
+            raise
+
+    def registration_closed(self):
+        return self.registration_state() == 'claimed'
 
     def token_abilities(self):
         # The pinned Coolify routes have no current-token introspection route.
@@ -98,3 +159,25 @@ class API:
             rows.extend({'id':item['id']} for item in response[kind])
             page=response.get('meta',{}).get('pagination',{}).get('next_page')
             if page is None: return rows
+
+
+def report_refusal(error, gate=None):
+    """Report only known safe text; never include HTTP bodies or addresses."""
+    import sys
+    import urllib.error
+    from urllib.parse import urlsplit
+    from place import OperationRefused
+    if isinstance(error, OperationRefused) or (gate is not None and isinstance(error, (gate.InputRefused, getattr(gate, 'GateRefused', gate.InputRefused)))):
+        print(str(error), file=sys.stderr)
+        return True
+    if isinstance(error, urllib.error.HTTPError):
+        host=urlsplit(error.url).hostname
+        provider='Hetzner' if host == 'api.hetzner.cloud' else 'Tailscale' if host == 'api.tailscale.com' else 'Provider'
+        # Any tailnet IP is the fixed Coolify transport, not a supplied label.
+        try:
+            tailnet_address(host)
+            provider='Coolify'
+        except (ValueError, TypeError): pass
+        print(provider+' answered '+str(int(error.code))+'.', file=sys.stderr)
+        return True
+    return False

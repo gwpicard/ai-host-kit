@@ -20,7 +20,7 @@
     "tailnet_key_settings": {
       "value": {
         "ephemeral": false,
-        "expiry_seconds": 3600,
+        "expiry_seconds": 86400,
         "preauthorised": true,
         "reusable": false,
         "shortest_available": true,

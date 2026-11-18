@@ -11,7 +11,8 @@ public key, the server type, an existing Object Storage bucket and key path,
 and the name of the state-key custodian. Copy `setup.example.json` into that
 repository and replace its non-secret example settings. Never put a key,
 password or token in that file. Record the actual tailnet key expiry and
-confirm that it is the shortest option that covers apply, aiming for one hour.
+confirm that it uses the shortest available expiry that covers apply: one day,
+Tailscale's shortest option.
 
 Console work has its own approvals. The person approves creating a project
 token for the selected Hetzner project, a storage key for the selected bucket,
@@ -23,6 +24,45 @@ to register services. Keep its ID and secret in the person's password manager.
 The person also provides a read token for Tailscale service definitions, a test
 domain for the later public-lane run and the separately kept state passphrase.
 This empty-place canary uses the tailnet domain; the test domain is not changed.
+
+Copy `secrets.example.env` to `~/.config/ai-host-kit/places/<place-name>.env`,
+outside every Git repository. Set mode 600 with `chmod 600` before adding
+values. The file must be a regular file owned by you, with no symlink and no
+group or other permissions. The kit checks these conditions before reading it.
+The template names each console, whether a value is shown only once and which
+commands need it. Use plain `KEY=value` lines and full-line comments. There is
+no shell expansion, quote removal or `export` syntax. Do not source this file.
+An optional `op://vault/item/field` value is resolved by `op read`; install and
+unlock the 1Password CLI first. Its output and errors are withheld.
+
+`setup.json` names the non-secret path in `secrets`; omission uses the default
+above. `root` retains that path in progress. Every command accepts `--secrets`
+to override it. `check.py`, `lane.py` and standalone `retire.py` also read the
+path from `--config` (default `setup.json`), then use the place-name default.
+A missing file or blank field falls back to the terminal prompt. Unsafe files
+are refused. File values are never printed. Hidden prompts confirm only the
+length and last four characters, withholding the suffix for four or fewer
+characters. All local inputs are collected before recording an attempt or
+spending approval. An input refusal leaves neither a receipt nor an uncertain
+marker. A write or failed read-back after an attempt still needs inspection.
+
+With all required values in the file, `init`, `plan`, `plan-destroy`, `summary`,
+`bootstrap`, `discover` and `check.py` can run from the coding agent's shell.
+Approvals and typed claim and retirement confirmations still require the
+person's foreground terminal. See the [approval limits](https://github.com/gwpicard/ai-host-kit/blob/main/docs/PROMISES.md#protected-place-secrets)
+for the Claude Code deny rule and the limits of that boundary.
+
+### Prompt visibility
+
+This table owns prompt visibility for the Place flow. Shown input is checked
+for secret-shaped text before being displayed. This can reject harmless text
+and cannot detect every secret. Each prompt names its visibility.
+
+| Input | Visibility |
+|---|---|
+| State passphrase, Hetzner project token, storage secret key, one-off Tailscale auth key, Coolify team token, Tailscale API token, docktail OAuth secret | Hidden; length and last four characters only after entry |
+| Storage access key, docktail OAuth client ID | Shown identifiers |
+| Place name at retirement, approval checksum and words, `claimed <place-name>` | Shown; foreground terminal required |
 
 Use OpenTofu 1.13.2, the Python schema requirements and the installed, verified
 `@masonator/coolify-mcp` 3.10.1 package. Its tarball integrity is in
@@ -57,18 +97,17 @@ created place, not invented in advance.
 
    Review `hosting/tofu/`, its module snapshot and `backend.json`. The person
    approves initialisation against that exact bucket, key, endpoint and region,
-   then runs the next command themselves. It prompts for the state passphrase
-   and storage key pair. It does not create the bucket or migrate state.
+   then runs the next command. It reads the state passphrase
+   and storage key pair from the protected file, prompting for missing values. It does not create the bucket or migrate state.
 
    ```sh
    python3 "$SETUP" init --progress "$PROGRESS"
    ```
 
 2. After permission for provider reads, save a real plan and show its summary.
-   The plan command prompts for the passphrase, project token, one-off tailnet
-   key and storage pair. Later summary and approval commands prompt for the
-   passphrase and same storage pair. No value is printed or kept in a local
-   settings file. The one-off key is in Hetzner user data and encrypted plans
+   The plan command reads the passphrase, project token, one-off tailnet
+   key and storage pair from the protected file. Summary and approval need the
+   passphrase and same storage pair. Missing values use prompts. The one-off key is in Hetzner user data and encrypted plans
    and state; server cloud-init copies can remain. The summary says these
    copies cannot be recalled and why a spent or expired key is worthless.
 
@@ -79,7 +118,7 @@ created place, not invented in advance.
 
 3. The person reviews the exact summary and runs approval themselves, typing
    its checksum and their words. Only that saved plan may be applied. Apply
-   asks for the passphrase, project token and storage pair again.
+   reads the passphrase, project token and storage pair from the same file.
 
    ```sh
    python3 "$SETUP" approve --progress "$PROGRESS" --plan "$CREATE" --approval "$PLACE/create-approval.json"
@@ -103,15 +142,25 @@ created place, not invented in advance.
    where recognised, the failed cloud-init module. A missing read stops the flow.
 
 5. Prepare and approve the first-administrator effect. The person runs the
-   approval command, then the run command. The runner records that the attempt
-   has started before displaying the tailnet `/register` address. The person
-   opens that address themselves. They create the first administrator, enable two-factor
-   authentication and create a team token with exactly `read`, `read:sensitive`,
-   `write`, `deploy`, never `root`. Nothing is public. The password goes only
-   into Coolify. An HTTP 429 is not a completed claim; wait ten minutes before
-   one careful retry. The run command asks for that token and the hidden
-   confirmation `claimed <place-name>` and requires registration to redirect
-   to this instance's login page and the authenticated team read to succeed.
+   approval command, then the run command. The runner reads the Hetzner project
+   token, resolves any stored Coolify token and checks the closed firewall
+   before recording an attempt. Under
+   that approval it restarts the `coolify` container over Tailscale SSH and
+   waits for health, then displays the tailnet `/register` address. The person
+   has ten minutes from the restart to create the first administrator. Nothing
+   is public. The password goes only into Coolify.
+
+   On **Welcome to Coolify**, choose **Skip setup**. Enable two-factor
+   authentication at avatar > **Profile** > **Configure 2FA**. Switch on
+   **Settings > Advanced > API and MCP > API access**. Create the token at
+   **Keys & Tokens > API Tokens > New token** with **Read**, **Write**,
+   **Deploy** and **Read sensitive data**, never **Root** or **Delete**.
+   The run command asks for the shown confirmation `claimed <place-name>` and
+   that token. It requires registration to redirect to this instance's login
+   page and the authenticated team read to succeed. A closed setup window is
+   reported as not claimed, with its consumed receipt retained. Prepare a new
+   effect and obtain fresh approval to restart and reopen the window. An HTTP
+   429 is not a completed claim; inspect it before reviewed recovery.
 
    ```sh
    python3 "$SETUP" prepare --progress "$PROGRESS" --step claim --effect "$PLACE/claim-effect.json"
@@ -121,7 +170,9 @@ created place, not invented in advance.
 
 6. Read the localhost server and Docker destination identities in Coolify.
    After permission for reads, select them here. The API read-back refuses a
-   non-localhost server or a destination outside it.
+   server unless its name is `localhost` and its address is `127.0.0.1`,
+   `localhost` or `host.docker.internal`, the built-in address in Coolify 4.7.5.
+   It also refuses a destination outside that server.
 
    ```sh
    python3 "$SETUP" discover --progress "$PROGRESS" --server-uuid "$SERVER_UUID" --destination-uuid "$DESTINATION_UUID"
@@ -130,7 +181,7 @@ created place, not invented in advance.
 7. The following helper prepares one effect, lets the person approve it in
    their foreground terminal, then performs that one stage. The person calls
    it separately for each line below. Do not run a loop or approve on their
-   behalf. Each run prompts for the Coolify token. The API has no current-token
+   behalf. Each run reads the Coolify token from the file or prompts if it is missing. The API has no current-token
    abilities route; the script says when scope remains a declaration. Check
    the actual token's scopes and whole-team access in Coolify before proceeding.
 
@@ -153,16 +204,25 @@ created place, not invented in advance.
    `project` creates only the infrastructure project. `docktail` creates its
    unmodified container definition with Docker and Tailscale socket access.
    The two OAuth stages separately approve storing each prompted value in
-   Coolify's runtime environment. `start-docktail` approves its ability to
+   Coolify's runtime environment. Each reads the production key first, updates
+   it if present and creates it only if absent. Build time is off. Coolify
+   creates empty keys while parsing Compose, so a duplicate create would fail.
+   MCP masks empty and set values alike. The read-back therefore reduces the
+   authenticated API response inside the local transport to set or unset and
+   deployment flags; no value reaches command output and no reveal tool runs.
+   `start-docktail` approves its ability to
    reconcile labelled Tailscale services. `register` defines the pinned canary
    with no published ports. `start-register` lets docktail advertise it to the
    people allowed by the reviewed tailnet policy. Registration stages ask for
    a Tailscale read token and refuse different write-once service ports.
-   Before `record`, wait for reconciliation and service approval under the
-   existing policy. If policy needs changing, stop for a separate specific
-   approval. `record` requires the control-plane TCP 443 definition and a
-   successful HTTPS read in this server's tailnet, then replaces only the
+   `record` waits up to five minutes, with progress, for reconciliation and a
+   certificate under the existing policy. If policy needs changing, stop for
+   a separate specific approval. It requires the control-plane TCP 443
+   definition and an HTTPS 200 in this server's tailnet, then replaces only the
    unchanged choice draft. It preserves the choice and records plumbing IDs.
+   All read-only checks and record validation run before consuming approval or
+   marking this local write uncertain. A failed readiness check leaves both
+   progress and the choice unchanged.
 
 8. After permission for reads, run the place checks and review every row.
 
@@ -190,7 +250,8 @@ created place, not invented in advance.
 
    This example opens TCP 80 and 443 to the internet, with no tool deployed.
    Approve that reachability explicitly. Other ports are refused. The command
-   prompts for the project token and Coolify read token and saves a new record.
+   reads the project token and Coolify read token from the file, prompting for
+   missing values, and saves a new record.
    The person reviews and adopts that local record before checking again.
 
    ```sh
@@ -244,6 +305,56 @@ an uncertain write before it is sent and blocks later writes if its result is
 unknown. Inspect the provider and Coolify records, with permission for those
 reads, before deciding what to do. Do not clear the marker and retry blindly.
 
+### Reviewed stage recovery
+
+Keep the original effect, progress, receipt and journal generation. Recovery
+holds the same place and firewall locks as a write. It binds the original
+effect and uncertain receipt to a separate recovery effect, which the person
+reviews and approves. It refuses a replaced journal, a changed effect or a
+closed receipt. A spent write approval never authorises recovery or a retry.
+
+For an uncertain administrator claim, prepare and approve the local recovery:
+
+```sh
+python3 "$SETUP" prepare-recovery --progress "$PROGRESS" --step claim --attempt-effect "$PLACE/claim-effect.json" --effect "$PLACE/claim-recovery.json"
+python3 "$GATE/approval_gate.py" approve-effect "$PLACE/claim-recovery.json" "$PLACE/claim-recovery-approval.json"
+python3 "$SETUP" recover --progress "$PROGRESS" --step claim --attempt-effect "$PLACE/claim-effect.json" --effect "$PLACE/claim-recovery.json" --approval "$PLACE/claim-recovery-approval.json"
+```
+
+The command reads both tokens and repeats the closed-firewall read,
+registration redirect and authenticated team read, checks reported token
+abilities when available, and asks for `claimed <place-name>`. Only a complete
+pass records the claim as done and completes its receipt. A failure leaves
+the stage uncertain and reports the failed check or HTTP status. It changes
+no account or inbound firewall rule.
+
+For an abandoned attempt, use `--abandon` on both recovery commands. Set
+`STEP` to the failed stage and use new recovery paths:
+
+```sh
+python3 "$SETUP" prepare-recovery --abandon --progress "$PROGRESS" --step "$STEP" --attempt-effect "$PLACE/$STEP-effect.json" --effect "$PLACE/$STEP-recovery.json"
+python3 "$GATE/approval_gate.py" approve-effect "$PLACE/$STEP-recovery.json" "$PLACE/$STEP-recovery-approval.json"
+python3 "$SETUP" recover --abandon --progress "$PROGRESS" --step "$STEP" --attempt-effect "$PLACE/$STEP-effect.json" --effect "$PLACE/$STEP-recovery.json" --approval "$PLACE/$STEP-recovery-approval.json"
+```
+
+Abandonment requires the runner's durable evidence that it never dispatched
+the write, or a complete Coolify inventory in the same team recorded in the
+receipt showing that the named project or service creation is absent. An
+older receipt without that team identity cannot use the absence route.
+A start acknowledgement, a stopped container or
+masked environment values cannot prove absence of a write. Without suitable
+evidence, recovery refuses and keeps the uncertainty. The administrator claim
+has its own completion route above because the person acts outside the runner.
+
+On success, recovery retains the old receipt as `not-written` and appends the
+abandoned attempt and reason to progress. That changes the next effect's
+checksum. Prepare a new effect at a new path and obtain fresh approval before
+running the stage. Keep the old effect and approval; neither can be reused.
+Recovery also accepts the matching uncertain receipt if a crash happened
+before progress could be marked uncertain. If a recovery itself stops during
+its local writes, keep all evidence for inspection; do not restore receipts
+from an earlier copy.
+
 After bootstrap, export a fresh candidate record for retirement without
 claiming that setup finished:
 
@@ -261,8 +372,8 @@ python3 "$SETUP" approve --progress "$PROGRESS" --plan "$DESTROY" --approval "$P
 python3 "$SETUP" retire --partial --progress "$PROGRESS" --plan "$DESTROY" --approval "$PLACE/retire-approval.json"
 ```
 
-These commands request the state passphrase, project token and storage pair
-through hidden terminal prompts. Partial mode reads the encrypted state into
+These commands read the state passphrase, project token and storage pair from
+the protected file, prompting for missing values. Partial mode reads the encrypted state into
 a recovery record in the progress file. It accepts only resources at the kit's
 three generated addresses, checks their live identities, names and ownership
 labels against that record, requires the typed place name and applies only

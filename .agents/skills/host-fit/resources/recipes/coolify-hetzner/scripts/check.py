@@ -7,6 +7,7 @@ import socket
 import sys
 import subprocess
 import urllib.request
+import urllib.error
 from place import check_place, tailnet_address
 
 
@@ -39,6 +40,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--record', default='hosting/place-record.json')
     parser.add_argument('--mcp-package', required=True, help='Local installed MCP package.json; no package is fetched.')
+    from api import secrets_options, configure_place_secrets, hidden_value
+    secrets_options(parser)
     args = parser.parse_args()
     try:
         reader = load_reader()
@@ -48,20 +51,24 @@ def main():
         package = reader.read_json(args.mcp_package)
         if package.get('name') != '@masonator/coolify-mcp':
             raise ValueError('The local package is not the pinned Coolify MCP.')
-        # API version is an authenticated read. Token is entered by the person;
-        # no credential helper, environment file or keychain is read.
+        # API version is an authenticated read using the protected file or prompt.
         from api import approval_gate
         gate = approval_gate()
-        with gate.terminal() as tty:
-            token = gate.typed(tty, 'Coolify read token (hidden): ')
+        configure_place_secrets(gate,args,record)
+        token = hidden_value(gate,'Coolify read token')
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
         def coolify(address):
             url = 'http://' + tailnet_address(address) + ':8000/api/v1/version'
             request = urllib.request.Request(url, headers={'Authorization':'Bearer ' + token})
-            with opener.open(request, timeout=10) as response:
-                text = response.read(4096).decode().strip()
-                try: return json.loads(text)
-                except ValueError: return text
+            try:
+                with opener.open(request, timeout=10) as response:
+                    text = response.read(4096).decode().strip()
+                    try: return json.loads(text)
+                    except ValueError: return text
+            except urllib.error.HTTPError as error:
+                from api import report_refusal
+                report_refusal(error, gate)
+                raise
         rows = check_place(record, outside_probe, coolify, lambda:package.get('version'))
         from node import read_node, node_rows
         try:
@@ -71,7 +78,9 @@ def main():
         for name, status in rows:
             print(name + ': ' + status)
         return 0 if all(status == 'passed' for _, status in rows) else 1
-    except (OSError, ValueError, KeyError, TypeError):
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        from api import report_refusal
+        report_refusal(error, locals().get('gate'))
         print('could not run: place inputs or read transport failed; values are withheld.', file=sys.stderr)
         return 2
 

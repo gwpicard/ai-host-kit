@@ -44,13 +44,14 @@ def journals(ops, gate, work):
 
 def lane_wrapper(ops, gate, work):
     import lane as cli
+    from place import OperationRefused
     record=json.loads((FIXTURE/'place-record.json').read_text());api=StandIn()
     api.owned_resources=lambda:resources(record)
     record_path=work/'place.json';record_path.write_text(json.dumps(record))
     reader=SimpleNamespace(validate=lambda *a:False,read_json=lambda p:json.loads(Path(p).read_text()),
         dependencies=lambda:None)
     def command(command,lane,ports,effect,approved=None):
-        args=['lane',command,'--record',str(record_path),'--lane',lane,'--effect',str(effect)]
+        args=['lane',command,'--record',str(record_path),'--lane',lane,'--effect',str(effect),'--secrets',str(work/'absent-secrets.env')]
         for port in ports:args+=['--port',str(port)]
         if approved:args+=['--approval',str(approved),'--new-record',str(work/'new.json')]
         with patch.object(sys,'argv',args):return cli.main()
@@ -59,7 +60,7 @@ def lane_wrapper(ops, gate, work):
         approved=approval(gate,json.loads(effect.read_text()),work/(name+'-approval.json'))
         return effect,approved
     # Allow only local record validation; all transports are stand-ins.
-    with patch.object(cli,'OperationRefused',ops.OperationRefused),patch.object(cli,'load_reader',return_value=reader),patch.object(cli,'API',return_value=api),patch.object(cli,'hidden_value',return_value='synthetic-only'),patch.object(cli,'approval_gate',return_value=gate),patch.object(cli,'set_lane',ops.set_lane),patch.object(cli,'attempt_effect',ops.attempt_effect),patch.object(cli,'journal_identity',ops.journal_identity),patch.object(cli,'write_record',lambda *a:None):
+    with patch.object(ops,'OperationRefused',OperationRefused),patch.object(cli,'load_reader',return_value=reader),patch.object(cli,'API',return_value=api),patch.object(cli,'hidden_value',return_value='synthetic-only'),patch.object(cli,'approval_gate',return_value=gate),patch.object(cli,'set_lane',ops.set_lane),patch.object(cli,'attempt_effect',ops.attempt_effect),patch.object(cli,'journal_identity',ops.journal_identity),patch.object(cli,'write_record',lambda *a:None):
         effect,approved=prepared('public',[80],'open')
         assert command('apply','public',[80],effect,approved)==0
         close,close_approval=prepared('internal',[],'close')
@@ -110,7 +111,7 @@ def retirement(ops,work):
     @contextmanager
     def terminal():yield None
     destroyed=[]
-    gate=SimpleNamespace(require_encryption=lambda:None,check_version=lambda:None,saved_plan=saved,planned_identity=lambda *a:None,
+    gate=SimpleNamespace(configure_secrets=lambda *a:None,InputRefused=type('FixtureInputRefused',(ValueError,),{}),require_encryption=lambda:None,check_version=lambda:None,saved_plan=saved,planned_identity=lambda *a:None,
         tofu=lambda *a:subprocess.CompletedProcess(a,0,json.dumps(plan).encode(),b''),apply=lambda *a:destroyed.append(True),terminal=terminal,typed=lambda *a:record['place']['name'])
     api=StandIn();api.owned_resources=lambda:owned
     visited=[]

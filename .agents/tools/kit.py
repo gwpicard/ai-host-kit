@@ -160,7 +160,7 @@ def adapter_files():
         result[resources + 'contracts/' + name] = (ROOT / 'contracts' / name).read_text()
     source = ROOT / '.agents/skills/recipes'
     for path in sorted(source.rglob('*')):
-        if path.is_file() and '.terraform' not in path.parts and path.suffix in ('.json', '.md', '.py', '.sh', '.tf', '.hcl'):
+        if path.is_file() and '.terraform' not in path.parts and (path.suffix in ('.json', '.md', '.py', '.sh', '.tf', '.hcl') or path.name == 'secrets.example.env'):
             result[resources + 'recipes/' + str(path.relative_to(source))] = path.read_text()
     for name in ('record_validation.py', 'schema-requirements.txt'):
         result[resources + name] = (ROOT / '.agents/tools' / name).read_text()

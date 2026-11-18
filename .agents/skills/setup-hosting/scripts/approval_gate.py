@@ -9,6 +9,8 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -23,6 +25,121 @@ records.ROOT = RESOURCES
 
 VERSION = '1.13.2'
 S3_CREDENTIALS = None
+SECRET_VALUES = {}
+
+
+class GateRefused(ValueError):
+    """Fixed gate refusals that callers may report without exposing values."""
+
+
+class InputRefused(GateRefused):
+    """Fixed input refusals that callers may report without exposing values."""
+
+
+def secrets_directory_safe(directory, real):
+    """Check the opened directory and its ancestors before reading any values."""
+    reason='Keep the secrets file outside every Git repository, including tracked files.'
+    identity=lambda info:(info.st_dev,info.st_ino)
+    if identity(os.fstat(directory)) != identity(real.parent.stat()):
+        raise InputRefused('The secrets file directory changed during its safety checks.')
+    ancestor=os.dup(directory)
+    try:
+        while True:
+            def exists(name):
+                try: os.stat(name,dir_fd=ancestor,follow_symlinks=False)
+                except FileNotFoundError: return False
+                return True
+            if exists('.git') or all(exists(name) for name in ('HEAD','objects','refs')):
+                raise InputRefused(reason)
+            parent=os.open('..',os.O_RDONLY | os.O_DIRECTORY,dir_fd=ancestor)
+            if identity(os.fstat(parent))==identity(os.fstat(ancestor)):
+                os.close(parent); break
+            os.close(ancestor); ancestor=parent
+    finally: os.close(ancestor)
+    # fchdir in a separate Python process binds Git to the open directory on
+    # macOS and Linux without changing this process's working directory.
+    child={'PATH':os.environ.get('PATH',''),'GIT_CONFIG_NOSYSTEM':'1','GIT_CONFIG_GLOBAL':'/dev/null'}
+    def probe(*args):
+        command=[sys.executable,'-I','-c',
+                 'import os,sys; fd=int(sys.argv[1]); os.fchdir(fd); os.close(fd); os.execvp("git", ["git", *sys.argv[2:]])',
+                 str(directory),*args]
+        return subprocess.run(command,env=child,pass_fds=(directory,),stdin=subprocess.DEVNULL,
+                              stdout=subprocess.PIPE,stderr=subprocess.DEVNULL)
+    membership=probe('rev-parse','--show-toplevel')
+    tracking=probe('ls-files','--error-unmatch','--',real.name)
+    if identity(os.fstat(directory)) != identity(real.parent.stat()):
+        raise InputRefused('The secrets file directory changed during its safety checks.')
+    if membership.returncode==0 or tracking.returncode==0:
+        raise InputRefused(reason)
+    if membership.returncode!=128 or tracking.returncode!=128:
+        raise InputRefused('The secrets file repository checks could not be completed.')
+
+
+def configure_secrets(path=None, place=None):
+    global SECRET_VALUES, S3_CREDENTIALS
+    SECRET_VALUES = {}
+    S3_CREDENTIALS = None
+    if path is None:
+        if place is None:
+            return
+        if not re.fullmatch(r'[a-zA-Z0-9_-]+', place):
+            raise InputRefused('Use a plain place name for the default secrets path.')
+        path = Path.home()/'.config/ai-host-kit/places'/(place+'.env')
+    path = Path(path).expanduser().absolute()
+    if not path.exists() and not path.is_symlink():
+        return
+    try:
+        info = path.lstat()
+        if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
+            raise InputRefused('The secrets file must be a regular file, not a symlink.')
+        if info.st_uid != os.getuid():
+            raise InputRefused('The secrets file must belong to the current user.')
+        if stat.S_IMODE(info.st_mode) != 0o600:
+            raise InputRefused('Set the secrets file mode to 600 before using it.')
+        real = path.resolve(strict=True)
+        directory=os.open(real.parent,os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            secrets_directory_safe(directory,real)
+            descriptor=os.open(real.name,os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK,dir_fd=directory)
+            with os.fdopen(descriptor) as source:
+                opened=os.fstat(source.fileno())
+                if (opened.st_dev,opened.st_ino,opened.st_uid,opened.st_mode) != (info.st_dev,info.st_ino,info.st_uid,info.st_mode) or path.resolve()!=real:
+                    raise InputRefused('The secrets file changed during its safety checks.')
+                secrets_directory_safe(directory,real)
+                values = {}
+                for line in source:
+                    line = line.rstrip('\r\n')
+                    if not line.strip() or line.lstrip().startswith('#'):
+                        continue
+                    key, separator, value = line.partition('=')
+                    if not separator or not re.fullmatch(r'[A-Z][A-Z0-9_]*', key) or key in values or any(ord(c) < 32 for c in value):
+                        raise InputRefused('Use one plain KEY=value per line in the secrets file, without duplicate keys or control characters.')
+                    values[key] = value
+                SECRET_VALUES = values
+        finally: os.close(directory)
+    except (OSError, UnicodeError):
+        raise InputRefused('The protected secrets file could not be read. Check its path and permissions.') from None
+
+
+def secret(key, label, shown=False):
+    value = SECRET_VALUES.get(key, '')
+    if value.startswith('op://'):
+        cli = shutil.which('op')
+        if cli is None:
+            raise InputRefused('Install the 1Password CLI to use op:// references, or supply the value in the protected file.')
+        try:
+            result = subprocess.run([cli, 'read', value], env={'PATH': os.environ.get('PATH', ''),
+                                    'HOME': str(Path.home())}, stdin=subprocess.DEVNULL,
+                                    stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=60)
+            value = result.stdout.decode().rstrip('\r\n') if result.returncode == 0 else ''
+        except (OSError, UnicodeError, subprocess.TimeoutExpired):
+            value = ''
+        if not value or any(ord(c) < 32 for c in value):
+            raise InputRefused('1Password could not read a non-empty single-line value. Unlock it and check the reference.')
+    if value:
+        return value
+    with terminal() as tty:
+        return typed(tty, label + (' (shown): ' if shown else ' (hidden): '))
 S3_REDIRECT_ENV = {'HTTP_PROXY','HTTPS_PROXY','ALL_PROXY','NO_PROXY','http_proxy','https_proxy','all_proxy','no_proxy','SSL_CERT_FILE','SSL_CERT_DIR'}
 S3_ENDPOINTS = {f'https://{region}.your-objectstorage.com': region for region in ('fsn1', 'nbg1', 'hel1')}
 HEADINGS = {
@@ -57,7 +174,7 @@ SOURCES = {'source_ips', 'destination_ips', 'cidr_blocks', 'ipv6_cidr_blocks',
 
 
 def refuse(message):
-    raise ValueError(message)
+    raise GateRefused(message)
 
 
 def digest(data):
@@ -199,7 +316,7 @@ def summarise(plan):
         if change.get('importing') is not None or resource.get('previous_address'):
             result['changes'].append(f'{name}: import or address move; review the ownership change.')
         if kind == 'hcloud_server' and 'create' in actions:
-            result['irreversible'].append(f'{name}: the one-off tailnet auth key is sent in user data to Hetzner and retained in encrypted OpenTofu plans and state. Server cloud-init copies can remain. These copies cannot be recalled. The key is single use, uses the shortest available expiry that covers apply (aim for one hour) and is worthless once used or expired. Only tag:server joins are intended; tailnet policy controls access.')
+            result['irreversible'].append(f'{name}: the one-off tailnet auth key is sent in user data to Hetzner and retained in encrypted OpenTofu plans and state. Server cloud-init copies can remain. These copies cannot be recalled. The key is single use, uses the shortest available expiry that covers apply (one day, Tailscale\'s shortest option) and is worthless once used or expired. Only tag:server joins are intended; tailnet policy controls access.')
         if 'delete' in actions:
             result['irreversible'].append(f'{name}: destruction can lose data, including any stored volumes or bucket contents. Recovery needs a separate tested backup.')
         if actions != ['no-op'] and isinstance(kind, str) and re.search(r'bucket|volume|disk|database|db_instance', kind):
@@ -281,12 +398,11 @@ def render(sha, summary, target=None):
 def storage_credentials():
     global S3_CREDENTIALS
     if S3_CREDENTIALS is None:
-        with terminal() as tty:
-            access = typed(tty, 'Storage access key (hidden): ')
-            secret = typed(tty, 'Storage secret key (hidden): ')
-        if not access or not secret:
+        access = secret('STORAGE_ACCESS_KEY', 'Storage access key', shown=True)
+        private = secret('STORAGE_SECRET_KEY', 'Storage secret key')
+        if not access or not private:
             refuse('Both storage key fields are required. Values are withheld.')
-        S3_CREDENTIALS = (access, secret)
+        S3_CREDENTIALS = (access, private)
     return S3_CREDENTIALS
 
 
@@ -336,10 +452,19 @@ def tofu(*args):
     # Every invocation, including direct state reads, receives the hidden pair.
     metadata = Path('.terraform/terraform.tfstate')
     remote = metadata.is_file() and records.read_json(metadata).get('backend', {}).get('type') == 's3'
-    if remote:
+    if remote and args[0] != 'version':
         storage_credentials()
+    child = environment()
+    if args[0] != 'plan':
+        child.pop('TF_VAR_tailnet_auth_key', None)
+    if args[0] not in ('plan', 'apply'):
+        child.pop('TF_VAR_hcloud_token', None)
+    if args[:2] == ('workspace', 'show'):
+        child.pop('TF_VAR_host_state_passphrase', None)
+    if args[0] == 'version':
+        child = {key:value for key,value in child.items() if not key.startswith(('TF_VAR_', 'AWS_'))}
     try:
-        result = subprocess.run(['tofu', *map(str, args)], env=environment(), stdin=subprocess.DEVNULL,
+        result = subprocess.run(['tofu', *map(str, args)], env=child, stdin=subprocess.DEVNULL,
                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
         if remote and result.returncode and args[0] in ('show', 'output', 'state'):
             print('Could not read the encrypted state in the bucket: check the storage keys and passphrase. Values are withheld.', file=sys.stderr)
@@ -533,35 +658,52 @@ def unchanged(path, sha):
 @contextmanager
 def terminal():
     if not sys.stdin.isatty() or not sys.stdout.isatty():
-        refuse('Approval needs your terminal. Run approve yourself without a pipe or redirected input or output.')
+        raise InputRefused('Approval needs your terminal. Run approve yourself without a pipe or redirected input or output.')
     try:
-        reader = open('/dev/tty', 'r')
+        reader = open('/dev/tty', 'rb', buffering=0)
         writer = open('/dev/tty', 'w')
     except OSError:
-        refuse('Approval needs a controlling terminal. Run approve yourself in your terminal.')
+        raise InputRefused('Approval needs a controlling terminal. Run approve yourself in your terminal.')
     with reader, writer:
-        tty = SimpleNamespace(readline=reader.readline, write=writer.write,
+        tty = SimpleNamespace(readline=lambda limit: reader.readline(limit).decode(), write=writer.write,
                               flush=writer.flush, fileno=reader.fileno)
         if os.tcgetpgrp(tty.fileno()) != os.getpgrp():
-            refuse('Approval must run in the foreground of your terminal. Run approve yourself again.')
+            raise InputRefused('Approval must run in the foreground of your terminal. Run approve yourself again.')
         yield tty
 
 
 def typed(tty, prompt):
-    # Do not echo words that might accidentally contain a secret.
+    shown = '(shown)' in prompt
+    if not shown and '(hidden)' not in prompt:
+        prompt += ' (hidden): '
     old = termios.tcgetattr(tty.fileno())
     new = old.copy()
     new[3] &= ~termios.ECHO
-    termios.tcsetattr(tty.fileno(), termios.TCSANOW, new)
-    tty.write(prompt)
-    tty.flush()
-    try:
-        answer = tty.readline(502).rstrip('\r\n')
-    finally:
-        termios.tcsetattr(tty.fileno(), termios.TCSANOW, old)
-        tty.write('\n')
+    for attempt in range(2):
+        # Keep the terminal unbuffered: a CRLF paste must not be prefetched by
+        # Python and escape the next prompt's terminal input flush.
+        termios.tcsetattr(tty.fileno(), termios.TCSANOW, new)
+        termios.tcflush(tty.fileno(), termios.TCIFLUSH)
+        tty.write(prompt if attempt == 0 else 'The value was empty. Try once more: ' + prompt)
         tty.flush()
-    return answer
+        try:
+            answer = tty.readline(502).rstrip('\r\n')
+        finally:
+            termios.tcsetattr(tty.fileno(), termios.TCSANOW, old)
+            tty.write('\n')
+            tty.flush()
+        if shown:
+            if not safe_words(answer):
+                raise InputRefused('The shown input is empty or may contain a secret. Use the requested identifier or plain words.')
+            tty.write(answer + '\n')
+            tty.flush()
+            return answer
+        if answer:
+            suffix = answer[-4:] if len(answer) > 4 and all(c.isprintable() for c in answer) else '<withheld>'
+            tty.write('Length: ' + str(len(answer)) + '; last four: ' + suffix + '\n')
+            tty.flush()
+            return answer
+    raise InputRefused('A required hidden value was empty after two prompts. No input was accepted.')
 
 
 def approve(path, destination):
@@ -572,10 +714,10 @@ def approve(path, destination):
         tty.flush()
         # Discard pre-fed terminal input: confirmation follows the displayed summary.
         termios.tcflush(tty.fileno(), termios.TCIFLUSH)
-        confirmation = typed(tty, 'Type approve followed by the read-back checksum: ')
+        confirmation = typed(tty, 'Type approve followed by the read-back checksum (shown): ')
         if confirmation != 'approve ' + short_hash(sha):
             refuse('The typed checksum does not match. Read the summary and run approve again.')
-        words = typed(tty, 'In your own words, what do you approve? Input is hidden: ')
+        words = typed(tty, 'In your own words, what do you approve? (shown): ')
         record = dict(schema_version='1.0', plan_sha256=sha,
                       approved_at=datetime.now(timezone.utc).isoformat(), words=words,
                       confirmation=confirmation, method='terminal-checksum', summary=summary, target=target)
@@ -625,11 +767,12 @@ class Arguments(argparse.ArgumentParser):
 
 
 def effect_sha(effect):
-    if (not isinstance(effect, dict) or effect.get('action') not in ('set-lane', 'register-docktail', 'claim-admin', 'place-claim', 'place-project', 'place-docktail', 'place-oauth-id', 'place-oauth-secret', 'place-start-docktail', 'place-register', 'place-start-register', 'place-record')
+    if (not isinstance(effect, dict) or effect.get('action') not in ('set-lane', 'register-docktail', 'claim-admin', 'place-claim', 'place-project', 'place-docktail', 'place-oauth-id', 'place-oauth-secret', 'place-start-docktail', 'place-register', 'place-start-register', 'place-record', 'place-recover-claim', 'place-abandon')
             or not isinstance(effect.get('effect'), str) or not effect['effect']
             or not re.fullmatch(r'[0-9a-f]{64}', effect.get('place_sha256', ''))
             or ('progress_sha256' in effect and not re.fullmatch(r'[0-9a-f]{64}', effect['progress_sha256']))
-            or list(records.secret_fields({k:v for k,v in effect.items() if k not in ('place_sha256','progress_sha256')}))):
+            or any(key in effect and not re.fullmatch(r'[0-9a-f]{64}', effect[key]) for key in ('receipt_sha256','attempt_sha256'))
+            or list(records.secret_fields({k:v for k,v in effect.items() if k not in ('place_sha256','progress_sha256','receipt_sha256','attempt_sha256')}))):
         refuse('The effect is missing, unsupported or contains unsafe text. Values are withheld.')
     return digest(json.dumps(effect, sort_keys=True, separators=(',', ':')).encode())
 
@@ -646,9 +789,9 @@ def approve_effect(effect, destination):
         print(effect['effect'])
         print('Effect checksum: ' + short_hash(sha), flush=True)
         termios.tcflush(tty.fileno(), termios.TCIFLUSH)
-        if typed(tty, 'Type approve followed by the checksum: ') != 'approve ' + short_hash(sha):
+        if typed(tty, 'Type approve followed by the checksum (shown): ') != 'approve ' + short_hash(sha):
             refuse('The effect confirmation did not match.')
-        words = typed(tty, 'Your words: ')
+        words = typed(tty, 'Your words (shown): ')
         if not safe_words(words):
             refuse('Approval words are empty or unsafe. Values are withheld.')
     record = dict(effect_sha256=sha, effect=effect['effect'], words=words,
@@ -679,8 +822,11 @@ def main():
     parser.add_argument('command', choices=('plan', 'plan-destroy', 'summary', 'approve', 'apply', 'approve-effect'))
     parser.add_argument('plan')
     parser.add_argument('record', nargs='?')
+    parser.add_argument('--secrets')
     args = parser.parse_args()
     try:
+        if args.secrets:
+            configure_secrets(args.secrets)
         if args.command == 'approve-effect':
             if not args.record:
                 refuse('Supply a new effect approval path.')

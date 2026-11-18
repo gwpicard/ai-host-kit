@@ -28,7 +28,7 @@ replaces the scripts' CDN downloads with verified local copies, fixes helper
 final Docker health read also allows ten minutes and reports progress.
 Download, checksum, installer and health failures stop cloud-init. Later
 user-data and firewall-rule changes are ignored by OpenTofu; lane scripts own later rules.
-The person supplies the tailnet key through a hidden foreground prompt. The
+The person supplies the tailnet key through the protected file or a hidden prompt. The
 script decodes it into an owner-only file under `/run`, joins with
 `--auth-key=file:<path>`, suppresses join diagnostics and deletes the file on
 success or failure. A failed join stops installation.
@@ -36,15 +36,15 @@ How it is checked: Provider mocks check resources, firewall attachment, closed
 inbound rules, IPv4 apt and complete rendering. Local shell stand-ins exercise
 file permissions, command arguments, cleanup on both paths and hard failure.
 Visible reusable, ephemeral, unapproved and untagged key settings are refused.
-The person declares the shortest available expiry, aiming for one hour; the
-kit cannot infer key settings from the opaque auth key. Removal tests cover
+The person declares the shortest available expiry: one day, Tailscale's
+shortest option. The kit cannot infer key settings from the opaque auth key. Removal tests cover
 these guards and the summary warning.
 Script: `tofu/hetzner-server/main.tf`, `tofu/hetzner-server/cloud-init.sh`.
 Who runs it: The person supplies keys and approves the saved plan. The agent
 prepares the reviewable root and summary. No real provisioning is proved.
 Ask: Create a single-use, pre-approved key for `tag:server`, not an ephemeral
-node, with the shortest expiry that covers apply. Aim for one hour and record
-the actual expiry in setup settings. The pinned provider cannot accept an
+node, with the shortest available expiry that covers apply. Use one day,
+Tailscale's shortest option, and record the actual expiry in setup settings. The pinned provider cannot accept an
 ephemeral value in user data. The key therefore reaches Hetzner in user data
 and remains in encrypted OpenTofu plans and state. Server cloud-init copies
 can remain too. These copies cannot be recalled. The choice is acceptable
@@ -55,9 +55,10 @@ Encryption does not remove provider or server copies. Never reuse this key.
 
 How it works: The saved-plan gate supports local state and a restricted S3
 configuration for Hetzner Object Storage. Use the shared encryption fragment
-and the [approval guide](https://github.com/gwpicard/ai-host-kit/blob/main/.agents/skills/setup-hosting/approval-gate.md). Storage keys
-are entered through a hidden foreground-terminal prompt and passed only in the
-OpenTofu child environment. No credential helper, keychain or profile is read.
+and the [approval guide](https://github.com/gwpicard/ai-host-kit/blob/main/.agents/skills/setup-hosting/approval-gate.md). Values come from the protected file described in [setup.md](setup.md), with
+terminal prompts for missing values. That guide owns the file format and prompt
+visibility table. Storage keys are passed only to OpenTofu. No credential helper,
+keychain or profile is read.
 The key custodian keeps the state passphrase; losing it makes state unreadable.
 How it is checked: A local S3-compatible HTTP stand-in exercises initialisation,
 encrypted plans and state, locking, workspace selection, approval refusal and
@@ -75,7 +76,7 @@ Ask: The person creates the first storage key and bucket in their console.
 How it works: SSH and Coolify administration stay on the tailnet. The person
 approves the claim effect, creates the first administrator in Coolify over the
 tailnet, enables two-factor authentication and confirms the claim through the
-hidden prompt. The script requires a redirect from `/register` to this
+shown foreground-terminal prompt. The script requires a redirect from `/register` to this
 instance's `/login` and an authenticated team read. Other responses, including
 HTTP 429, are not proof of a claim. This combines the person's confirmation
 with a read-back; it cannot authenticate who answered the local prompt.
@@ -106,7 +107,7 @@ registration, firewall closure, registration ports and read-back. The pinned
 MCP has also created and started a synthetic service against a loopback API.
 Protection removals cover the tested guards. No provider account is used.
 Script: `scripts/setup.py`, `scripts/mcp.py`, `scripts/lane.py`, `scripts/api.py`.
-Who runs it: The person approves each effect and enters secrets directly.
+Who runs it: The person approves each effect and keeps the protected file; missing values use terminal prompts.
 Ask: Review the tailnet policy, OAuth client abilities and who gains access
 before approving a container start. The kit does not edit that policy. A failed
 or interrupted write stops the sequence and requires inspection before retrying.

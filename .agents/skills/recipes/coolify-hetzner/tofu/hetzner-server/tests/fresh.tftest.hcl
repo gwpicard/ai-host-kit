@@ -5,7 +5,7 @@ mock_provider "hcloud" {
 }
 variables {
   tailnet_auth_key = "tskey-auth-synthetic-only"
-  tailnet_key_settings = { reusable = false, ephemeral = false, preauthorised = true, tags = ["tag:server"], expiry_seconds = 3600, shortest_available = true }
+  tailnet_key_settings = { reusable = false, ephemeral = false, preauthorised = true, tags = ["tag:server"], expiry_seconds = 86400, shortest_available = true }
   place_name     = "test-place"
   location       = "fsn1"
   server_type    = "cx23"

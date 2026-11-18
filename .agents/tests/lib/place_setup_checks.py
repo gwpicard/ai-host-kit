@@ -44,10 +44,10 @@ def exercise(work, checks):
                 if all(status=='passed' for _,status in mutated.node_rows(record,bad)): detected=True
             assert detected,old
             print('Protection removal detected: node '+old.split('(')[0])
-        config=dict(place=record['place'],encrypted_state=record['encrypted_state'],
+        config=dict(place=record['place'],encrypted_state=record['encrypted_state'],secrets=str(work/'absent-secrets.env'),
                     backend=json.loads((RECIPE/'tofu/backend.example.json').read_text()),
                     inputs=dict(place_name='test-place',location='fsn1',server_type='cx23',ssh_public_key='ssh-ed25519 c3ludGhldGlj test',
-                                tailnet_key_settings=dict(reusable=False,ephemeral=False,preauthorised=True,tags=['tag:server'],expiry_seconds=3600,shortest_available=True)),
+                                tailnet_key_settings=dict(reusable=False,ephemeral=False,preauthorised=True,tags=['tag:server'],expiry_seconds=86400,shortest_available=True)),
                     scopes=sorted(flow.SCOPES),canary_name='place-canary')
         choice=dict(schema_version='1.0',choice=dict(host='coolify-hetzner',proven=False,answers={},accepted_shortfalls=[]))
         path=work/'choice.json';path.write_text(json.dumps(choice))
@@ -61,7 +61,8 @@ def exercise(work, checks):
             refused(lambda:flow.prepare_root(bad,path,work/'bad-root',work/'bad-progress',reader,gate))
         state=json.loads(progress.read_text());state.update(record=record,server_uuid='server-one',destination_uuid='network-one')
         api=StandIn();api.firewall_rules=lambda identity:[]
-        fake=SimpleNamespace(call=lambda tool,args:dict(uuid='created-'+tool))
+        fake=SimpleNamespace(call=lambda tool,args:[] if args.get('action')=='list' else dict(uuid='created-'+tool))
+        api.service_env_state=lambda uuid,key:[dict(is_set=True,is_runtime=True,is_buildtime=False,is_preview=False)]
         confirm=lambda name:'claimed '+name
         definition=lambda name:dict(ports=['tcp:443'])
         def approve(effect):
@@ -147,7 +148,10 @@ def exercise(work, checks):
         # Remove only receipt consumption and rerun every named-effect reuse probe.
         mutated_work=work/'setup-receipt-removal';mutated_work.mkdir()
         receipt=mutated_work/'receipt.json';receipt.write_text('{}')
-        with patch.object(flow,'start_attempt',return_value=receipt):
+        def unconsumed(*args,**kwargs):
+            receipt.write_text(json.dumps(dict(status='uncertain',write_state='not-sent')))
+            return receipt
+        with patch.object(flow,'start_attempt',side_effect=unconsumed):
             try: cli(mutated_work,flow,gate,reader,config,choice,facts,journal_probes=False)
             except AssertionError as error:
                 assert 'Reused named effects' in str(error),str(error)
@@ -194,22 +198,28 @@ def cli(work,flow,gate,reader,config,choice,facts,journal_probes=True):
     class API:
         opener=SimpleNamespace(open=lambda *args,**kwargs:Response())
         def __init__(self,*args): pass
+        def registration_state(self):return "open"
         def registration_closed(self):return True
         def coolify_team(self):return {'id':1}
         def token_abilities(self):return sorted(flow.SCOPES)
         def firewall_rules(self,*args):return []
+        def service_env_state(self,*args):return [dict(is_set=True,is_runtime=True,is_buildtime=False,is_preview=False)]
         def request(self,method,url,*args):
             if url.endswith('/destinations'):return [{'uuid':'destination-one'}]
-            if '/servers/' in url:return {'ip':'127.0.0.1'}
+            if '/servers/' in url:return {'ip':'host.docker.internal','name':'localhost'}
             return {'ports':['tcp:443']}
     writes=[]
     class MCP:
         def __init__(self,*args):pass
-        def call(self,tool,args):writes.append((tool,args));return {'uuid':'created-'+tool}
+        def call(self,tool,args):
+            if args.get('action')=='list':return []
+            writes.append((tool,args));return {'uuid':'created-'+tool}
         def close(self):pass
     def prompt(g,label):return 'claimed test-place' if 'type claimed' in label else 'synthetic-only'
     reuse_results=[]
-    with patch.object(flow,'API',API),patch.object(flow,'MCP',MCP),patch.object(flow,'prompt',side_effect=prompt):
+    @contextmanager
+    def terminal():yield None
+    with patch.object(gate,'terminal',terminal),patch.object(flow,'reopen_claim'),patch.object(flow,'API',API),patch.object(flow,'MCP',MCP),patch.object(flow,'prompt',side_effect=prompt):
         for step in flow.STEPS:
             effect=folder/(step+'.json');approval=folder/(step+'-approval.json')
             assert command('prepare','--step',step,'--effect',str(effect))==0

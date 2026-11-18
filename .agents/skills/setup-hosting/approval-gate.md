@@ -92,7 +92,9 @@ sh <skill-folder>/scripts/approve.sh <planfile> <new-approval-record.json>
 
 It shows the summary itself and asks for `approve` followed by the displayed
 12 hexadecimal digits, grouped in fours. It then asks for the person's words.
-Both answers come from the controlling terminal with echo disabled. Pipes,
+Both answers come from the controlling terminal and are displayed after checks
+for secret-shaped text. The [Place setup guide](../host-fit/resources/recipes/coolify-hetzner/setup.md#prompt-visibility)
+owns prompt visibility. Pipes,
 redirected standard input or output, a wrong checksum and unsafe record text
 are refused. A record is created with owner-only permissions and never
 overwrites an existing file. No option accepts confirmation or words as an
@@ -208,15 +210,18 @@ For a reviewed root configuration with an empty `backend "s3" {}` block:
 python3 <skill-folder>/scripts/init-s3.py <public-backend-settings.json>
 ```
 
-The person runs this themselves in a foreground terminal. Both storage key
-fields are read with echo disabled and kept only in process memory and the
-OpenTofu child environment. The kit saves neither field to a file. Provider
+The direct initialisation wrapper prompts in the person's foreground terminal.
+The Place runner supplies the protected-file route described in its setup guide.
+Storage values are kept only in process memory and the OpenTofu child
+environment. The kit saves neither field to a file. Provider
 credentials are separate. Never put storage keys in backend settings or use
 `-backend-config` to supply them. Initialisation changes local backend metadata;
 it is not a cloud resource creation command. Review any state migration as a
 separate change; this wrapper supplies no automatic migration approval.
 
-Plan, summary, approval and apply ask for the same storage key pair each time.
+Plan, summary, approval and apply need the same storage key pair each time.
+The gate accepts `--secrets <protected-file>` for these reads; missing fields
+use the terminal prompt. Approval still needs the person's terminal.
 Their identity includes a digest incorporating the credentials as well as the
 endpoint, bucket, key, region, prefix, workspace and every backend setting.
 Changing the pair requires a new saved and approved plan. The digest is an
@@ -224,7 +229,7 @@ identity check, not secret storage or proof of the key's owner. No key is
 rendered in the target. Inherited `AWS_*` variables and `TOFU_*` overrides
 other than stripped logging variables refuse, even when empty. Proxy and TLS
 certificate-file environment overrides also refuse for S3. The child
-receives only the prompted pair, null shared-config paths and disabled metadata
+receives only the supplied pair, null shared-config paths and disabled metadata
 credential discovery. Existing `TF_*` override refusals still apply.
 
 Local S3 checks cover encrypted state and plans, the lock lifecycle and
@@ -241,7 +246,7 @@ python3 <skill-folder>/scripts/approval_gate.py approve-effect <effect.json> <ne
 ```
 
 The gate displays the effect, asks for its checksum and the person's words
-through its hidden foreground-terminal prompt, and refuses existing output
+through its shown foreground-terminal prompts, and refuses existing output
 paths. A lane write regenerates the effect and compares the full checksum
 before it calls the cloud adapter. This has the same trusted-local-process
 limit as saved-plan approval. An agent must never answer the prompt or make
@@ -249,6 +254,10 @@ a real approval record. Synthetic approval records belong to offline tests only.
 The staged Place runner uses this gate for each Coolify MCP write, the
 person-led administrator claim and final record assembly. The recipe owns
 the exact sequence and failure recovery. An approval record alone does not perform the action.
+Claim completion and abandonment use separate recovery effects bound to the
+current progress and uncertain receipt. Their approval cannot be used for the
+original remote write. Abandonment retains a `not-written` receipt and changes
+progress so that a retry requires a new effect checksum and approval.
 
 A destroy plan is saved through the same controlled identity command:
 

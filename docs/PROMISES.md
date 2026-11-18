@@ -54,9 +54,9 @@ before they can back those promises.
 | Local approval promise | Mechanism and evidence |
 |---|---|
 | Apply uses the approved saved bytes. | `setup-hosting/scripts/approval_gate.py` requires a valid record, matching full SHA-256, short confirmation and regenerated summary. It checks the original again and applies a private copy of the same bytes. `approval-gate.sh` exercises real encrypted saved plans, including missing and malformed records, changed bytes, a replacement at the same path and a change during apply. It detects removed record, checksum, summary and final-check protections. |
-| Approval and apply require a matching plan-time destination identity. | The controlled plan command captures project, configuration, workspace, backend settings and environment identity before and after planning, refuses changes and binds the record to the saved plan SHA-256. Summary, approval and apply validate that record and compare the current identity; approval and apply recheck it after review. Local state storage and a restricted Hetzner S3 backend are accepted, with explicit destinations and no inherited state, workspace or AWS overrides. The S3 path prompts for storage keys and incorporates their digest into the target identity; keys are passed only to the child environment. Loopback S3 tests cover encrypted state, locks and workspace identity, not the live service. Tests refuse missing, malformed and substituted records, different state paths, workspace switches, changed environments, unsupported backends and identity changes during planning. Returning to the recorded workspace permits the original plan. Protection removals fail their outcome assertions. OpenTofu retains responsibility for stale-state checks. The [usage guide](../.agents/skills/setup-hosting/approval-gate.md) owns the supported-storage list and identity fields. |
+| Approval and apply require a matching plan-time destination identity. | The controlled plan command captures project, configuration, workspace, backend settings and environment identity before and after planning, refuses changes and binds the record to the saved plan SHA-256. Summary, approval and apply validate that record and compare the current identity; approval and apply recheck it after review. Local state storage and a restricted Hetzner S3 backend are accepted, with explicit destinations and no inherited state, workspace or AWS overrides. The S3 path reads storage keys from the protected file or prompts for missing values and incorporates their digest into the target identity; keys are passed only to the child environment. Loopback S3 tests cover encrypted state, locks and workspace identity, not the live service. Tests refuse missing, malformed and substituted records, different state paths, workspace switches, changed environments, unsupported backends and identity changes during planning. Returning to the recorded workspace permits the original plan. Protection removals fail their outcome assertions. OpenTofu retains responsibility for stale-state checks. The [usage guide](../.agents/skills/setup-hosting/approval-gate.md) owns the supported-storage list and identity fields. |
 | The tested summaries put destruction first and name network changes without showing fixture secrets. | The same check covers real built-in destroy and replacement plans and a saved JSON network fixture. It checks ports, widened sources, public addresses and buckets, directory changes, nested sensitive and unknown masks, unknown resource types and the key-loss warning. Regressions cover secret-shaped map keys through summary, approval, records, apply and refusals; explicit address and protocol fields; wildcard sources; empty structures; and output actions. Removing the relevant protections fails these checks. This does not prove every provider schema or establish live reachability. |
-| Approval input comes from a foreground terminal. | The approve command reads the typed checksum and words from the controlling terminal, with echo disabled. `approval-gate.sh` refuses piped input, wrong confirmation and unsafe words, then exercises a synthetic terminal and a successful local apply. Removing the terminal check fails the pipe case even when a controlling terminal exists. |
+| Approval input comes from a foreground terminal. | The approve command reads the typed checksum and words from the controlling terminal, and displays them only after checking for secret-shaped text. `approval-gate.sh` refuses piped input, wrong confirmation and unsafe words, then exercises a synthetic terminal and a successful local apply. Removing the terminal check fails the pipe case even when a controlling terminal exists. |
 | Approval records reject the tested malformed records and unsafe text. | `approval-record.schema.json` and the shared reader check required fields, references and secret-shaped text. Contract fixtures and approval tests check refusals without printing the input values. Schema and secret-scan removals fail. These text checks can still miss disguised secrets. |
 | The gate requires the bundled encryption fragment; OpenTofu enforces its refusal of unencrypted state and plans. | The gate checks for a verbatim fragment in a root `.tf` file and an encrypted plan envelope. OpenTofu decrypts the private saved plan for `show -json` and apply; the gate does not decrypt or parse its internal format. Fragment presence does not establish that it is the only encryption configuration or restrict every effective encryption parameter. Offline tests check encrypted state and plans, a wrong passphrase, plaintext refusal and absence of the ephemeral passphrase from plan JSON. Removing fragment presence, either enforcement flag or the ephemeral declaration fails its check. The pinned executable version is checked before show and immediately before apply. |
 | The OpenTofu test installer verifies downloaded bytes before extraction. | It compares the official published checksum with a platform pin, then hashes the archive. Local transport tests refuse altered checksums and archives; removing either comparison fails. The checks verify integrity against the fetched release and pin, not a release signature. |
@@ -84,6 +84,50 @@ mode. A stronger guarantee needs a signer or execution boundary outside the
 agent's control. No such boundary is claimed here. The
 [usage guide](../.agents/skills/setup-hosting/approval-gate.md) owns the commands,
 recording flow, encryption setup and output limits.
+
+## Protected Place secrets
+
+The Place commands read requested values from a protected file, normally
+`~/.config/ai-host-kit/places/<place-name>.env`. The path is non-secret and lives
+in setup settings. The file must be outside every Git repository, untracked,
+a regular file without a symlink, owned by the current user and mode 600.
+Unsafe files are refused before their values are read. The recipe's
+[setup guide](../.agents/skills/recipes/coolify-hetzner/setup.md#prompt-visibility)
+owns the file instructions and visibility table. Optional 1Password references
+use `op read`; no other password-manager provider is supported.
+
+An agent's shell has the same file access as the person and can read this file.
+The intended barrier is the person's Claude Code deny rule for the path plus
+the kit never printing file values. Merge this exact rule into the `deny` array
+under `permissions` in the person's Claude Code settings, replacing
+`<place-name>` with the actual name:
+
+```json
+{
+  "permissions": {
+    "deny": ["Read(~/.config/ai-host-kit/places/<place-name>.env)"]
+  }
+}
+```
+
+For a custom path, use that exact path in the rule. A Read deny rule does not
+stop arbitrary shell code from reading a file; it is not operating-system
+isolation. These tests do not exercise Claude Code's permission engine.
+
+`init`, `plan`, `plan-destroy`, `summary`, `bootstrap`, `discover` and `check.py`
+need no terminal when the file supplies every required value. Provider reads
+still need their agreed permission. `approve`, `approve-effect`, the claim
+confirmation and the typed retirement name still refuse a missing foreground
+terminal. Terminal approval still does not prove a human, for the reasons above.
+
+Inputs are collected before a stage records an attempt, marks uncertainty or
+spends approval. A local input failure leaves these unchanged. For the manual
+administrator claim, the approved console action can already have happened
+before local input completes; inspect Coolify after any interrupted claim.
+After an attempt starts, interrupted writes and failed read-backs retain the
+existing uncertainty and receipt rules. Offline command tests cover file
+refusals, prompt pastes, absent terminals and this input boundary. They use
+synthetic values and transports, with no provider or password-manager account.
 
 ## Offline Place checks
 

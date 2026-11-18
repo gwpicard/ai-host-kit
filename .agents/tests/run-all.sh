@@ -11,7 +11,9 @@ failed_count=0
 total=0
 not_run_count=0
 WORK=$(mktemp -d)
-trap 'rm -R "$WORK"' EXIT INT TERM
+trap 'rm -R "$WORK"' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 : > "$WORK/not-run"
 
 run_group() {
