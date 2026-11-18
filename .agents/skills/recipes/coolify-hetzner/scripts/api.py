@@ -21,6 +21,7 @@ def approval_gate():
 def hidden_value(gate, label):
     if 'type claimed' in label:
         with gate.terminal() as tty:
+            if getattr(gate,'CONSOLE_GUIDANCE',None): gate.CONSOLE_GUIDANCE('CLAIM')
             return gate.typed(tty,label+' (shown): ')
     if label == 'State passphrase': key='STATE_PASSPHRASE'
     elif label == 'Hetzner project token': key='HETZNER_PROJECT_TOKEN'
@@ -46,6 +47,8 @@ def configure_place_secrets(gate, args, record):
     config=Path(args.config)
     settings=json.loads(config.read_text()) if config.is_file() else {}
     gate.configure_secrets(args.secrets or settings.get('secrets'),record['place']['name'])
+    from console_pages import configure
+    return configure(gate, record, settings if 'place' in settings and 'canary_name' in settings else None)
 
 
 class API:
@@ -58,7 +61,7 @@ class API:
     def request(self, method, url, token, body=None):
         data=None if body is None else json.dumps(body).encode()
         request=urllib.request.Request(url,data=data,method=method,
-                headers={'Authorization':'Bearer '+token,'Content-Type':'application/json'})
+                headers={'Authorization':'Bearer '+token,'Content-Type':'application/json','Accept':'application/json'})
         with self.opener.open(request,timeout=20) as response:
             return json.loads(response.read(4*1024*1024))
 

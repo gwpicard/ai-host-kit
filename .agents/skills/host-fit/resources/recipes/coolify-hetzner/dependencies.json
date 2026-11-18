@@ -10,7 +10,9 @@
   "docktail": {
     "image": "ghcr.io/marvinvr/docktail:1.8.6",
     "licence": "AGPL-3.0",
-    "modified": false
+    "modified": false,
+    "update_check": true,
+    "update_check_reason": "Retain the recorded outbound version check until an off switch is verified for 1.8.6; disclose it in create and start approvals."
   },
   "canary": {
     "image": "traefik/whoami:v1.11.0",

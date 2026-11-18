@@ -21,7 +21,7 @@ node. The auth key must not be reusable or ephemeral. The person reviews the
 tailnet's server SSH grants, MagicDNS, HTTPS and service approval policy. A
 separate approval covers creating the docktail OAuth client and its abilities
 to register services. Keep its ID and secret in the person's password manager.
-The person also provides a read token for Tailscale service definitions, a test
+The person also provides a read OAuth credential for Tailscale, a test
 domain for the later public-lane run and the separately kept state passphrase.
 This empty-place canary uses the tailnet domain; the test domain is not changed.
 
@@ -29,8 +29,14 @@ Copy `secrets.example.env` to `~/.config/ai-host-kit/places/<place-name>.env`,
 outside every Git repository. Set mode 600 with `chmod 600` before adding
 values. The file must be a regular file owned by you, with no symlink and no
 group or other permissions. The kit checks these conditions before reading it.
-The template names each console, whether a value is shown only once and which
-commands need it. Use plain `KEY=value` lines and full-line comments. There is
+The [console page map](console-pages.json) owns URLs, menu paths, buttons,
+fields and one-time value warnings, keyed by provider and checked version.
+Before collecting any console value, run the relevant entry through
+`python3 "$RECIPE/scripts/setup.py" console --page provider.entry`.
+It prints the entry and opens its URL with the system opener. Coolify entries
+also take `--address` with the checked tailnet IPv4 address and `--config`
+with the non-secret setup settings. Missing-value prompts do the same.
+The template names the entry for each value. Use plain `KEY=value` lines and full-line comments. There is
 no shell expansion, quote removal or `export` syntax. Do not source this file.
 An optional `op://vault/item/field` value is resolved by `op read`; install and
 unlock the 1Password CLI first. Its output and errors are withheld.
@@ -60,15 +66,33 @@ and cannot detect every secret. Each prompt names its visibility.
 
 | Input | Visibility |
 |---|---|
-| State passphrase, Hetzner project token, storage secret key, one-off Tailscale auth key, Coolify team token, Tailscale API token, docktail OAuth secret | Hidden; length and last four characters only after entry |
-| Storage access key, docktail OAuth client ID | Shown identifiers |
+| State passphrase, Hetzner project token, storage secret key, one-off Tailscale auth key, Coolify team token, Tailscale API token, read and docktail OAuth secrets | Hidden; length and last four characters only after entry |
+| Storage access key, read and docktail OAuth client IDs | Shown identifiers |
 | Place name at retirement, approval checksum and words, `claimed <place-name>` | Shown; foreground terminal required |
 
-Use OpenTofu 1.13.2, the Python schema requirements and the installed, verified
-`@masonator/coolify-mcp` 3.10.1 package. Its tarball integrity is in
-`dependencies.json`. Installation is reviewed separately; the runner never
-fetches a package. docktail 1.8.6 runs as an unmodified container. No model or
-agent is installed on the server.
+After approval for local downloads and installation, run
+`python3 "$RECIPE/scripts/setup.py" install-tools`. It installs OpenTofu
+1.13.2, the pinned Python environment and `@masonator/coolify-mcp` 3.10.1 under
+`~/.local/share/ai-host-kit/`. It compares published and pinned OpenTofu
+checksums, permits only Python wheels and verifies installed versions, and uses
+`npm install --ignore-scripts --save-exact` with the lock-file integrity in
+`dependencies.json`. It reports each verification and refuses existing tool
+destinations. It checks checksums over HTTPS, without release signatures.
+Install Node, npm and Tailscale separately. Put the printed opentofu and
+venv/bin folders on PATH and use the printed MCP package path.
+
+Use the `tailscale.read-credential` entry for the recommended read OAuth route.
+It has Services Read plus the read scopes required for policy, DNS and HTTPS
+preflight. The kit exchanges it for a short-lived token with only the command's
+read scopes. Keep it separate from docktail's write credential. The
+`tailscale.access-token` fallback has the creating user's full API permissions,
+including permitted writes and deletions. It is not read-only. Use one day and
+revoke it after setup. An OAuth failure never silently falls back to that token.
+
+docktail 1.8.6 runs unmodified with its observed `update_check=true`: an outbound
+version check, not an automatic upgrade. This recipe retains it because an off
+switch has not been verified against this version. The create and start effects
+name that traffic before approval. No model or agent is installed on the server.
 
 Set these non-secret paths in the person's shell. The kit chooses new numbered
 plan and approval files under `~/.local/share/ai-host-kit/plans/<place>/`,
@@ -106,7 +130,16 @@ created place, not invented in advance.
    python3 "$SETUP" init --progress "$PROGRESS"
    ```
 
-2. After permission for provider reads, save a real plan and show its summary.
+2. After permission for provider reads, run preflight, then save a real plan
+   and show its summary. `plan` repeats preflight before collecting the auth key
+   or saving any plan. Preflight checks pinned tools, the signed bucket HEAD
+   read, tag ownership, service auto-approval, administrator root SSH,
+   MagicDNS and HTTPS certificates. Missing prerequisites refuse planning and
+   name the map entry and policy lines. An allow-all grant is reported with a
+   narrower canary proposal; it is not edited. Adding a narrow grant does not
+   cancel an existing broad grant. The person reviews and approves each policy
+   change in the console. Bucket reachability does not prove versioning,
+   retention, object-write permissions or lock behaviour.
    The plan command reads the passphrase, project token, one-off tailnet
    key and storage pair from the protected file. Summary and approval need the
    passphrase and same storage pair. Missing values use prompts. The one-off key is in Hetzner user data and encrypted plans
@@ -114,7 +147,8 @@ created place, not invented in advance.
    copies cannot be recalled and why a spent or expired key is worthless.
 
    ```sh
-   python3 "$SETUP" plan --progress "$PROGRESS"
+   python3 "$SETUP" preflight --progress "$PROGRESS" --mcp-package "$MCP_PACKAGE"
+   python3 "$SETUP" plan --progress "$PROGRESS" --mcp-package "$MCP_PACKAGE"
    python3 "$SETUP" summary --progress "$PROGRESS"
    ```
 
@@ -164,11 +198,8 @@ created place, not invented in advance.
    has ten minutes from the restart to create the first administrator. Nothing
    is public. The password goes only into Coolify.
 
-   On **Welcome to Coolify**, choose **Skip setup**. Enable two-factor
-   authentication at avatar > **Profile** > **Configure 2FA**. Switch on
-   **Settings > Advanced > API and MCP > API access**. Create the token at
-   **Keys & Tokens > API Tokens > New token** with **Read**, **Write**,
-   **Deploy** and **Read sensitive data**, never **Root** or **Delete**.
+   Follow map entries `coolify.claim`, `coolify.two-factor`,
+   `coolify.api-access` and `coolify.team-token`, printed by the runner.
    The run command asks for the shown confirmation `claimed <place-name>` and
    that token. It requires registration to redirect to this instance's login
    page and the authenticated team read to succeed. A closed setup window is
@@ -183,6 +214,7 @@ created place, not invented in advance.
    ```
 
 6. Read the localhost server and Docker destination identities in Coolify.
+   Use map entry `coolify.destination` before collecting either identifier.
    After permission for reads, select them here. The API read-back refuses a
    server unless its name is `localhost` and its address is `127.0.0.1`,
    `localhost` or `host.docker.internal`, the built-in address in Coolify 4.7.5.
@@ -228,7 +260,9 @@ created place, not invented in advance.
    reconcile labelled Tailscale services. `register` defines the pinned canary
    with no published ports. `start-register` lets docktail advertise it to the
    people allowed by the reviewed tailnet policy. Registration stages ask for
-   a Tailscale read token and refuse different write-once service ports.
+   the separate Tailscale read credential and refuse different write-once service ports.
+   Map entries `tailscale.docktail-credential` and `coolify.docktail-variables`
+   own credential creation and any separately approved manual variable entry.
    `record` waits up to five minutes, with progress, for reconciliation and a
    certificate under the existing policy. If policy needs changing, stop for
    a separate specific approval. It requires the control-plane TCP 443
@@ -303,8 +337,10 @@ types the exact place name at retirement. Destruction loses the server disk
 and its containers. The wrapper accepts only the three owned deletions,
 checks live ownership and applies those exact encrypted saved bytes. It lists
 remaining Cloud resources, including snapshot and backup images and resources
-it did not own. Review Object Storage, DNS, the tailnet machine and the recorded Tailscale service definition
-separately. After destruction, every category is reported as listed, empty or
+it did not own. The printed page-map entries name the service, machine, docktail
+and read OAuth credentials, and fallback API token that may remain, with their
+pages and removal buttons. Review Object Storage and DNS through
+`hetzner.leftovers`. After destruction, every category is reported as listed, empty or
 unchecked. An unreadable category leaves retirement incomplete with exit status
 2; the later console checks are still printed. No leftover is removed
 automatically. Keep the state and its key until recovery and retained copies

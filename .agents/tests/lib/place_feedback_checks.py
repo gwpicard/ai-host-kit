@@ -123,9 +123,13 @@ def key(work):
     assert config['inputs']['tailnet_key_settings']['expiry_seconds']==86400
     # Exercise the plan prompt through the real command path, without tofu plan.
     progress=work/'progress.json';progress.write_text(json.dumps(dict(root=str(work),config=dict(place=dict(name='fixture'),secrets=str(work/'absent.env')),done=[],uncertain=None)))
+    state=json.loads(progress.read_text())
+    state['config']['backend']=json.loads((RECIPE/'tofu/backend.example.json').read_text())
+    progress.write_text(json.dumps(state))
     labels=[]
     def prompt(g,label):labels.append(label);return 'synthetic-only'
-    with patch.object(flow,'approval_gate',return_value=gate),patch.object(flow,'prompt',side_effect=prompt),patch.object(gate,'plan'),patch.object(flow,'bind_provider'):
+    from prerequisite_standins import ready
+    with ready(flow),patch.object(flow,'approval_gate',return_value=gate),patch.object(flow,'prompt',side_effect=prompt),patch.object(gate,'plan'),patch.object(flow,'bind_provider'):
         status,text=invoke(flow,'plan','--progress',progress,'--plan',work/'saved.plan')
     assert status==0,text
     assert any('shortest available' in label and 'one day' in label for label in labels)

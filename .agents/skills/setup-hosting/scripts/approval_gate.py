@@ -26,6 +26,7 @@ records.ROOT = RESOURCES
 VERSION = '1.13.2'
 S3_CREDENTIALS = None
 SECRET_VALUES = {}
+CONSOLE_GUIDANCE = None
 
 
 class GateRefused(ValueError):
@@ -76,9 +77,10 @@ def secrets_directory_safe(directory, real, reason=None):
 
 
 def configure_secrets(path=None, place=None):
-    global SECRET_VALUES, S3_CREDENTIALS
+    global SECRET_VALUES, S3_CREDENTIALS, CONSOLE_GUIDANCE
     SECRET_VALUES = {}
     S3_CREDENTIALS = None
+    CONSOLE_GUIDANCE = None
     if path is None:
         if place is None:
             return
@@ -139,6 +141,8 @@ def secret(key, label, shown=False):
     if value:
         return value
     with terminal() as tty:
+        if CONSOLE_GUIDANCE is not None:
+            CONSOLE_GUIDANCE(key)
         return typed(tty, label + (' (shown): ' if shown else ' (hidden): '))
 S3_REDIRECT_ENV = {'HTTP_PROXY','HTTPS_PROXY','ALL_PROXY','NO_PROXY','http_proxy','https_proxy','all_proxy','no_proxy','SSL_CERT_FILE','SSL_CERT_DIR'}
 S3_ENDPOINTS = {f'https://{region}.your-objectstorage.com': region for region in ('fsn1', 'nbg1', 'hel1')}

@@ -26,6 +26,7 @@ import node
 import lane
 import retire
 from place_checks import resources
+from prerequisite_standins import ready
 
 
 def terminal(action, answers, live=False):
@@ -85,6 +86,7 @@ class Fixture:
             choice_path=str(self.choice),choice_sha256=flow.fingerprint(choice),
             journal=flow.journal_identity(work/'place-attempts'),config=dict(place=self.record['place'],
                 encrypted_state=self.record['encrypted_state'],secrets=str(self.secrets),canary_name='place-canary',scopes=sorted(flow.SCOPES)))
+        self.state['config']['backend']=json.loads((RECIPE/'tofu/backend.example.json').read_text())
         flow.save(self.progress,self.state)
         self.original=self.gate.tofu
         self.calls=[]
@@ -99,7 +101,7 @@ class Fixture:
                 dict(server_id=101,firewall_id=102,ssh_key_id=103,ipv4_address='192.0.2.10').items()}).encode(),b'')
         return self.original(*args)
     def raw(self,*args):
-        with patch.object(sys,'argv',['setup',*map(str,args),'--progress',str(self.progress)]),patch.object(flow,'approval_gate',return_value=self.gate):
+        with ready(flow),patch.object(sys,'argv',['setup',*map(str,args),'--progress',str(self.progress)]),patch.object(flow,'approval_gate',return_value=self.gate):
             return flow.main()
     def command(self,*args):
         out=io.StringIO()
@@ -243,6 +245,11 @@ def paths(f):
         assert status!=0 and sum(call[0]=='apply' for call in f.calls)==before,text
         status,text=terminal(lambda:f.raw('retire','--choice',record_path),[(b'Type test-place (shown):','test-place')])
         assert status==0 and 'Destruction completed' in text,text
+        for value in ('Services > svc:', 'Delete service', 'Machines > test-place',
+                      'Remove', 'Settings > Trust credentials', 'Revoke', 'API access tokens'):
+            assert value in text,value
+        for path in ('services','machines','settings/trust-credentials','settings/keys'):
+            assert 'https://login.tailscale.com/admin/'+path in text
         assert (f.work/'applied-plan-sha').read_text()==f.gate.digest(destroy.read_bytes())
 
     # Locks and unsafe folders refuse before invoking OpenTofu planning.

@@ -22,6 +22,10 @@ from mcp import MCP
 from node import bootstrap_address, bootstrap, read_node, wait_bootstrap, BootstrapFailed, reopen_claim
 from place import OperationRefused, PINS, SCOPES, fingerprint, require, scoped_mcp, tailnet_address, write_record, start_attempt, finish_attempt, mark_dispatch, partial_record, journal_identity, place_lock
 from place import JOURNAL_MESSAGE
+from console_pages import configure as configure_console, show as console_page
+from tailscale_reads import read_token
+import preflight
+import toolchain
 
 STEPS = ['claim', 'project', 'docktail', 'oauth-id', 'oauth-secret', 'start-docktail',
          'register', 'start-register', 'record']
@@ -171,7 +175,7 @@ def effect_for(state, step):
         args=dict(action='create',name=name+'-'+step,server_uuid=state['server_uuid'],project_uuid=state['project_uuid'],
                   environment_name='production',destination_uuid=state['destination_uuid'],
                   instant_deploy=False,docker_compose_raw=compose)
-        description=('Create the unmodified docktail 1.8.6 container definition with access to the Docker and Tailscale sockets. '
+        description=('Create the unmodified docktail 1.8.6 container definition with access to the Docker and Tailscale sockets. Its default update_check=true makes an outbound version check; retain it until an off switch is verified. '
                      'It can register labelled services using the supplied OAuth identity. No published ports.' if step=='docktail' else
                      'Create the pinned whoami canary with docktail labels for '+config['canary_name']+
                      ', tailnet TCP 443 to container port 80. It becomes reachable by the people allowed by the existing tailnet policy when started. No public ports.')
@@ -182,7 +186,7 @@ def effect_for(state, step):
         description='Store the person-supplied '+key+' in the docktail Coolify runtime environment. The approved value comes from the protected file or prompt; the kit saves no local copy. Docktail will gain the abilities of that OAuth client.'
     elif step in ('start-docktail','start-register'):
         tool='control'; args=dict(resource='service',action='start',uuid=state['docktail_uuid' if step=='start-docktail' else 'register_uuid'])
-        description=('Start docktail 1.8.6. It watches Docker labels and can change Tailscale service registrations using its OAuth client.' if step=='start-docktail' else
+        description=('Start docktail 1.8.6 with its recorded default update_check=true outbound version check. It watches Docker labels and can change Tailscale service registrations using its OAuth client.' if step=='start-docktail' else
                      'Start the canary and let docktail register '+config['canary_name']+' for tailnet TCP 443. Existing tailnet policy decides who gains access. No public ports open.')
     else:
         description='Replace the unchanged local hosting/place-record.json choice draft with the created empty place record. This records infrastructure and versions, with no backup, alert or tool claim.'
@@ -425,7 +429,8 @@ def prune_plans(gate, folder, current):
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command',choices=['root','init','plan','summary','approve','apply','bootstrap','prepare','run','candidate','discover','plan-destroy','retire','prepare-recovery','recover','prune-plans'])
+    parser.add_argument('command',choices=['root','init','plan','summary','approve','apply','bootstrap','prepare','run','candidate','discover','plan-destroy','retire','prepare-recovery','recover','prune-plans','preflight','install-tools','console'])
+    parser.add_argument('--page'); parser.add_argument('--tools-home')
     parser.add_argument('--partial',action='store_true')
     parser.add_argument('--abandon',action='store_true')
     parser.add_argument('--attempt-effect')
@@ -442,6 +447,16 @@ def main():
         if value: setattr(args,field,str(Path(value).resolve()))
     try:
         reader=load_reader(); gate=approval_gate()
+        if args.command=='install-tools':
+            toolchain.install(gate,args.tools_home); return 0
+        if args.command=='console':
+            read_require(bool(args.page), 'Name a provider.entry from console-pages.json with --page.')
+            context={}
+            if args.address: context['address']=tailnet_address(args.address)
+            if args.config:
+                config=reader.read_json(args.config)
+                context.update(place=config['place']['name'],canary=config['canary_name'])
+            console_page(args.page,context,launch=True); return 0
         if args.command=='root':
             require(args.config is not None, 'Supply the non-secret setup settings.')
             config=reader.read_json(args.config)
@@ -459,6 +474,12 @@ def main():
             read_require(state['config']['place']['name']==folder.name, 'The place name changed while taking the plan lock. Inspect the progress file before retrying.')
         gate.configure_secrets(args.secrets or state['config'].get('secrets'),state['config']['place']['name'])
         root=Path(state['root']); record=state.get('record')
+        console_context=configure_console(gate,record,state['config'])
+        if args.command=='plan':
+            read_require(not state['done'] and not state.get('uncertain'), 'Provisioning has already progressed or has an uncertain write.')
+        if args.command in ('preflight','plan'):
+            preflight.run(state['config'],gate,args.mcp_package)
+            if args.command=='preflight': return 0
         if planning and not args.plan:
             args.plan=numbered_path(folder,'destroy' if args.command=='plan-destroy' else 'create','.plan')
         if plan_command and not args.plan:
@@ -527,7 +548,7 @@ def main():
             try:
                 sys.argv=['retire','--record',str(Path(args.choice).resolve()),'--plan',args.plan,'--approval',args.approval]
                 if args.partial: sys.argv += ['--partial-progress',str(progress)]
-                return retire.main(gate=gate, token=os.environ['TF_VAR_hcloud_token'])
+                return retire.main(gate=gate, token=os.environ['TF_VAR_hcloud_token'],console_context=console_context)
             finally: sys.argv=previous
         if args.command in ('init','plan','plan-destroy','summary','approve','apply'):
 
@@ -662,13 +683,13 @@ def main():
                     state['uncertain']=None; save(progress,state)
                     raise OperationRefused(reason)
             check_window()
-            print('Coolify is healthy. Open http://'+record['infrastructure']['tailnet_ipv4']+':8000/register now. You have ten minutes from the container restart to create the first administrator. The password goes only into Coolify.')
-            print('On Welcome to Coolify, choose Skip setup. Enable two-factor authentication: avatar > Profile > Configure 2FA. Switch on Settings > Advanced > API and MCP > API access. At Keys & Tokens > API Tokens > New token, select Read, Write, Deploy and Read sensitive data, never Root or Delete.')
+            for page in ('claim','two-factor','api-access','team-token'):
+                console_page('coolify.'+page,console_context)
             claim_answer=prompt(gate,'After creating your own account, type claimed '+record['place']['name'])
             check_window()
             read_require(claim_answer=='claimed '+record['place']['name'], 'The person must confirm their own administrator claim.')
         token=claim_token or prompt(gate,'Coolify token with read, read:sensitive, write and deploy, never root or delete')
-        service_key=prompt(gate,'Tailscale API read token for service definitions') if args.step in ('register','start-register','record') else None
+        service_key=read_token(gate,fallback=lambda:prompt(gate,'Tailscale API access token for service definitions (full-permission fallback)')) if args.step in ('register','start-register','record') else None
         oauth_value=prompt(gate,'TAILSCALE_OAUTH_CLIENT_'+('ID' if args.step=='oauth-id' else 'SECRET')) if args.step in ('oauth-id','oauth-secret') else None
         api=API(record,hcloud,token)
         observed=api.token_abilities()
