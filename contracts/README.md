@@ -28,8 +28,20 @@ The published schema uses JSON Schema draft 2020-12. `schema_version` is a `majo
 string. The reader supports `1.x`. A minor version may add optional fields;
 the reader reports unknown fields by path and ignores them, except inside
 `config` declarations. Known fields keep their constraints. A removal, rename,
-changed meaning or newly required field needs a major version. An unknown major stops validation and asks for an
-AI Host Kit update that supports it. No such update is claimed to exist.
+changed meaning or newly required field needs a major version. An unknown major
+stops validation and asks for an AI Host Kit update that supports it. No such
+update is claimed to exist.
+
+The result definitions became normative in 1.1, before any result reader existed.
+Their newly required fields therefore did not need a major version. This
+exception covers only that first normative result format. Later result changes
+follow the same version rule as handover fields.
+
+The schema's `$defs/request` and `$defs/response` describe separate request and
+result documents. Results are transient and stay outside both handover and host
+records. The result schema checks shape and contradictory combinations. A caller
+must also bind a result to its validated request using its action and, for previews
+and releases, commit and migration flag. Host Kit has no result reader yet.
 
 `config` declares names, kinds, phases and sources, never values. Secret names
 must use `phase: runtime`. Each declaration permits only `name`, `kind`,

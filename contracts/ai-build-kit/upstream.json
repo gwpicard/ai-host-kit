@@ -1,8 +1,8 @@
 {
   "repository": "https://github.com/gwpicard/ai-build-kit.git",
   "ref": "main",
-  "commit": "4f1c33b6e1f11c8d525380c20e30f24092e4954a",
+  "commit": "f42e8f707346d7dc25e85a1c27496c985e99a7eb",
   "path": "hosting/handover.schema.json",
-  "blob": "7ec1c7ccec77439b4aab66f30f42914ff2c5031c",
-  "sha256": "68df2becf5c647d5571c5a302a38a6f3de089bf5c9c294a11230b33d16fb9b5f"
+  "blob": "fdc401860c75279ccc10a576ffc615834585c086",
+  "sha256": "3252aeec8f4ab73e894e86967e33795a33e8fed2abae7144ad0d74e4f0a34905"
 }

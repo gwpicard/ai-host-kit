@@ -1,0 +1,113 @@
+[
+  {
+    "request": {
+      "tool": "leave-approvals",
+      "handover": "hosting/handover.json",
+      "action": "preview",
+      "branch": "preview",
+      "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "result": {
+      "action": "preview",
+      "status": "passed",
+      "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "migration": false,
+      "rehearsal": {
+        "status": "not-needed",
+        "evidence": "checks/no-migration.txt"
+      },
+      "location": "https://preview.example.invalid",
+      "evidence": "checks/preview.txt"
+    }
+  },
+  {
+    "request": {
+      "tool": "leave-approvals",
+      "handover": "hosting/handover.json",
+      "action": "preview",
+      "branch": "preview",
+      "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "migration": true
+    },
+    "result": {
+      "action": "preview",
+      "status": "passed",
+      "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "migration": true,
+      "rehearsal": {
+        "status": "passed",
+        "evidence": "checks/rehearsal.txt"
+      },
+      "evidence": "checks/preview.txt"
+    }
+  },
+  {
+    "request": {
+      "tool": "leave-approvals",
+      "handover": "hosting/handover.json",
+      "action": "logs",
+      "minutes": 30
+    },
+    "result": {
+      "action": "logs",
+      "status": "passed",
+      "evidence": "checks/logs.txt"
+    }
+  },
+  {
+    "request": {
+      "tool": "leave-approvals",
+      "handover": "hosting/handover.json",
+      "action": "health"
+    },
+    "result": {
+      "action": "health",
+      "status": "could-not-check",
+      "running_commit": null,
+      "evidence": "checks/health.txt"
+    }
+  },
+  {
+    "request": {
+      "tool": "leave-approvals",
+      "handover": "hosting/handover.json",
+      "action": "release",
+      "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "migration": true
+    },
+    "result": {
+      "action": "release",
+      "status": "passed",
+      "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "migration": true,
+      "running_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "rehearsal": {
+        "status": "passed",
+        "evidence": "checks/rehearsal.txt"
+      },
+      "evidence": "checks/release.txt"
+    }
+  },
+  {
+    "request": {
+      "tool": "leave-approvals",
+      "handover": "hosting/handover.json",
+      "action": "release",
+      "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "migration": true
+    },
+    "result": {
+      "action": "release",
+      "status": "held",
+      "reason": "rehearsal-failed",
+      "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "migration": true,
+      "running_commit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "rehearsal": {
+        "status": "failed",
+        "evidence": "checks/rehearsal.txt"
+      },
+      "evidence": "checks/held-release.txt"
+    }
+  }
+]

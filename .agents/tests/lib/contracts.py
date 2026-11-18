@@ -373,6 +373,8 @@ def main():
         vendor_checks(work)
         reference_checks(work)
         string_checks(work)
+        from handover_results import checks as handover_result_checks
+        handover_result_checks()
         from integration_regressions import checks as integration_checks
         integration_checks(work)
     print(f'All schemas, valid fixtures and {len(cases)} field-specific refusals passed.')
