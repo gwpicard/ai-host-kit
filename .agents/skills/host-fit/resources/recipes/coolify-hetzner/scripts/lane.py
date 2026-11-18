@@ -35,7 +35,7 @@ def main():
                 raise ValueError('Receipt journal is missing or replaced. Inspect the live state and approve afresh.')
             print('Observed firewall rules: '+json.dumps(effect['observed'],sort_keys=True))
             with open(args.effect,'x') as out: json.dump(effect,out,indent=2)
-            print(effect['effect'])
+            print('Prepared the lane effect. Run approve-effect to review it and decide.')
             return 0
         if not args.approval or not args.new_record:
             raise ValueError('Apply requires effect approval and a new record path.')

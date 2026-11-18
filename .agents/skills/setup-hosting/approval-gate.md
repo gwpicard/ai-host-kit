@@ -63,9 +63,11 @@ sh <skill-folder>/scripts/plan-summary.sh <planfile>
 
 The four sections list destruction first, possible internet exposure, access
 changes and irreversible effects. Replacements include destruction. The
-summary names resources and network fields; it withholds free-text values.
-Only narrow network values such as ports, IP addresses, source ranges,
-protocols and known public-access settings can appear. Fields whose names suggest
+summary names resources and network fields. For Hetzner servers, firewalls
+and SSH keys it also shows non-secret names and labels, and server type,
+location and image. IPv4 and IPv6 enabled settings, ports, IP addresses,
+source ranges, protocols and known public-access settings can appear.
+Other free text, including user data and key material, stays withheld. Fields whose names suggest
 addresses, ranges, sources, ports, protocols or public access are listed as
 possibly affecting who can reach the tool, even without a specific rendering
 rule. Zero ports are shown as zero unless an unmasked protocol in the same
@@ -90,26 +92,31 @@ prompt, create a record, or treat permission to invoke a shell as plan approval.
 sh <skill-folder>/scripts/approve.sh <planfile> <new-approval-record.json>
 ```
 
-It shows the summary itself and asks for `approve` followed by the displayed
-12 hexadecimal digits, grouped in fours. It then asks for the person's words.
-Both answers come from the controlling terminal and are displayed after checks
-for secret-shaped text. The [Place setup guide](../host-fit/resources/recipes/coolify-hetzner/setup.md#prompt-visibility)
+The summary ends with 12 hexadecimal digits, grouped in fours. Approval
+shows that summary and asks for the checksum alone, displayed as typed.
+Enter alone cancels without creating a record. The person's own words are
+optional and are displayed after checks for secret-shaped text. Both answers
+come from the controlling terminal. Only checksum characters are displayed
+during confirmation; arbitrary pasted text is refused. The [Place setup guide](../host-fit/resources/recipes/coolify-hetzner/setup.md#prompt-visibility)
 owns prompt visibility. Pipes,
 redirected standard input or output, a wrong checksum and unsafe record text
 are refused. A record is created with owner-only permissions and never
 overwrites an existing file. No option accepts confirmation or words as an
-argument. Keep the record in the private place repository; it contains the
-redacted summary, no plan values.
+argument. The Place runner chooses a new numbered record outside every
+repository, beside its numbered plans. Keep manually chosen records outside
+repositories too. Each record contains the redacted summary and its
+non-secret infrastructure values.
 
 The [approval record contract](resources/contracts/approval-record.schema.json)
 is owned by AI Host Kit; the installed copy is
 `resources/contracts/approval-record.schema.json`. The checksum binds the full
 saved plan bytes; the short checksum is only for reading back. The date and
-words record the decision, and `summary` records exactly the four sections
+optional words record the decision, and `summary` records exactly the four sections
 shown. The separate `target` records the project path, configuration and state
 workspace displayed above those sections. Records without a target must be
 replaced by running approval again. References and text use the shared record
-protections. The record is not signed and is not evidence of a person's identity.
+protections. The stored confirmation retains its canonical `approve <checksum>`
+form; the person types only the checksum. The record is not signed and is not evidence of a person's identity.
 
 The plan-time identity and approval record use the same `target` fields:
 
@@ -245,12 +252,17 @@ exact change and binds its arguments and place-record digest. The person runs:
 python3 <skill-folder>/scripts/approval_gate.py approve-effect <effect.json> <new-approval.json>
 ```
 
-The gate displays the effect, asks for its checksum and the person's words
+The gate displays the effect, asks for its checksum and optional words
 through its shown foreground-terminal prompts, and refuses existing output
 paths. A lane write regenerates the effect and compares the full checksum
 before it calls the cloud adapter. This has the same trusted-local-process
 limit as saved-plan approval. An agent must never answer the prompt or make
 a real approval record. Synthetic approval records belong to offline tests only.
+
+The effect approval prompt also takes the checksum alone, visibly, with Enter
+to cancel and optional words. Preparation saves the effect; approval displays
+it once before the decision.
+
 The staged Place runner uses this gate for each Coolify MCP write, the
 person-led administrator claim and final record assembly. The recipe owns
 the exact sequence and failure recovery. An approval record alone does not perform the action.

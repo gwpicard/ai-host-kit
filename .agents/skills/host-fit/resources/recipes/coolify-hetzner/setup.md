@@ -70,9 +70,11 @@ Use OpenTofu 1.13.2, the Python schema requirements and the installed, verified
 fetches a package. docktail 1.8.6 runs as an unmodified container. No model or
 agent is installed on the server.
 
-Set these non-secret paths in the person's shell. All plan and approval paths
-must be new. `CREATE` and `DESTROY` are absolute paths outside repositories;
-keep encrypted state in the selected bucket, with its passphrase elsewhere.
+Set these non-secret paths in the person's shell. The kit chooses new numbered
+plan and approval files under `~/.local/share/ai-host-kit/plans/<place>/`,
+outside every repository. It records the current paths in the progress file;
+shell variables do not select them. Keep encrypted state in the selected
+bucket, with its passphrase elsewhere.
 `MCP_PACKAGE` is the installed package's `package.json`, not a command.
 
 ```sh
@@ -81,9 +83,9 @@ SETUP="$RECIPE/scripts/setup.py"
 PROGRESS="$PLACE/hosting/place-progress.json"
 ```
 
-`PLACE`, `RECIPE`, `GATE`, `CREATE`, `DESTROY` and `MCP_PACKAGE` are supplied as
+`PLACE`, `RECIPE`, `GATE` and `MCP_PACKAGE` are supplied as
 absolute paths by the person. `RECIPE` is the installed host-fit recipe folder;
-`GATE` is the installed setup-hosting scripts folder. `TAILNET_IP`,
+`GATE` is the installed setup-hosting scripts folder.
 `SERVER_UUID` and `DESTINATION_UUID` are non-secret values read from the newly
 created place, not invented in advance.
 
@@ -112,29 +114,41 @@ created place, not invented in advance.
    copies cannot be recalled and why a spent or expired key is worthless.
 
    ```sh
-   python3 "$SETUP" plan --progress "$PROGRESS" --plan "$CREATE"
-   python3 "$SETUP" summary --progress "$PROGRESS" --plan "$CREATE"
+   python3 "$SETUP" plan --progress "$PROGRESS"
+   python3 "$SETUP" summary --progress "$PROGRESS"
    ```
 
+   The summary shows resource names, server type, location, image, labels,
+   IPv4 and IPv6 settings, and firewall ports and sources. Secrets, user data
+   and sensitive or unknown values stay withheld. It ends with the checksum.
+   When a newer plan supersedes one for the same place and operation, the kit
+   offers cleanup. Run `prune-plans --progress "$PROGRESS"` through `"$SETUP"`
+   to review the files. Enter keeps them; typing `delete` removes only the
+   listed plans and identity sidecars. A plan can hold a spent key. Approval
+   records and receipts remain. Cleanup never runs automatically.
+
 3. The person reviews the exact summary and runs approval themselves, typing
-   its checksum and their words. Only that saved plan may be applied. Apply
+   its checksum alone, shown as typed. Enter alone cancels. Their own words
+   are optional and are shown after checks for secret-shaped text. Only that
+   saved plan may be applied. Apply
    reads the passphrase, project token and storage pair from the same file.
 
    ```sh
-   python3 "$SETUP" approve --progress "$PROGRESS" --plan "$CREATE" --approval "$PLACE/create-approval.json"
-   python3 "$SETUP" apply --progress "$PROGRESS" --plan "$CREATE" --approval "$PLACE/create-approval.json"
+   python3 "$SETUP" approve --progress "$PROGRESS"
+   python3 "$SETUP" apply --progress "$PROGRESS"
    ```
 
-4. Find the server's tailnet address using the
-   person's Tailscale client. After permission for reads, check the bootstrap.
+4. Cloud-init takes several minutes. After permission for reads, run bootstrap.
+   It finds the approved node name in the person's local Tailscale client and
+   waits for cloud-init to finish. No match or several matching nodes stops it.
    This step neither fixes the node nor installs anything.
 
    ```sh
-   tailscale ip -4 test-place
-   python3 "$SETUP" bootstrap --progress "$PROGRESS" --address "$TAILNET_IP"
+   python3 "$SETUP" bootstrap --progress "$PROGRESS"
    ```
 
-   Replace `test-place` with the approved place name. Bootstrap requires the
+   If needed, supply a checked tailnet IPv4 address with `--address`.
+   Bootstrap still requires the
    Hetzner instance ID to match, the node name and address to match, the key
    file to be gone, `tag:server`, disabled node-key expiry, Tailscale SSH and
    completed cloud-init and a healthy Coolify container. It waits up to twenty
@@ -278,10 +292,10 @@ The spent auth key is not requested; a synthetic unused input satisfies
 the required variable while planning deletion.
 
 ```sh
-python3 "$SETUP" plan-destroy --progress "$PROGRESS" --plan "$DESTROY"
-python3 "$SETUP" summary --progress "$PROGRESS" --plan "$DESTROY"
-python3 "$SETUP" approve --progress "$PROGRESS" --plan "$DESTROY" --approval "$PLACE/retire-approval.json"
-python3 "$SETUP" retire --progress "$PROGRESS" --plan "$DESTROY" --approval "$PLACE/retire-approval.json" --choice "$PLACE/hosting/place-record.json"
+python3 "$SETUP" plan-destroy --progress "$PROGRESS"
+python3 "$SETUP" summary --progress "$PROGRESS"
+python3 "$SETUP" approve --progress "$PROGRESS"
+python3 "$SETUP" retire --progress "$PROGRESS" --choice "$PLACE/hosting/place-record.json"
 ```
 
 The person reviews and approves the exact destroy summary themselves, then
@@ -366,10 +380,10 @@ Use the retire sequence with `--choice` pointing to that candidate. If apply
 was partial and bootstrap never passed, use the partial retirement mode:
 
 ```sh
-python3 "$SETUP" plan-destroy --partial --progress "$PROGRESS" --plan "$DESTROY"
-python3 "$SETUP" summary --progress "$PROGRESS" --plan "$DESTROY"
-python3 "$SETUP" approve --progress "$PROGRESS" --plan "$DESTROY" --approval "$PLACE/retire-approval.json"
-python3 "$SETUP" retire --partial --progress "$PROGRESS" --plan "$DESTROY" --approval "$PLACE/retire-approval.json"
+python3 "$SETUP" plan-destroy --partial --progress "$PROGRESS"
+python3 "$SETUP" summary --progress "$PROGRESS"
+python3 "$SETUP" approve --progress "$PROGRESS"
+python3 "$SETUP" retire --partial --progress "$PROGRESS"
 ```
 
 These commands read the state passphrase, project token and storage pair from

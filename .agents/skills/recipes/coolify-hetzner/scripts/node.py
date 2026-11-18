@@ -38,6 +38,37 @@ HOST_KIT_NODE
 """
 
 
+def bootstrap_address(name):
+    """Resolve one exact approved host name from the local Tailscale client."""
+    def checked(condition,message):
+        if not condition: raise OperationRefused(message)
+    try:
+        result=subprocess.run(['tailscale','status','--json'],stdin=subprocess.DEVNULL,
+                              stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,timeout=30,
+                              env={'PATH':os.environ.get('PATH','')})
+        checked(result.returncode==0, 'The local Tailscale client could not read its peers. Check that it is running and signed in.')
+        status=json.loads(result.stdout)
+        checked(isinstance(status,dict), 'The local Tailscale client returned an unreadable status.')
+        checked(status.get('BackendState')=='Running' and isinstance(status.get('Peer'),dict),
+                'The local Tailscale client is not running or returned no peer list.')
+        peers=list(status['Peer'].values())
+        checked(all(isinstance(peer,dict) for peer in peers), 'The local Tailscale peer list could not be read.')
+        matches=[peer for peer in peers if peer.get('HostName')==name]
+        checked(matches, 'No tailnet node matches the approved place name. Check the local Tailscale client, or supply --address after checking the node identity.')
+        checked(len(matches)==1, 'Several tailnet nodes match the approved place name. Resolve the duplicate names, or supply --address after checking the node identity.')
+        addresses=matches[0].get('TailscaleIPs',[])
+        checked(isinstance(addresses,list), 'The matched tailnet node has no usable IPv4 address.')
+        valid=[]
+        for address in addresses:
+            try: valid.append(tailnet_address(address))
+            except ValueError: pass
+        checked(len(valid)==1, 'The matched tailnet node has no unique tailnet IPv4 address. Check the client before supplying --address.')
+        return valid[0]
+    except (OSError,subprocess.TimeoutExpired,ValueError,TypeError,KeyError) as error:
+        if isinstance(error,OperationRefused): raise
+        raise OperationRefused('The local Tailscale client status could not be read. Check that it is running and signed in.') from None
+
+
 def read_node(address):
     result = subprocess.run(['tailscale','ssh','root@'+tailnet_address(address),'sh','-s'],
                             input=PROBE.encode(), stdout=subprocess.PIPE,

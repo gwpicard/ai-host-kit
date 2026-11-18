@@ -236,7 +236,7 @@ def run_regressions(checks, work):
         ('protected map keys', script, '(protected and i == len(path) - 1 and len(path) > 1)', 'False', key_masks),
         ('target binding', script, "if record['target'] != target:", 'if False:',
          lambda module: target_refusal(checks, module, other, copied)),
-        ('network fields', script, 'if NETWORK.search(match_path):', 'if False:',
+        ('network fields', script, 'if not removed and NETWORK.search(match_path):', 'if False:',
          lambda module: summary_cases(checks, module, 'public_server')),
         ('all protocols', script, "if protocol in ('all', '-1', '*'):", 'if False:',
          lambda module: summary_cases(checks, module, 'all_protocols')),
