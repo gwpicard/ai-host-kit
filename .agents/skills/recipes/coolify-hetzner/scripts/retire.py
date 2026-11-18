@@ -9,7 +9,7 @@ from check import load_reader
 from place import destroy_plan_matches, retire, fingerprint
 
 
-def main(gate=None, token=None):
+def main(gate=None, token=None, console_context=None):
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--partial-progress')
     parser.add_argument('--record',default='hosting/place-record.json')
@@ -31,7 +31,7 @@ def main(gate=None, token=None):
             record=reader.read_json(args.record)
         if gate is None:
             gate=approval_gate()
-            configure_place_secrets(gate,args,record)
+            console_context=configure_place_secrets(gate,args,record)
             os.environ['TF_VAR_host_state_passphrase']=hidden_value(gate,'State passphrase')
         # Read only the same encrypted bytes that the saved-plan gate will apply.
         gate.require_encryption(); gate.check_version()
@@ -59,12 +59,12 @@ def main(gate=None, token=None):
         for kind,items in remaining.items():
             status='unchecked; review in the Hetzner console' if items is None else ('listed: '+', '.join(str(item['id']) for item in items) if items else 'empty')
             print(kind+': '+status)
-        print('Images: review snapshot and backup images in the Hetzner console, including retained copies.')
-        print('Object Storage and DNS are outside this inventory. Review them in the Hetzner console.')
-        plumbing=record['infrastructure'].get('plumbing',{})
-        if plumbing:
-            print('Tailscale Services > svc:'+plumbing['tailnet_service_name']+' may remain. Review its advertising devices before a separately approved removal.')
-        print('Tailscale admin console > Machines > this place > Remove remains a separate approved action.')
+        from console_pages import configure, show
+        context=console_context or configure(gate,record,progress['config'] if partial else None)
+        print('Console leftovers remain separate approved actions. None was removed by this command.')
+        for page in ('hetzner.leftovers','tailscale.service-leftover','tailscale.machine-leftover',
+                     'tailscale.oauth-leftover','tailscale.token-leftover'):
+            show(page,context)
         if any(items is None for items in remaining.values()):
             print('Retirement incomplete: destruction completed, but inventory checks remain unchecked.')
             return 2

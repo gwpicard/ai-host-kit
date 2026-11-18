@@ -1,14 +1,16 @@
 """Create an empty place in explicit, separately approved stages."""
 # Launch order and the person-led admin claim adapted from coolify-launchpad.
 import argparse
-from contextlib import ExitStack
+from contextlib import ExitStack, contextmanager
 import copy
+import fcntl
 import json
 import importlib.util
 import os
 import re
 from pathlib import Path
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -17,9 +19,13 @@ import urllib.error
 from api import API, approval_gate, hidden_value as prompt
 from check import load_reader
 from mcp import MCP
-from node import bootstrap, read_node, wait_bootstrap, BootstrapFailed, reopen_claim
+from node import bootstrap_address, bootstrap, read_node, wait_bootstrap, BootstrapFailed, reopen_claim
 from place import OperationRefused, PINS, SCOPES, fingerprint, require, scoped_mcp, tailnet_address, write_record, start_attempt, finish_attempt, mark_dispatch, partial_record, journal_identity, place_lock
 from place import JOURNAL_MESSAGE
+from console_pages import configure as configure_console, show as console_page
+from tailscale_reads import read_token
+import preflight
+import toolchain
 
 STEPS = ['claim', 'project', 'docktail', 'oauth-id', 'oauth-secret', 'start-docktail',
          'register', 'start-register', 'record']
@@ -169,7 +175,7 @@ def effect_for(state, step):
         args=dict(action='create',name=name+'-'+step,server_uuid=state['server_uuid'],project_uuid=state['project_uuid'],
                   environment_name='production',destination_uuid=state['destination_uuid'],
                   instant_deploy=False,docker_compose_raw=compose)
-        description=('Create the unmodified docktail 1.8.6 container definition with access to the Docker and Tailscale sockets. '
+        description=('Create the unmodified docktail 1.8.6 container definition with access to the Docker and Tailscale sockets. Its default update_check=true makes an outbound version check; retain it until an off switch is verified. '
                      'It can register labelled services using the supplied OAuth identity. No published ports.' if step=='docktail' else
                      'Create the pinned whoami canary with docktail labels for '+config['canary_name']+
                      ', tailnet TCP 443 to container port 80. It becomes reachable by the people allowed by the existing tailnet policy when started. No public ports.')
@@ -180,7 +186,7 @@ def effect_for(state, step):
         description='Store the person-supplied '+key+' in the docktail Coolify runtime environment. The approved value comes from the protected file or prompt; the kit saves no local copy. Docktail will gain the abilities of that OAuth client.'
     elif step in ('start-docktail','start-register'):
         tool='control'; args=dict(resource='service',action='start',uuid=state['docktail_uuid' if step=='start-docktail' else 'register_uuid'])
-        description=('Start docktail 1.8.6. It watches Docker labels and can change Tailscale service registrations using its OAuth client.' if step=='start-docktail' else
+        description=('Start docktail 1.8.6 with its recorded default update_check=true outbound version check. It watches Docker labels and can change Tailscale service registrations using its OAuth client.' if step=='start-docktail' else
                      'Start the canary and let docktail register '+config['canary_name']+' for tailnet TCP 443. Existing tailnet policy decides who gains access. No public ports open.')
     else:
         description='Replace the unchanged local hosting/place-record.json choice draft with the created empty place record. This records infrastructure and versions, with no backup, alert or tool claim.'
@@ -332,9 +338,99 @@ def bind_provider(state, plan, token, gate, remember=False):
                 'The project token differs from the one used for this saved plan. Save and approve a new plan.')
 
 
+@contextmanager
+def progress_lock(progress):
+    """Keep setup reads and writes of one progress file in the same order."""
+    try:
+        descriptor=os.open(str(progress)+'.lock',os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK,0o600)
+    except OSError:
+        raise OperationRefused('The progress lock could not be opened. Check its path before retrying.') from None
+    try:
+        info=os.fstat(descriptor)
+        read_require(stat.S_ISREG(info.st_mode) and info.st_uid==os.getuid(),
+                     'The progress lock must be a regular file owned by you.')
+        try: fcntl.flock(descriptor,fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError: raise OperationRefused('Another setup command is using this progress file. Wait for it to finish.') from None
+        yield
+    finally: os.close(descriptor)
+
+
+@contextmanager
+def plan_folder(gate, name):
+    """Serialise numbered paths in an owner-only folder outside repositories."""
+    read_require(isinstance(name,str) and re.fullmatch(r'[a-z][a-z0-9-]{0,61}[a-z0-9]',name),
+            'Use a plain approved place name for saved plans.')
+    folder=Path.home()/'.local/share/ai-host-kit/plans'/name
+    for part in reversed([folder,*folder.parents]):
+        read_require(not part.is_symlink(), 'The saved-plan folder must not use symlinks.')
+    folder.parent.mkdir(parents=True,exist_ok=True,mode=0o700)
+    folder.mkdir(exist_ok=True,mode=0o700)
+    for part in (folder,folder.parent):
+        info=part.stat()
+        read_require(info.st_uid==os.getuid() and stat.S_IMODE(info.st_mode)==0o700,
+                'The kit plans folder and place folder must belong to you with mode 700.')
+    descriptor=os.open(folder,os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    reason='Keep the kit plans folder outside every Git repository.'
+    try:
+        gate.secrets_directory_safe(descriptor,folder/'unused',reason=reason)
+        lock=os.open('.lock',os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW,0o600,dir_fd=descriptor)
+        try:
+            read_require(stat.S_ISREG(os.fstat(lock).st_mode) and os.fstat(lock).st_uid==os.getuid(),
+                    'The plan lock must be a regular file owned by you.')
+            try: fcntl.flock(lock,fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError: raise OperationRefused('Another plan command is running for this place. Wait for it to finish.') from None
+            gate.secrets_directory_safe(descriptor,folder/'unused',reason=reason)
+            yield folder
+        finally: os.close(lock)
+    finally: os.close(descriptor)
+
+
+def numbered_path(folder, stem, suffix):
+    numbers=[]
+    pattern=re.compile(re.escape(stem)+r'-([1-9][0-9]*)'+re.escape(suffix)+r'(?:\.identity\.json)?')
+    for path in folder.iterdir():
+        match=pattern.fullmatch(path.name)
+        if match: numbers.append(int(match[1]))
+    return str(folder/(stem+'-'+str(max(numbers,default=0)+1)+suffix))
+
+
+def superseded_plans(folder, current):
+    current=Path(current)
+    match=re.fullmatch(r'(create|destroy)-([1-9][0-9]*)\.plan',current.name)
+    if current.parent!=folder or not match: return []
+    candidates=[]
+    for path in folder.iterdir():
+        old=re.fullmatch(match[1]+r'-([1-9][0-9]*)\.plan',path.name)
+        if old and int(old[1])<int(match[2]) and path.is_file() and not path.is_symlink():
+            candidates.append(path)
+    return sorted(candidates,key=lambda path:int(path.stem.rsplit('-',1)[1]))
+
+
+def prune_plans(gate, folder, current):
+    read_require(Path(current).is_file() and not Path(current).is_symlink(),
+                 'The newer saved plan is missing or is a symlink. Keep the older plans until a newer plan can be reviewed.')
+    paths=superseded_plans(folder,current)
+    if not paths:
+        print('No superseded plans for this place and operation.'); return
+    with gate.terminal() as tty:
+        tty.write('Superseded plans for this place and operation:\n'+''.join(str(path)+'\n' for path in paths))
+        tty.write('A plan can hold a spent key. Deleting these plans and their identity sidecars cannot be undone. Approval records and receipts are kept.\n')
+        answer=gate.typed(tty,'Type delete to remove these plans, or Enter to keep them (shown): ',optional=True)
+        read_require(answer in ('','delete'), 'Use delete or Enter. No plans were removed.')
+        if not answer:
+            print('Kept the superseded plans.'); return
+        for path in paths:
+            identity=gate.identity_path(path)
+            read_require(not path.is_symlink() and not identity.is_symlink(), 'A plan path changed. No further plans were removed.')
+            path.unlink()
+            identity.unlink(missing_ok=True)
+        print('Deleted the listed superseded plans and identity sidecars. Approval records and receipts were kept.')
+
+
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command',choices=['root','init','plan','summary','approve','apply','bootstrap','prepare','run','candidate','discover','plan-destroy','retire','prepare-recovery','recover'])
+    parser.add_argument('command',choices=['root','init','plan','summary','approve','apply','bootstrap','prepare','run','candidate','discover','plan-destroy','retire','prepare-recovery','recover','prune-plans','preflight','install-tools','console'])
+    parser.add_argument('--page'); parser.add_argument('--tools-home')
     parser.add_argument('--partial',action='store_true')
     parser.add_argument('--abandon',action='store_true')
     parser.add_argument('--attempt-effect')
@@ -351,14 +447,51 @@ def main():
         if value: setattr(args,field,str(Path(value).resolve()))
     try:
         reader=load_reader(); gate=approval_gate()
+        if args.command=='install-tools':
+            toolchain.install(gate,args.tools_home); return 0
+        if args.command=='console':
+            read_require(bool(args.page), 'Name a provider.entry from console-pages.json with --page.')
+            context={}
+            if args.address: context['address']=tailnet_address(args.address)
+            if args.config:
+                config=reader.read_json(args.config)
+                context.update(place=config['place']['name'],canary=config['canary_name'])
+            console_page(args.page,context,launch=True); return 0
         if args.command=='root':
             require(args.config is not None, 'Supply the non-secret setup settings.')
             config=reader.read_json(args.config)
             if args.secrets: config['secrets']=args.secrets
             prepare_root(config,args.choice,args.directory,args.progress,reader,gate); return 0
-        progress=Path(args.progress).resolve(); state=reader.read_json(progress)
+        progress=Path(args.progress).resolve()
+        locks.enter_context(progress_lock(progress))
+        state=reader.read_json(progress)
+        planning=args.command in ('plan','plan-destroy')
+        plan_command=args.command in ('summary','approve','apply','retire','prune-plans')
+        folder=None
+        if ((planning or plan_command) and not args.plan) or (args.command=='approve' and not args.approval) or args.command=='prune-plans':
+            folder=locks.enter_context(plan_folder(gate,state['config']['place']['name']))
+            state=reader.read_json(progress)
+            read_require(state['config']['place']['name']==folder.name, 'The place name changed while taking the plan lock. Inspect the progress file before retrying.')
         gate.configure_secrets(args.secrets or state['config'].get('secrets'),state['config']['place']['name'])
         root=Path(state['root']); record=state.get('record')
+        console_context=configure_console(gate,record,state['config'])
+        if args.command=='plan':
+            read_require(not state['done'] and not state.get('uncertain'), 'Provisioning has already progressed or has an uncertain write.')
+        if args.command in ('preflight','plan'):
+            preflight.run(state['config'],gate,args.mcp_package)
+            if args.command=='preflight': return 0
+        if planning and not args.plan:
+            args.plan=numbered_path(folder,'destroy' if args.command=='plan-destroy' else 'create','.plan')
+        if plan_command and not args.plan:
+            args.plan=state.get('saved_plan')
+            require(args.plan, 'Save a plan for this place before reviewing, approving or applying it.')
+        if args.command=='approve' and not args.approval:
+            args.approval=numbered_path(folder,'approval','.json')
+        elif args.command in ('apply','retire') and not args.approval:
+            args.approval=state.get('saved_approval')
+        if args.command=='prune-plans':
+            prune_plans(gate,folder,args.plan); return 0
+
         if args.command in ('run','prepare-recovery','recover','discover'):
             locks.enter_context(place_lock(record))
             state=reader.read_json(progress); record=state.get('record')
@@ -369,7 +502,7 @@ def main():
             require(args.step and args.attempt_effect and args.effect, 'Name the stage, original attempt effect and recovery effect path.')
             recovery=recovery_effect(state,args.step,args.attempt_effect,reader,args.abandon)
             if args.command=='prepare-recovery':
-                write_record(recovery,args.effect,lambda value:None); print(recovery['effect']); return 0
+                write_record(recovery,args.effect,lambda value:None); print('Prepared recovery. Run approve-effect to review it and decide.'); return 0
             require(args.approval and reader.read_json(args.effect)==recovery, 'The recovery effect differs from current progress or receipt.')
             gate.match_effect(recovery,args.approval)
             original,receipt,saved=recovery_context(state,args.step,args.attempt_effect,reader)
@@ -401,7 +534,7 @@ def main():
         if args.command=='prepare':
             require(args.step and args.effect, 'Name the stage and new effect path.')
             effect=effect_for(state,args.step)
-            write_record(effect,args.effect,lambda value:None); print(effect['effect'])
+            write_record(effect,args.effect,lambda value:None); print('Prepared the effect. Run approve-effect to review it and decide.')
             if args.step=='claim': print('After approval, run this stage. It records the attempt before restarting Coolify, then guides you through the claim.')
             return 0
         if args.command=='retire':
@@ -415,7 +548,7 @@ def main():
             try:
                 sys.argv=['retire','--record',str(Path(args.choice).resolve()),'--plan',args.plan,'--approval',args.approval]
                 if args.partial: sys.argv += ['--partial-progress',str(progress)]
-                return retire.main(gate=gate, token=os.environ['TF_VAR_hcloud_token'])
+                return retire.main(gate=gate, token=os.environ['TF_VAR_hcloud_token'],console_context=console_context)
             finally: sys.argv=previous
         if args.command in ('init','plan','plan-destroy','summary','approve','apply'):
 
@@ -430,7 +563,11 @@ def main():
                 os.environ['TF_VAR_hcloud_token']=prompt(gate,'Hetzner project token')
                 os.environ['TF_VAR_tailnet_auth_key']=prompt(gate,'Single-use pre-approved non-ephemeral tag:server Tailscale key, shortest available expiry (one day, Tailscale\'s shortest option)')
                 gate.plan(args.plan)
-                bind_provider(state,args.plan,os.environ['TF_VAR_hcloud_token'],gate,remember=True); save(progress,state)
+                bind_provider(state,args.plan,os.environ['TF_VAR_hcloud_token'],gate,remember=True)
+                state['saved_plan']=args.plan; state.pop('saved_approval',None); save(progress,state)
+                print('Saved plan: '+args.plan)
+                if folder and superseded_plans(folder,args.plan):
+                    print('Older plans remain and can hold a spent key. Run prune-plans with this progress file to review them and choose whether to delete them.')
             elif args.command=='plan-destroy':
                 require(args.plan, 'Supply a new destroy-plan path.')
                 os.environ['TF_VAR_hcloud_token']=prompt(gate,'Hetzner project token')
@@ -442,7 +579,11 @@ def main():
                     require(shown.returncode==0, 'Read the encrypted partial state before recovery.')
                     state['recovery_record']=partial_record(state,json.loads(shown.stdout)['values'])
                 gate.plan(args.plan,destroy=True)
-                bind_provider(state,args.plan,os.environ['TF_VAR_hcloud_token'],gate,remember=True); save(progress,state)
+                bind_provider(state,args.plan,os.environ['TF_VAR_hcloud_token'],gate,remember=True)
+                state['saved_plan']=args.plan; state.pop('saved_approval',None); save(progress,state)
+                print('Saved plan: '+args.plan)
+                if folder and superseded_plans(folder,args.plan):
+                    print('Older plans remain and can hold a spent key. Run prune-plans with this progress file to review them and choose whether to delete them.')
             elif args.command=='summary':
                 require(args.plan, 'Supply the saved-plan path.')
                 with gate.saved_plan(args.plan) as (snapshot,sha):
@@ -451,6 +592,8 @@ def main():
             elif args.command=='approve':
                 require(args.plan and args.approval, 'Supply plan and new approval paths.')
                 gate.approve(args.plan,args.approval)
+                state['saved_plan']=args.plan; state['saved_approval']=args.approval; save(progress,state)
+                print('Saved approval: '+args.approval)
             else:
                 require(args.plan and args.approval and not state.get('applied'), 'Supply the approved plan; do not apply a place twice.')
                 os.environ['TF_VAR_hcloud_token']=prompt(gate,'Hetzner project token')
@@ -467,11 +610,13 @@ def main():
                 outputs=json.loads(result.stdout)
                 state['outputs']={key:outputs[key]['value'] for key in ('server_id','firewall_id','ssh_key_id','ipv4_address')}
                 state['applied']=True; state['uncertain']=None; save(progress,state)
-                print('Applied the approved plan. Three resources exist; bootstrap and the administrator claim are next. Keep the encrypted state for retirement.')
+                print('Applied the approved plan. Three resources exist. Cloud-init takes several minutes; bootstrap waits for it to finish. Run bootstrap with this progress file next, then prepare the administrator claim. Keep the encrypted state for retirement.')
             return 0
         if args.command=='bootstrap':
-            require(state.get('applied') and not state['done'] and args.address,
-                    'Apply first, then provide the tailnet address of the new server.')
+            require(state.get('applied') and not state['done'],
+                    'Apply first, then run bootstrap before the administrator claim.')
+            if not args.address:
+                args.address=bootstrap_address(state['config']['place']['name'])
             outputs=state['outputs']; config=state['config']; choice=reader.read_json(state['choice_path'])
             require(fingerprint(choice)==state['choice_sha256'],'The saved choice changed; inspect it before continuing.')
             record=dict(schema_version='1.0',phase='place',place=config['place'],choice=choice['choice'],
@@ -538,13 +683,13 @@ def main():
                     state['uncertain']=None; save(progress,state)
                     raise OperationRefused(reason)
             check_window()
-            print('Coolify is healthy. Open http://'+record['infrastructure']['tailnet_ipv4']+':8000/register now. You have ten minutes from the container restart to create the first administrator. The password goes only into Coolify.')
-            print('On Welcome to Coolify, choose Skip setup. Enable two-factor authentication: avatar > Profile > Configure 2FA. Switch on Settings > Advanced > API and MCP > API access. At Keys & Tokens > API Tokens > New token, select Read, Write, Deploy and Read sensitive data, never Root or Delete.')
+            for page in ('claim','two-factor','api-access','team-token'):
+                console_page('coolify.'+page,console_context)
             claim_answer=prompt(gate,'After creating your own account, type claimed '+record['place']['name'])
             check_window()
             read_require(claim_answer=='claimed '+record['place']['name'], 'The person must confirm their own administrator claim.')
         token=claim_token or prompt(gate,'Coolify token with read, read:sensitive, write and deploy, never root or delete')
-        service_key=prompt(gate,'Tailscale API read token for service definitions') if args.step in ('register','start-register','record') else None
+        service_key=read_token(gate,fallback=lambda:prompt(gate,'Tailscale API access token for service definitions (full-permission fallback)')) if args.step in ('register','start-register','record') else None
         oauth_value=prompt(gate,'TAILSCALE_OAUTH_CLIENT_'+('ID' if args.step=='oauth-id' else 'SECRET')) if args.step in ('oauth-id','oauth-secret') else None
         api=API(record,hcloud,token)
         observed=api.token_abilities()

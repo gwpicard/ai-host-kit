@@ -247,7 +247,7 @@ def partial_cli(p, checks, gate, creds):
    assert command('summary','--plan',str(plan)) == 0
    # Synthetic terminal consent applies only to this disposable loopback place.
    sha=gate.digest(plan.read_bytes())
-   with patch.object(gate.termios,'tcflush'), patch.object(gate,'typed',side_effect=['approve '+gate.short_hash(sha),'Synthetic local retirement approval']):
+   with patch.object(gate.termios,'tcflush'), patch.object(gate,'checksum_input',return_value=gate.short_hash(sha)), patch.object(gate,'typed',return_value='Synthetic local retirement approval'):
     assert command('approve','--plan',str(plan),'--approval',str(approval)) == 0
    with patch.object(gate,'typed',return_value=record['place']['name']):
     assert command('retire','--partial','--plan',str(plan),'--approval',str(approval)) == 0

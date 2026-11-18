@@ -26,6 +26,7 @@ records.ROOT = RESOURCES
 VERSION = '1.13.2'
 S3_CREDENTIALS = None
 SECRET_VALUES = {}
+CONSOLE_GUIDANCE = None
 
 
 class GateRefused(ValueError):
@@ -36,9 +37,9 @@ class InputRefused(GateRefused):
     """Fixed input refusals that callers may report without exposing values."""
 
 
-def secrets_directory_safe(directory, real):
+def secrets_directory_safe(directory, real, reason=None):
     """Check the opened directory and its ancestors before reading any values."""
-    reason='Keep the secrets file outside every Git repository, including tracked files.'
+    reason=reason or 'Keep the secrets file outside every Git repository, including tracked files.'
     identity=lambda info:(info.st_dev,info.st_ino)
     if identity(os.fstat(directory)) != identity(real.parent.stat()):
         raise InputRefused('The secrets file directory changed during its safety checks.')
@@ -76,9 +77,10 @@ def secrets_directory_safe(directory, real):
 
 
 def configure_secrets(path=None, place=None):
-    global SECRET_VALUES, S3_CREDENTIALS
+    global SECRET_VALUES, S3_CREDENTIALS, CONSOLE_GUIDANCE
     SECRET_VALUES = {}
     S3_CREDENTIALS = None
+    CONSOLE_GUIDANCE = None
     if path is None:
         if place is None:
             return
@@ -139,6 +141,8 @@ def secret(key, label, shown=False):
     if value:
         return value
     with terminal() as tty:
+        if CONSOLE_GUIDANCE is not None:
+            CONSOLE_GUIDANCE(key)
         return typed(tty, label + (' (shown): ' if shown else ' (hidden): '))
 S3_REDIRECT_ENV = {'HTTP_PROXY','HTTPS_PROXY','ALL_PROXY','NO_PROXY','http_proxy','https_proxy','all_proxy','no_proxy','SSL_CERT_FILE','SSL_CERT_DIR'}
 S3_ENDPOINTS = {f'https://{region}.your-objectstorage.com': region for region in ('fsn1', 'nbg1', 'hel1')}
@@ -245,11 +249,21 @@ def all_ports_context(value, path, *masks):
     return False
 
 
-def display_value(value, path, protected, all_ports=False):
+def display_value(value, path, protected, all_ports=False, kind=None):
     if protected:
         return 'withheld (sensitive or unknown)'
     name = next((x for x in reversed(path) if isinstance(x, str)), '')
-    # Only narrow network primitives may be shown. All free text stays withheld.
+    # Show only declared infrastructure metadata, never arbitrary free text.
+    metadata = (kind in {'hcloud_server', 'hcloud_firewall', 'hcloud_ssh_key'} and
+                (path in [('name',), ('server_type',), ('location',), ('image',)] or
+                 len(path) == 2 and path[0] == 'labels'))
+    if (metadata and isinstance(value, str) and re.fullmatch(r'[a-zA-Z0-9][a-zA-Z0-9_.:/-]{0,127}', value)
+            and safe_words(value) and not list(records.secret_fields(value, field_name=True))
+            and not list(records.secret_fields(records.field_path(path)+': not set -> '+value+'.'))
+            and not any(list(records.secret_fields(x, field_name=True)) for x in path if isinstance(x, str))):
+        return value
+    if name in {'ipv4_enabled', 'ipv6_enabled'} and type(value) is bool:
+        return 'enabled' if value else 'disabled'
     if name in PORTS:
         if type(value) is int and -1 <= value <= 65535:
             return 'all ports' if value == 0 and all_ports else ('all ports' if value == -1 else str(value))
@@ -317,8 +331,9 @@ def summarise(plan):
             result['changes'].append(f'{name}: import or address move; review the ownership change.')
         if kind == 'hcloud_server' and 'create' in actions:
             result['irreversible'].append(f'{name}: the one-off tailnet auth key is sent in user data to Hetzner and retained in encrypted OpenTofu plans and state. Server cloud-init copies can remain. These copies cannot be recalled. The key is single use, uses the shortest available expiry that covers apply (one day, Tailscale\'s shortest option) and is worthless once used or expired. Only tag:server joins are intended; tailnet policy controls access.')
-        if 'delete' in actions:
-            result['irreversible'].append(f'{name}: destruction can lose data, including any stored volumes or bucket contents. Recovery needs a separate tested backup.')
+        if 'delete' in actions and (kind == 'hcloud_server' or re.search(r'bucket|volume|disk|database|db_instance', kind)):
+            detail = 'destruction removes the server disk and its containers' if kind == 'hcloud_server' else 'destruction can lose data, including any stored volumes or bucket contents'
+            result['irreversible'].append(f'{name}: {detail}. Recovery needs a separate tested backup.')
         if actions != ['no-op'] and isinstance(kind, str) and re.search(r'bucket|volume|disk|database|db_instance', kind):
             result['irreversible'].append(f'{name}: storage changes may lose data. Confirm retention and a tested backup before approval.')
         if 'forget' in actions or unrecognised:
@@ -328,13 +343,18 @@ def summarise(plan):
         if unrecognised:
             result['internet'].append(f'{name}: internet exposure is not established for this resource or change; review it.')
             result['access'].append(f'{name}: who can get in is not established for this resource or change; review it.')
-        if isinstance(kind, str) and NETWORK.search(kind):
+        removed = actions == ['delete']
+        if removed:
+            result['internet'].append(f'{name}: removed; this deletion creates no new endpoint. Review any retained resources that depended on it.')
+        if not removed and isinstance(kind, str) and NETWORK.search(kind):
             result['internet'].append(f'{name}: network or public-access change; check the ports, addresses and source ranges below.')
         if (kind == 'hcloud_firewall' and isinstance(change.get('after'), dict)
                 and change['after'].get('rule') == []
                 and all(mask is not True and not (isinstance(mask, dict) and mask.get('rule'))
                         for mask in (change.get('after_sensitive'), change.get('after_unknown')))):
             result['internet'].append(f'{name}: no public inbound ports are opened by these firewall rules.')
+        if removed and kind == 'hcloud_firewall':
+            result['access'].append(f'{name}: removing the firewall removes its protection from any retained servers. Check their inbound access separately.')
         if isinstance(kind, str) and ACCESS.search(kind):
             result['access'].append(f'{name}: access, identity or directory registration changes; check who gains or loses access.')
         for path, before, after, protected in leaves(change.get('before'), change.get('after'),
@@ -347,12 +367,12 @@ def summarise(plan):
             masks = [change.get(key) for key in ('before_sensitive', 'after_sensitive', 'after_unknown')]
             before_all = all_ports_context(change.get('before'), path, *masks)
             after_all = all_ports_context(change.get('after'), path, *masks)
-            line = f'{name}: {field}: {display_value(before, path, protected, before_all)} -> {display_value(after, path, protected, after_all)}.'
+            line = f'{name}: {field}: {display_value(before, path, protected, before_all, kind)} -> {display_value(after, path, protected, after_all, kind)}.'
             if not protected and any(isinstance(x, (dict, list)) and not x for x in (before, after)) and before != after:
                 line = f'{name}: {field}: structural change (empty container added, removed or changed); values withheld.'
             result['changes'].append(line)
             match_path = '.'.join(x for x in path if isinstance(x, str))
-            if NETWORK.search(match_path):
+            if not removed and NETWORK.search(match_path):
                 result['internet'].append(line + ' Possibly affects who can reach the tool. Treat new or wider sources as possible internet access; unknown sources need review.')
             if ACCESS.search(match_path):
                 result['access'].append(line)
@@ -381,7 +401,7 @@ def summarise(plan):
 
 
 def render(sha, summary, target=None):
-    lines = [f'Plan SHA-256: {sha}', f'Read-back checksum: {short_hash(sha)}']
+    lines = [f'Plan SHA-256: {sha}']
     if target is not None:
         lines.extend(['Target project: ' + target['project_root'],
                       'Project SHA-256: ' + target['project_sha256'],
@@ -392,6 +412,7 @@ def render(sha, summary, target=None):
         lines.extend(key + ': ' + str(value) for key, value in target['backend_settings'].items())
     for key, heading in HEADINGS.items():
         lines.extend(['', heading] + ['- ' + line for line in summary[key]])
+    lines.extend(['', f'Read-back checksum: {short_hash(sha)}'])
     return '\n'.join(lines) + '\n'
 
 
@@ -672,7 +693,7 @@ def terminal():
         yield tty
 
 
-def typed(tty, prompt):
+def typed(tty, prompt, optional=False):
     shown = '(shown)' in prompt
     if not shown and '(hidden)' not in prompt:
         prompt += ' (hidden): '
@@ -693,7 +714,7 @@ def typed(tty, prompt):
             tty.write('\n')
             tty.flush()
         if shown:
-            if not safe_words(answer):
+            if not (optional and answer == '') and not safe_words(answer):
                 raise InputRefused('The shown input is empty or may contain a secret. Use the requested identifier or plain words.')
             tty.write(answer + '\n')
             tty.flush()
@@ -706,6 +727,44 @@ def typed(tty, prompt):
     raise InputRefused('A required hidden value was empty after two prompts. No input was accepted.')
 
 
+def checksum_input(tty):
+    """Show checksum characters as typed without echoing arbitrary pasted text."""
+    old = termios.tcgetattr(tty.fileno())
+    new = old.copy()
+    new[3] &= ~(termios.ECHO | termios.ICANON)
+    new[6] = old[6].copy()
+    new[6][termios.VMIN] = 1
+    new[6][termios.VTIME] = 0
+    answer = ''
+    try:
+        termios.tcsetattr(tty.fileno(), termios.TCSANOW, new)
+        termios.tcflush(tty.fileno(), termios.TCIFLUSH)
+        tty.write('Type the checksum alone to approve, or Enter to cancel (shown): ')
+        tty.flush()
+        while True:
+            char = tty.readline(1)
+            if char in ('', '\r', '\n'):
+                break
+            if char in ('\x7f', '\b'):
+                if answer:
+                    answer = answer[:-1]
+                    tty.write('\b \b'); tty.flush()
+                continue
+            position = len(answer)
+            allowed = '-' if position in (4, 9) else '0123456789abcdef'
+            if position >= 14 or char not in allowed:
+                raise InputRefused('Use only the displayed checksum. Other text may contain a secret and was refused.')
+            answer += char
+            tty.write(char); tty.flush()
+    finally:
+        termios.tcflush(tty.fileno(), termios.TCIFLUSH)
+        termios.tcsetattr(tty.fileno(), termios.TCSANOW, old)
+        tty.write('\n'); tty.flush()
+    if not answer:
+        raise InputRefused('Approval cancelled. No approval was recorded.')
+    return answer
+
+
 def approve(path, destination):
     with terminal() as tty, saved_plan(path) as (snapshot, sha):
         target = planned_identity(path, sha)
@@ -714,13 +773,13 @@ def approve(path, destination):
         tty.flush()
         # Discard pre-fed terminal input: confirmation follows the displayed summary.
         termios.tcflush(tty.fileno(), termios.TCIFLUSH)
-        confirmation = typed(tty, 'Type approve followed by the read-back checksum (shown): ')
-        if confirmation != 'approve ' + short_hash(sha):
+        confirmation = checksum_input(tty)
+        if confirmation != short_hash(sha):
             refuse('The typed checksum does not match. Read the summary and run approve again.')
-        words = typed(tty, 'In your own words, what do you approve? (shown): ')
+        words = typed(tty, 'In your own words, what do you approve? Optional; Enter skips (shown): ', optional=True)
         record = dict(schema_version='1.0', plan_sha256=sha,
                       approved_at=datetime.now(timezone.utc).isoformat(), words=words,
-                      confirmation=confirmation, method='terminal-checksum', summary=summary, target=target)
+                      confirmation='approve ' + confirmation, method='terminal-checksum', summary=summary, target=target)
         # Validate before creating the requested file. Temporary record contains only
         # the redacted summary and words; reject unsafe words before writing anything.
         loaded = records.dependencies()
@@ -789,10 +848,10 @@ def approve_effect(effect, destination):
         print(effect['effect'])
         print('Effect checksum: ' + short_hash(sha), flush=True)
         termios.tcflush(tty.fileno(), termios.TCIFLUSH)
-        if typed(tty, 'Type approve followed by the checksum (shown): ') != 'approve ' + short_hash(sha):
+        if checksum_input(tty) != short_hash(sha):
             refuse('The effect confirmation did not match.')
-        words = typed(tty, 'Your words (shown): ')
-        if not safe_words(words):
+        words = typed(tty, 'Your words, optional; Enter skips (shown): ', optional=True)
+        if words != '' and not safe_words(words):
             refuse('Approval words are empty or unsafe. Values are withheld.')
     record = dict(effect_sha256=sha, effect=effect['effect'], words=words,
                   approved_at=datetime.now(timezone.utc).isoformat(), method='foreground-terminal')
@@ -806,7 +865,7 @@ def match_effect(effect, path):
         refuse('No effect approval exists. The person must review and approve this effect.')
     record = records.read_json(path)
     if (set(record) != {'effect_sha256', 'effect', 'words', 'approved_at', 'method'}
-            or record['method'] != 'foreground-terminal' or not safe_words(record['words'])
+            or record['method'] != 'foreground-terminal' or not (record['words'] == '' or safe_words(record['words']))
             or record['effect_sha256'] != effect_sha(effect) or record['effect'] != effect['effect']
             or list(records.secret_fields(record['words']))):
         refuse('Effect approval differs or is malformed. Review and approve the current effect.')

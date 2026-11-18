@@ -235,8 +235,8 @@ def apply_case(gate, project, case):
 def terminal_run(skill, project, destination, piped=False, wrong=False, words='I approve the local fixture changes.', before_words=None, show_plan=None):
     # A synthetic terminal is test machinery, not evidence of a real person's approval.
     sha = hashlib.sha256((project / 'first.plan').read_bytes()).hexdigest()
-    confirmation = 'approve ' + '-'.join(sha[n:n+4] for n in (0,4,8))
-    if wrong: confirmation = 'approve 0000-0000-0000'
+    confirmation = '-'.join(sha[n:n+4] for n in (0,4,8))
+    if wrong: confirmation = '0000-0000-0000'
     sys.stdout.flush(); sys.stderr.flush()
     pid, fd = pty.fork()
     if pid == 0:
@@ -274,7 +274,7 @@ def terminal_run(skill, project, destination, piped=False, wrong=False, words='I
                 except OSError:
                     chunk = b''
                 output += chunk
-            if b'Type approve followed' in output and not sent_confirmation:
+            if b'Type the checksum alone' in output and not sent_confirmation:
                 os.write(fd, (confirmation + '\n').encode()); sent_confirmation = True
             if b'In your own words, what do you approve?' in output and not sent_words:
                 if before_words is not None:

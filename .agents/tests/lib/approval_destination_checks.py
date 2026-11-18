@@ -180,7 +180,7 @@ def run_checks(checks, work):
     checks.tofu(project, 'init', '-reconfigure', '-input=false', '-backend-config=path=new.tfstate')
     mutations = [
         ('plan-time destination comparison', "record['target'] != target_identity()", 'False', lambda module: backend_refusal(checks, scratch, project, work)),
-        ('conservative network classification', 'if NETWORK.search(match_path):', 'if False:', network_checks),
+        ('conservative network classification', 'if not removed and NETWORK.search(match_path):', 'if False:', network_checks),
         ('equivalent all-address ranges', 'and address.prefixlen == 0:', 'and False:', wildcard_checks),
         ('zero port context', 'if value == 0 and all_ports', 'if value == 0', zero_checks),
         ('ip_protocol classification', "if name in {'protocol', 'ip_protocol'} and type(value)", "if name in {'protocol'} and type(value)", network_checks),

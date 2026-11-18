@@ -1,0 +1,190 @@
+{
+  "schema_version": 1,
+  "checked_at": "2026-11-18",
+  "providers": {
+    "hetzner": {
+      "version": "console checked 2026-11-17",
+      "entries": {
+        "project-token": {
+          "url": "https://console.hetzner.com/",
+          "menu_path": "Project > Security > API tokens",
+          "button": "Generate API token",
+          "field": "Description; Read & Write; Token",
+          "shown_once": true,
+          "note": "Select the intended project. Save HETZNER_PROJECT_TOKEN in the protected file."
+        },
+        "storage-keys": {
+          "url": "https://console.hetzner.com/",
+          "menu_path": "Project > Object Storage > S3 credentials",
+          "button": "Generate credentials",
+          "field": "Access Key; Secret Key",
+          "shown_once": true,
+          "note": "Save STORAGE_ACCESS_KEY and STORAGE_SECRET_KEY. Review access to the private state bucket, with versioning."
+        },
+        "bucket": {
+          "url": "https://console.hetzner.com/",
+          "menu_path": "Project > Object Storage > Buckets",
+          "button": "Create bucket",
+          "field": "Name; Location; private access; versioning",
+          "shown_once": false,
+          "note": "Bucket creation and versioning need separate approval. Preflight only reads the selected bucket."
+        },
+        "leftovers": {
+          "url": "https://console.hetzner.com/",
+          "menu_path": "Project > Servers, Firewalls, SSH keys, Volumes, Load Balancers, Primary IPs, Floating IPs, Images, Object Storage and DNS",
+          "button": "Review before Delete",
+          "field": "Resource identity and retained copies",
+          "shown_once": false,
+          "note": "Review snapshot and backup images, including retained copies. Object Storage and DNS remain outside the Cloud inventory. Each deletion needs separate approval. Keep encrypted state and its key for recovery."
+        }
+      }
+    },
+    "tailscale": {
+      "version": "console checked 2026-11-17; API scopes checked 2026-11-18",
+      "entries": {
+        "auth-key": {
+          "url": "https://login.tailscale.com/admin/settings/keys",
+          "menu_path": "Settings > Keys",
+          "button": "Generate auth key...",
+          "field": "Expiry: one day; Reusable: off; Ephemeral: off; Pre-approved: on; Tags: tag:server; Key",
+          "shown_once": true,
+          "note": "Save TAILSCALE_AUTH_KEY. Single use, persistent node. Never reuse this key."
+        },
+        "read-credential": {
+          "url": "https://login.tailscale.com/admin/settings/trust-credentials",
+          "menu_path": "Settings > Trust credentials > + Credential > OAuth",
+          "button": "Custom scopes; Generate credential",
+          "field": "General > Services: Read; Policy File: Read; DNS: Read; Networking settings: Read; Devices > Core: Read and Posture attributes: Read; Client ID; Client secret",
+          "shown_once": true,
+          "note": "Recommended. Save TAILSCALE_READ_CLIENT_ID and TAILSCALE_READ_CLIENT_SECRET. Policy File: Read requires both device read scopes. Networking settings: Read reads HTTPS certificates. No write scopes. The kit exchanges these for a short-lived token with only the reads needed by the command."
+        },
+        "access-token": {
+          "url": "https://login.tailscale.com/admin/settings/keys",
+          "menu_path": "Settings > Keys > API access tokens",
+          "button": "Generate access token...",
+          "field": "Expiry: one day; Access token",
+          "shown_once": true,
+          "note": "Fallback TAILSCALE_API_TOKEN carries the creating user's full API permissions, including permitted writes and deletions. It is not read-only. Revoke it after setup."
+        },
+        "docktail-credential": {
+          "url": "https://login.tailscale.com/admin/settings/trust-credentials",
+          "menu_path": "Settings > Trust credentials > + Credential > OAuth",
+          "button": "Custom scopes; Generate credential",
+          "field": "General > Services: Write with tag:container; Devices > Core: Write with tag:server; Client ID; Client secret",
+          "shown_once": true,
+          "note": "Save TAILSCALE_OAUTH_CLIENT_ID and TAILSCALE_OAUTH_CLIENT_SECRET. This write credential belongs to docktail, never to preflight. Creation needs separate approval."
+        },
+        "policy": {
+          "url": "https://login.tailscale.com/admin/acls/file",
+          "menu_path": "Access controls > JSON editor",
+          "button": "Save",
+          "field": "Policy JSON",
+          "shown_once": false,
+          "note": "Merge the printed policy lines into the existing policy only after your own review and approval. The kit never saves policy.",
+          "required_lines": {
+            "tagOwners": {"tagOwners": {"tag:server": ["autogroup:admin"], "tag:container": ["tag:server"]}},
+            "autoApprovers": {"autoApprovers": {"services": {"tag:container": ["tag:server"]}}},
+            "ssh": {"ssh": [{"action": "check", "src": ["autogroup:admin"], "dst": ["tag:server"], "users": ["root"]}]}
+          },
+          "canary_proposal": {"grants": [
+            {"src": ["autogroup:admin"], "dst": ["tag:server"], "ip": ["tcp:22", "tcp:8000"]},
+            {"src": ["autogroup:admin"], "dst": ["svc:{canary}"], "ip": ["tcp:443"]}
+          ]}
+        },
+        "dns": {
+          "url": "https://login.tailscale.com/admin/dns",
+          "menu_path": "DNS > MagicDNS; DNS > HTTPS Certificates",
+          "button": "Enable MagicDNS; Enable HTTPS",
+          "field": "MagicDNS enabled; HTTPS certificates enabled",
+          "shown_once": false,
+          "note": "Each change needs your approval. Certificate names enter public Certificate Transparency logs."
+        },
+        "service-leftover": {
+          "url": "https://login.tailscale.com/admin/services",
+          "menu_path": "Services > svc:{canary}",
+          "button": "Delete service",
+          "field": "Advertising devices and service identity",
+          "shown_once": false,
+          "note": "Review before separately approved removal."
+        },
+        "machine-leftover": {
+          "url": "https://login.tailscale.com/admin/machines",
+          "menu_path": "Machines > {place}",
+          "button": "Remove",
+          "field": "Machine identity",
+          "shown_once": false,
+          "note": "Review before separately approved removal."
+        },
+        "oauth-leftover": {
+          "url": "https://login.tailscale.com/admin/settings/trust-credentials",
+          "menu_path": "Settings > Trust credentials > the place docktail and read credentials",
+          "button": "Revoke; Revoke to confirm",
+          "field": "Client ID",
+          "shown_once": false,
+          "note": "Check both credentials, if created. Revocation also revokes their active access tokens."
+        },
+        "token-leftover": {
+          "url": "https://login.tailscale.com/admin/settings/keys",
+          "menu_path": "Settings > Keys > API access tokens > the setup token",
+          "button": "Revoke",
+          "field": "Token identity and expiry",
+          "shown_once": false,
+          "note": "Revoke the fallback full-permission API token after setup, if created."
+        }
+      }
+    },
+    "coolify": {
+      "version": "4.7.5",
+      "entries": {
+        "claim": {
+          "url": "http://{address}:8000/register",
+          "menu_path": "Register > Welcome to Coolify",
+          "button": "Create account; Skip setup",
+          "field": "Your own administrator account and password",
+          "shown_once": false,
+          "note": "You have ten minutes after restart. Skip setup avoids unrecorded wizard resources. Password goes only into Coolify."
+        },
+        "two-factor": {
+          "url": "http://{address}:8000/profile",
+          "menu_path": "Avatar (bottom left) > Profile > Two-factor authentication",
+          "button": "Configure 2FA",
+          "field": "Authenticator code and recovery codes",
+          "shown_once": true,
+          "note": "Keep recovery codes separately. Passkeys are unavailable on this plain HTTP IP address."
+        },
+        "api-access": {
+          "url": "http://{address}:8000/settings/advanced",
+          "menu_path": "Settings > Advanced > Access and API > API and MCP > API access",
+          "button": "API access",
+          "field": "API access: on",
+          "shown_once": false,
+          "note": "Leave the built-in MCP server off; this recipe uses the pinned stdio package."
+        },
+        "team-token": {
+          "url": "http://{address}:8000/security/api-tokens",
+          "menu_path": "Keys & Tokens > API Tokens",
+          "button": "New token; Create token",
+          "field": "Description; Expires in; Permissions: Read, Write, Deploy, Read sensitive data, never Root or Delete; Access > Resources: All resources in the team; Copy your token",
+          "shown_once": true,
+          "note": "Never Root or Delete. Save COOLIFY_TEAM_TOKEN in the protected file."
+        },
+        "docktail-variables": {
+          "url": "http://{address}:8000/",
+          "menu_path": "Projects > {place}-infrastructure > production > {place}-docktail > Environment Variables",
+          "button": "Row gear icon > Update Variable",
+          "field": "Value; Runtime: on; Build time: off; production (not preview)",
+          "shown_once": false,
+          "note": "The approved oauth-id and oauth-secret stages normally set these. Manual edits need separate approval; never print either value."
+        },
+        "destination": {
+          "url": "http://{address}:8000/",
+          "menu_path": "Servers > localhost > Destinations",
+          "button": "Select the coolify Standalone Docker destination",
+          "field": "Server UUID and destination UUID",
+          "shown_once": false,
+          "note": "Read existing identities only. Do not create a server or destination."
+        }
+      }
+    }
+  }
+}

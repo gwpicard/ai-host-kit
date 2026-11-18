@@ -14,6 +14,35 @@ This recipe stays off the menu. Empty-Place creation has offline checks only.
 There is no `PROVEN.md`. Tool-level capabilities remain unknown except for the
 recorded UK shortfall in `capabilities.json`. The command sequence and recovery
 steps are in [setup.md](setup.md).
+The [versioned console page map](console-pages.json) owns every Place console
+URL, menu path, button, field and one-time warning. Use `setup.py console
+--page provider.entry` to print and open an entry before collecting its value.
+
+### Place prerequisites and local tools
+
+`setup.py preflight` and the start of `plan` read prerequisites before saving
+a plan. They check the pinned tools and Python requirements, a signed HEAD of
+the state bucket, tag ownership, service auto-approval, administrator SSH,
+MagicDNS and HTTPS certificates. Missing or unreadable prerequisites refuse
+planning with console guidance and proposed policy lines. An allow-all grant
+is reported with a narrower canary proposal. No policy is changed; the person
+reviews and approves console changes themselves. Bucket reachability does not
+prove versioning, retention or lock behaviour.
+
+The recommended Tailscale read credential uses OAuth with Services Read and
+the read scopes required by preflight. See `tailscale.read-credential` in the
+map. It is exchanged for a short-lived bearer token. The access-token fallback
+carries the creating user's full API permissions and must be revoked after
+setup. It is never described as read-only. The separate docktail credential
+has write abilities and is never used by preflight.
+
+`setup.py install-tools` installs into `~/.local/share/ai-host-kit/`: OpenTofu
+1.13.2 checked against published and pinned SHA-256, the pinned Python wheel
+environment, and MCP 3.10.1 installed with scripts disabled and an exact version.
+The MCP lock integrity must match `dependencies.json`; npm verifies fetched
+tarballs. Existing destinations are refused. These are checksum and version
+checks, without release signature verification. Node, npm and Tailscale are
+separate system prerequisites. The installer changes no host or console.
 
 ### Place provisioning
 
@@ -57,7 +86,8 @@ How it works: The saved-plan gate supports local state and a restricted S3
 configuration for Hetzner Object Storage. Use the shared encryption fragment
 and the [approval guide](https://github.com/gwpicard/ai-host-kit/blob/main/.agents/skills/setup-hosting/approval-gate.md). Values come from the protected file described in [setup.md](setup.md), with
 terminal prompts for missing values. That guide owns the file format and prompt
-visibility table. Storage keys are passed only to OpenTofu. No credential helper,
+visibility table. Storage keys are passed only to OpenTofu and the signed
+preflight bucket read. No credential helper,
 keychain or profile is read.
 The key custodian keeps the state passphrase; losing it makes state unreadable.
 How it is checked: A local S3-compatible HTTP stand-in exercises initialisation,
@@ -89,6 +119,9 @@ tailnet URL and a prompted token. Every Coolify write uses it. Project creation,
 docktail definition, each OAuth field, each container start and canary definition
 have separate effects and approvals. docktail 1.8.6 runs unmodified as its own
 container, with Docker and Tailscale socket access and no published ports.
+Its recorded `update_check=true` performs an outbound version check. The
+recipe keeps this default because an off switch has not been verified for
+1.8.6; the create and start effects disclose it before approval.
 The whoami canary has explicit tailnet service port 443 and container port 80.
 Before registration, an existing service with different write-once ports is
 refused. Before recording, a control-plane read must declare `tcp:443` and the
@@ -142,8 +175,9 @@ docktail and canary IDs are recorded as plumbing, with the tailnet service name.
 owned deletions in an encrypted saved destroy plan, checks live ownership,
 requires the typed place name and calls the saved-plan apply gate. It then
 lists remaining Cloud resource IDs, including resources the kit never owned.
-Object Storage, DNS, the tailnet machine and service definition need separate
-console review and separate approval for removal.
+The page map owns the separate console review for Object Storage, DNS, the
+tailnet machine, service definition, OAuth credentials and fallback API token.
+Retirement prints each relevant entry. Each removal needs separate approval.
 How it is checked: Stand-ins cover wrong IDs, names and labels, wrong typed
 name, non-destroy or extra plan actions, missing resources and remaining volumes.
 The shared gate checks the actual encrypted plan approval. No real retirement

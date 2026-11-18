@@ -307,7 +307,8 @@ def exercise(work):
                 assert status!=0 and 'Install the 1Password CLI' in text
         for kind in ('plan','plan-destroy'):
             plan=work/(kind+'.plan')
-            assert command(kind,'--plan',plan)[0]==0
+            from prerequisite_standins import ready
+            with ready(flow):assert command(kind,'--plan',plan)[0]==0
             assert command('summary','--plan',plan)[0]==0
         status,text=command('approve','--plan',plan,'--approval',work/'plan-approval.json')
         assert status!=0 and 'terminal' in text
