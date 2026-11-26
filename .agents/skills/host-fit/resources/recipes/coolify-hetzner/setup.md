@@ -192,7 +192,11 @@ created place, not invented in advance.
    file to be gone, `tag:server`, disabled node-key expiry, Tailscale SSH and
    completed cloud-init and a healthy Coolify container. It waits up to twenty
    minutes for cloud-init, with progress. A failed row reports its reason and,
-   where recognised, the failed cloud-init module. A missing read stops the flow.
+   where recognised, the failed cloud-init module. A failed Tailscale SSH read
+   is retried within the same twenty minutes, with progress. After that,
+   bootstrap stops with the last reason, such as the `tailscale ssh` exit
+   status; command output is withheld. The kit passes only `PATH` and `HOME`
+   to the Tailscale command, which needs `HOME` on macOS.
 
 5. Prepare and approve the first-administrator effect. The person runs the
    approval command, then the run command. The runner reads the Hetzner project

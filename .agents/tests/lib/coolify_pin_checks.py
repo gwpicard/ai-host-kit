@@ -139,7 +139,58 @@ def bootstrap():
     try: node.wait_bootstrap(record, lambda _:running, timeout=30, sleep=sleep, clock=lambda:clock[0], report=messages.append)
     except node.BootstrapFailed as error: assert 'still running' in str(error)
     else: raise AssertionError('Unbounded cloud-init wait')
-    print('Bootstrap reports safe row reasons and waits for running cloud-init with a deadline.')
+    # Transient SSH failures are retried within the same deadline.
+    def failing(error):
+        def read(_): raise error
+        return read
+    reads = iter([failing(node.NodeReadFailed('`tailscale ssh` exited with status 255; error output withheld.')),
+                  failing(OSError('secret-marker')), failing(subprocess.TimeoutExpired(['tailscale'], 45, b'secret-marker')),
+                  failing(ValueError('secret-marker')), lambda _: facts])
+    clock=[0]; messages=[]
+    assert node.wait_bootstrap(record, lambda address: next(reads)(address), sleep=sleep, clock=lambda:clock[0], report=messages.append) == facts
+    assert len(messages)==4 and clock[0]==60 and 'status 255' in messages[0] and not any('secret-marker' in m for m in messages)
+    clock=[0]; messages=[]; attempts=[]
+    def down(_): attempts.append(clock[0]); raise node.NodeReadFailed('`tailscale ssh` exited with status 1; error output withheld.')
+    try: node.wait_bootstrap(record, down, sleep=sleep, clock=lambda:clock[0], report=messages.append)
+    except node.BootstrapFailed as error: assert 'status 1;' in str(error) and 'wait ended' in str(error)
+    else: raise AssertionError('Persistent SSH failure passed')
+    assert clock[0]==1200 and attempts[-1]==1200 and len(attempts)==81
+    clock=[0]
+    try: node.wait_bootstrap(record, failing(OSError('secret-marker')), timeout=30, sleep=sleep, clock=lambda:clock[0], report=messages.append)
+    except node.BootstrapFailed as error: assert 'could not start' in str(error) and 'secret-marker' not in str(error)
+    else: raise AssertionError('Persistent SSH failure passed')
+    print('Bootstrap reports safe row reasons, retries failed reads and waits with a deadline.')
+
+
+def tailscale_environment():
+    # The Tailscale CLI receives exactly PATH and HOME, never other variables.
+    from types import SimpleNamespace
+    from unittest.mock import patch
+    calls = []
+    def run(command, **kwargs):
+        calls.append(kwargs['env'])
+        if command[1] == 'status':
+            return SimpleNamespace(returncode=0, stdout=json.dumps(dict(BackendState='Running', Peer={'a': dict(HostName='test-place', TailscaleIPs=['100.64.0.10'])})).encode())
+        return SimpleNamespace(returncode=run.code, stdout=b'secret-marker')
+    run.code = 0
+    secrets = dict(PATH='/usr/bin', HOME='/Users/fixture', COOLIFY_TEAM_TOKEN='secret-marker', TAILSCALE_OAUTH_CLIENT_SECRET='secret-marker',
+                   HCLOUD_TOKEN='secret-marker', AWS_SECRET_ACCESS_KEY='secret-marker', SSH_AUTH_SOCK='/tmp/agent')
+    with patch.dict(os.environ, secrets, clear=True), patch.object(node.subprocess, 'run', side_effect=run):
+        assert node.bootstrap_address('test-place') == '100.64.0.10'
+        node.reopen_claim('100.64.0.10')
+        run.code = 255
+        for action in (lambda: node.read_node('100.64.0.10'), lambda: node.reopen_claim('100.64.0.10')):
+            try: action()
+            except node.OperationRefused as error: assert 'status 255' in str(error) and 'withheld' in str(error) and 'secret-marker' not in str(error)
+            else: raise AssertionError('A failed Tailscale command passed')
+        del os.environ['HOME']
+        try: node.read_node('100.64.0.10')
+        except node.OperationRefused: pass
+    assert len(calls) == 5
+    assert all(env == dict(PATH='/usr/bin', HOME='/Users/fixture') for env in calls[:4])
+    assert set(calls[4]) == {'PATH', 'HOME'} and calls[4]['HOME'] and calls[4]['HOME'] != '~'
+    assert not any('secret-marker' in value for env in calls for value in env.values())
+    print('The Tailscale CLI receives only PATH and HOME and reports exit status without output.')
 
 
 
@@ -177,4 +228,5 @@ with tempfile.TemporaryDirectory(prefix='coolify-pin-') as temporary:
     pins(work)
     install(work)
     bootstrap()
+    tailscale_environment()
     probe()
