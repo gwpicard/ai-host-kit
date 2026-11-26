@@ -89,8 +89,10 @@ class Services:
             if self.conflict or (method=='POST' and existing):return 409,dict(message='Environment variable already exists. Use PATCH request to update it.'),{}
             if method=='PATCH' and not existing:return 404,{},{}
             self.writes.append((method,path,copy.deepcopy(body)))
-            if not existing:self.env.append(copy.deepcopy(body))
-            else:existing[0].update(body)
+            # Coolify 4.7.5 applies only these fields and ignores deployment flags.
+            applied={key:body[key] for key in ('key','value','is_literal','is_multiline','is_shown_once','comment') if key in body}
+            if not existing:self.env.append(dict(applied,is_runtime=True,is_buildtime=True,is_preview=False))
+            else:existing[0].update(applied)
             return 200,dict(uuid='env-one'),{}
         if path.endswith('/start'):
             self.started=self.clock.now;self.writes.append((method,path,body))
@@ -340,7 +342,8 @@ def oauth(work,step):
         assert len(writes)==1 and writes[0][0]=='PATCH'
         body=writes[0][1];assert body['is_buildtime'] is False and body['is_runtime'] is True and body['is_preview'] is False
         assert case.read()['uncertain'] is None
-        assert transport.API(case.state['record'],'',COOLIFY).service_env_state('docktail-one',body['key'])==[dict(is_set=True,is_buildtime=False,is_runtime=True,is_preview=False)]
+        # Coolify kept build time on; the image-only definition makes that acceptable.
+        assert transport.API(case.state['record'],'',COOLIFY).service_env_state('docktail-one',body['key'])==[dict(is_set=True,is_buildtime=True,is_runtime=True,is_preview=False)]
         # A second create must conflict, exactly as Coolify does.
         before=len(svc.calls)
         try:client.call('env_vars',dict(body,resource='service',action='create',uuid='docktail-one'))
@@ -503,10 +506,89 @@ def oauth_edges(work):
                 else:assert case.recover()[0]!=0
 
 
+ENV_ROWS=json.loads((ROOT/'.agents/tests/fixtures/place/coolify-service-envs.json').read_text())['rows']
+
+
+def oauth_readback(work):
+    # The recorded 4.7.5 row shape passes only for the kit's image-only definition.
+    svc=Services();svc.env=copy.deepcopy(ENV_ROWS)
+    build=flow.DOCKTAIL.replace('    image: ghcr.io/marvinvr/docktail:1.8.6\n','    image: ghcr.io/marvinvr/docktail:1.8.6\n    build: .\n')
+    assert build!=flow.DOCKTAIL
+    with standins(svc):
+        api=transport.API(json.loads((ROOT/'.agents/tests/fixtures/place/place-record.json').read_text()),'',COOLIFY)
+        def shortfall(key,compose=flow.DOCKTAIL):
+            rows=api.service_env_state('docktail-one',key)
+            assert all(set(row)=={'is_set','is_runtime','is_buildtime','is_preview'} for row in rows)
+            reason=flow.oauth_shortfall(rows,key,compose)
+            assert reason is None or OAUTH not in reason
+            return reason
+        assert shortfall('TAILSCALE_OAUTH_CLIENT_ID') is None
+        assert 'build time on' in shortfall('TAILSCALE_OAUTH_CLIENT_ID',build)
+        assert 'unset' in shortfall('TAILSCALE_OAUTH_CLIENT_SECRET')
+        svc.env[0]['is_runtime']=False
+        assert 'runtime off' in shortfall('TAILSCALE_OAUTH_CLIENT_ID')
+        svc.env[0].update(is_runtime=True,is_preview=True)
+        assert 'production rows' in shortfall('TAILSCALE_OAUTH_CLIENT_ID')
+        svc.env.append(dict(ENV_ROWS[0]));svc.env.append(dict(ENV_ROWS[0]))
+        assert 'production rows' in shortfall('TAILSCALE_OAUTH_CLIENT_ID')
+        svc.env=[dict(ENV_ROWS[0],is_buildtime=False)]
+        assert shortfall('TAILSCALE_OAUTH_CLIENT_ID',build) is None
+    # A definition the parser cannot read keeps the stricter rule.
+    for compose in ('',flow.DOCKTAIL.replace('services:','version: "3"\nservices:'),flow.DOCKTAIL.replace('  docktail:','  docktail: &base'),
+                    flow.DOCKTAIL+'  builder:\n    build: .\n',flow.DOCKTAIL.replace('    image:','    <<: *base\n    image:')):
+        assert flow.build_time_applies(compose),compose
+    assert not flow.build_time_applies(flow.DOCKTAIL)
+
+
+def recover_oauth(work):
+    # A reviewed recovery only reads, and completes only on a passing read.
+    for step in ('oauth-id','oauth-secret'):
+        svc=Services();case=Scenario(work/step,step)
+        with standins(svc):
+            svc.env=[dict(row,value='') for row in ENV_ROWS];svc.empty_readback=True
+            status,text=case.run();assert status!=0 and 'unset' in text,text
+            assert case.read()['uncertain']==step and json.loads(case.receipt().read_text())['status']=='uncertain'
+            # Only abandonment existed before; abandonment still needs proof of no write.
+            case.recovery(True);assert case.recover()[0]!=0
+            case.reffect.unlink();case.reapproval.unlink();case.recovery()
+            recovery=json.loads(case.reffect.read_text())
+            assert recovery['action']=='place-recover-oauth' and recovery['step']==step and 'changes nothing' in recovery['effect']
+            path=case.receipt();before=case.progress.read_bytes();receipt=path.read_bytes();writes=len(svc.writes);calls=len(svc.calls)
+            def unchanged():return case.progress.read_bytes()==before and path.read_bytes()==receipt and len(svc.writes)==writes
+            status,text=case.recover();assert status!=0 and 'unset' in text and 'stays uncertain' in text and unchanged(),text
+            svc.empty_readback=False;svc.env[0 if step=='oauth-id' else 1]['is_runtime']=False
+            status,text=case.recover();assert status!=0 and 'runtime off' in text and unchanged(),text
+            svc.env[0 if step=='oauth-id' else 1]['is_runtime']=True
+            # The same check applies: a definition with a build step needs build time off.
+            with patch.object(flow.oauth_shortfall,'__defaults__',(flow.DOCKTAIL+'  builder:\n    build: .\n',)):
+                status,text=case.recover();assert status!=0 and 'build time on' in text and unchanged(),text
+            svc.team_id=1
+            status,text=case.recover();assert status!=0 and 'same Coolify team' in text and unchanged(),text
+            svc.team_id=0
+            approved=case.reapproval.read_bytes();case.reapproval.write_text('{}')
+            assert case.recover()[0]!=0 and unchanged()
+            case.reapproval.write_bytes(approved)
+            original=case.effect.read_bytes();changed=json.loads(original);changed['arguments']['key']='OTHER'
+            case.effect.write_text(json.dumps(changed));assert case.recover()[0]!=0 and unchanged()
+            case.effect.write_bytes(original)
+            with place_lock(case.state['record']):assert case.recover()[0]!=0 and unchanged()
+            status,text=case.recover();assert status==0,text
+            assert case.read()['done']==flow.STEPS[:flow.STEPS.index(step)+1] and case.read()['uncertain'] is None
+            assert json.loads(path.read_text())['status']=='completed'
+            assert len(svc.writes)==writes and all(method=='GET' for method,path in svc.calls[calls:])
+            assert case.recover()[0]!=0 and len(svc.writes)==writes
+    # Other stages keep abandonment as their only recovery.
+    svc=Services();case=Scenario(work/'project','project')
+    with standins(svc):
+        svc.closed=False;assert case.run()[0]!=0
+        status,text=case.command('prepare-recovery','--step','project','--attempt-effect',case.effect,'--effect',work/'project-recovery.json')
+        assert status!=0 and not (work/'project-recovery.json').exists()
+
+
 def main():
     cases={'http-status':http_status,'restart-boundaries':restart_boundaries,'closed-window':closed_window,'claim':claim,'discover':discover,'oauth-id':lambda w:oauth(w,'oauth-id'),
            'oauth-secret':lambda w:oauth(w,'oauth-secret'),'record':record,'record-failures':failed_record,
-           'recover-claim':recover_claim,'abandon':abandon,'oauth-edges':oauth_edges}
+           'recover-claim':recover_claim,'abandon':abandon,'oauth-edges':oauth_edges,'oauth-readback':oauth_readback,'recover-oauth':recover_oauth}
     parser=argparse.ArgumentParser();parser.add_argument('--case',choices=list(cases)+['all'],default='all');args=parser.parse_args()
     with tempfile.TemporaryDirectory(prefix='place-stage-checks-') as tmp:
         for name,run in cases.items():

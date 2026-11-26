@@ -826,7 +826,7 @@ class Arguments(argparse.ArgumentParser):
 
 
 def effect_sha(effect):
-    if (not isinstance(effect, dict) or effect.get('action') not in ('set-lane', 'register-docktail', 'claim-admin', 'place-claim', 'place-project', 'place-docktail', 'place-oauth-id', 'place-oauth-secret', 'place-start-docktail', 'place-register', 'place-start-register', 'place-record', 'place-recover-claim', 'place-abandon')
+    if (not isinstance(effect, dict) or effect.get('action') not in ('set-lane', 'register-docktail', 'claim-admin', 'place-claim', 'place-project', 'place-docktail', 'place-oauth-id', 'place-oauth-secret', 'place-start-docktail', 'place-register', 'place-start-register', 'place-record', 'place-recover-claim', 'place-recover-oauth', 'place-abandon')
             or not isinstance(effect.get('effect'), str) or not effect['effect']
             or not re.fullmatch(r'[0-9a-f]{64}', effect.get('place_sha256', ''))
             or ('progress_sha256' in effect and not re.fullmatch(r'[0-9a-f]{64}', effect['progress_sha256']))
