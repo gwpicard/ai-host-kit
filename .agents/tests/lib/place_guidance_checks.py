@@ -301,7 +301,7 @@ def bootstrap(f):
         if args[0]!='tailscale':return original(args,**kwargs)
         calls.append(args)
         assert args==['tailscale','status','--json'],args
-        assert set(kwargs['env'])=={'PATH'} and kwargs['stdin']==subprocess.DEVNULL
+        assert set(kwargs['env'])=={'PATH','HOME'} and kwargs['stdin']==subprocess.DEVNULL
         return subprocess.CompletedProcess(args,0,json.dumps(status).encode(),b'')
     reads=[]
     def read(address):reads.append(address);return facts

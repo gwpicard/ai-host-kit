@@ -192,7 +192,11 @@ created place, not invented in advance.
    file to be gone, `tag:server`, disabled node-key expiry, Tailscale SSH and
    completed cloud-init and a healthy Coolify container. It waits up to twenty
    minutes for cloud-init, with progress. A failed row reports its reason and,
-   where recognised, the failed cloud-init module. A missing read stops the flow.
+   where recognised, the failed cloud-init module. A failed Tailscale SSH read
+   is retried within the same twenty minutes, with progress. After that,
+   bootstrap stops with the last reason, such as the `tailscale ssh` exit
+   status; command output is withheld. The kit passes only `PATH` and `HOME`
+   to the Tailscale command, which needs `HOME` on macOS.
 
 5. Prepare and approve the first-administrator effect. The person runs the
    approval command, then the run command. The runner reads the Hetzner project
@@ -256,11 +260,17 @@ created place, not invented in advance.
    unmodified container definition with Docker and Tailscale socket access.
    The two OAuth stages separately approve storing each prompted value in
    Coolify's runtime environment. Each reads the production key first, updates
-   it if present and creates it only if absent. Build time is off. Coolify
-   creates empty keys while parsing Compose, so a duplicate create would fail.
-   MCP masks empty and set values alike. The read-back therefore reduces the
-   authenticated API response inside the local transport to set or unset and
-   deployment flags; no value reaches command output and no reveal tool runs.
+   it if present and creates it only if absent. Coolify creates empty keys
+   while parsing Compose, so a duplicate create would fail. MCP masks empty and
+   set values alike. The read-back therefore reduces the authenticated API
+   response inside the local transport to set or unset and deployment flags;
+   no value reaches command output and no reveal tool runs. It requires exactly
+   one production row that is set, runtime on and not preview. The write asks
+   for build time off, but Coolify 4.7.5 ignores build-time flags on service
+   variables and keeps the build time it set while parsing Compose. Build time
+   only feeds image builds. The read-back accepts it because the kit's own
+   docktail definition pulls a pinned image and has no `build:` section; for
+   any definition with a build step it still requires build time off.
    `start-docktail` approves its ability to
    reconcile labelled Tailscale services. `register` defines the pinned canary
    with no published ports. `start-register` lets docktail advertise it to the
@@ -383,6 +393,24 @@ pass records the claim as done and completes its receipt. A failure leaves
 the stage uncertain and reports the failed check or HTTP status. It changes
 no account or inbound firewall rule.
 
+For an uncertain `oauth-id` or `oauth-secret` stage, inspect the variable in
+Coolify, then prepare and approve a recovery that only reads. Set `STEP` to
+the uncertain stage:
+
+```sh
+python3 "$SETUP" prepare-recovery --progress "$PROGRESS" --step "$STEP" --attempt-effect "$PLACE/$STEP-effect.json" --effect "$PLACE/$STEP-recovery.json"
+python3 "$GATE/approval_gate.py" approve-effect "$PLACE/$STEP-recovery.json" "$PLACE/$STEP-recovery-approval.json"
+python3 "$SETUP" recover --progress "$PROGRESS" --step "$STEP" --attempt-effect "$PLACE/$STEP-effect.json" --effect "$PLACE/$STEP-recovery.json" --approval "$PLACE/$STEP-recovery-approval.json"
+```
+
+The command reads the Coolify token and requires the team recorded at the
+attempt. It then reads the docktail service variables through the same
+reduced transport as the stage read-back and applies the same check. Only a
+pass records the stage as done and completes its receipt. A failure names the
+failed condition, never a value, and leaves the stage uncertain. Recovery
+sends no value and changes nothing in Coolify. If the variable is wrong,
+recovery cannot repair it; a manual edit needs its own approval.
+
 For an abandoned attempt, use `--abandon` on both recovery commands. Set
 `STEP` to the failed stage and use new recovery paths:
 
@@ -399,7 +427,7 @@ older receipt without that team identity cannot use the absence route.
 A start acknowledgement, a stopped container or
 masked environment values cannot prove absence of a write. Without suitable
 evidence, recovery refuses and keeps the uncertainty. The administrator claim
-has its own completion route above because the person acts outside the runner.
+and the OAuth variable stages have their own completion routes above.
 
 On success, recovery retains the old receipt as `not-written` and appends the
 abandoned attempt and reason to progress. That changes the next effect's

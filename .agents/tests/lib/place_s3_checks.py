@@ -191,9 +191,13 @@ def partial_cli(p, checks, gate, creds):
     return flow.main()
   assert command('apply','--plan',str(p/'plan'),'--approval',str(p/'synthetic-approval.json')) == 0
   assert json.loads(progress.read_text())['applied'] is True
-  with patch.object(flow,'read_node',side_effect=OSError('Synthetic failed bootstrap')) as node_read:
+  # Failed reads are retried until the deadline; a fake clock keeps this instant.
+  import node
+  clock=[0]
+  def wait(record,read):return node.wait_bootstrap(record,read,sleep=lambda s:clock.__setitem__(0,clock[0]+s),clock=lambda:clock[0],report=lambda m:None)
+  with patch.object(flow,'read_node',side_effect=OSError('Synthetic failed bootstrap')) as node_read,patch.object(flow,'wait_bootstrap',side_effect=wait):
    assert command('bootstrap','--address','100.64.0.10') == 1
-   node_read.assert_called_once_with('100.64.0.10')
+   assert node_read.call_count>1 and all(call.args==('100.64.0.10',) for call in node_read.call_args_list) and clock[0]==1200
   assert 'record' not in json.loads(progress.read_text())
   credential_order(gate,creds)
   # Remove the helper call only in a disposable skill copy. The same assertion

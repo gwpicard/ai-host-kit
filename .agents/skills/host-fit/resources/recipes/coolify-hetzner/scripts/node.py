@@ -38,6 +38,24 @@ HOST_KIT_NODE
 """
 
 
+def tailscale_env():
+    """The macOS Tailscale CLI exits without HOME. Pass only PATH and HOME."""
+    return {'PATH':os.environ.get('PATH',''),'HOME':os.environ.get('HOME') or os.path.expanduser('~')}
+
+
+class NodeReadFailed(OperationRefused):
+    """Carries a fixed reason and an exit status, never command output."""
+
+
+def ssh_reason(error):
+    """Name a Tailscale SSH failure without its output, which may hold secrets."""
+    if isinstance(error, NodeReadFailed): return str(error)
+    if isinstance(error, subprocess.TimeoutExpired): return '`tailscale ssh` timed out.'
+    if isinstance(error, FileNotFoundError): return 'The tailscale command was not found on PATH.'
+    if isinstance(error, OSError): return '`tailscale ssh` could not start.'
+    return 'The node returned unreadable facts.'
+
+
 def bootstrap_address(name):
     """Resolve one exact approved host name from the local Tailscale client."""
     def checked(condition,message):
@@ -45,8 +63,8 @@ def bootstrap_address(name):
     try:
         result=subprocess.run(['tailscale','status','--json'],stdin=subprocess.DEVNULL,
                               stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,timeout=30,
-                              env={'PATH':os.environ.get('PATH','')})
-        checked(result.returncode==0, 'The local Tailscale client could not read its peers. Check that it is running and signed in.')
+                              env=tailscale_env())
+        checked(result.returncode==0, 'The local Tailscale client could not read its peers: `tailscale status` exited with status '+str(int(result.returncode))+'; error output withheld. Check that it is running and signed in.')
         status=json.loads(result.stdout)
         checked(isinstance(status,dict), 'The local Tailscale client returned an unreadable status.')
         checked(status.get('BackendState')=='Running' and isinstance(status.get('Peer'),dict),
@@ -72,8 +90,9 @@ def bootstrap_address(name):
 def read_node(address):
     result = subprocess.run(['tailscale','ssh','root@'+tailnet_address(address),'sh','-s'],
                             input=PROBE.encode(), stdout=subprocess.PIPE,
-                            stderr=subprocess.DEVNULL, timeout=45, env={'PATH': os.environ.get('PATH', '')})
-    require(result.returncode == 0, 'The node read failed.')
+                            stderr=subprocess.DEVNULL, timeout=45, env=tailscale_env())
+    if result.returncode:
+        raise NodeReadFailed('`tailscale ssh` exited with status '+str(int(result.returncode))+'; error output withheld.')
     return json.loads(result.stdout)
 
 
@@ -131,7 +150,16 @@ def wait_bootstrap(record, read=read_node, timeout=1200, sleep=time.sleep, clock
     while True:
         try:
             facts = read(record['infrastructure']['tailnet_ipv4'])
-        except (OSError, ValueError, KeyError, TypeError, subprocess.TimeoutExpired):
+        except (OSError, ValueError, subprocess.TimeoutExpired) as error:
+            # SSH can fail while the node joins or restarts. Retry until the
+            # deadline and keep only the last safe reason.
+            reason = ssh_reason(error)
+            if clock() >= deadline:
+                raise BootstrapFailed('Tailnet node read: Could not read the bootstrap facts over Tailscale SSH before the wait ended. Last failure: '+reason) from None
+            report('Tailnet node read: '+reason+' Checking again in 15 seconds.')
+            sleep(min(15, max(0, deadline - clock())))
+            continue
+        except (KeyError, TypeError):
             raise BootstrapFailed('Tailnet node read: Could not read the bootstrap facts over Tailscale SSH.') from None
         if facts.get('cloud_init_state') != 'running' or clock() >= deadline:
             bootstrap(record, lambda address: facts)
@@ -156,8 +184,9 @@ def reopen_claim(address):
     try:
         result = subprocess.run(['tailscale', 'ssh', 'root@'+tailnet_address(address), 'sh', '-s'],
                                 input=REOPEN_CLAIM.encode(), stdout=subprocess.DEVNULL,
-                                stderr=subprocess.DEVNULL, timeout=150, env={'PATH': os.environ.get('PATH', '')})
-    except (OSError, subprocess.TimeoutExpired):
-        raise OperationRefused('Could not confirm the Coolify restart over Tailscale SSH. Inspect the uncertain claim before retrying.') from None
+                                stderr=subprocess.DEVNULL, timeout=150, env=tailscale_env())
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise OperationRefused('Could not confirm the Coolify restart over Tailscale SSH. '+ssh_reason(error)+' Inspect the uncertain claim before retrying.') from None
     if result.returncode:
-        raise OperationRefused('Coolify did not become healthy after the restart. Inspect the uncertain claim before retrying.')
+        # The fixed script exits 1 when health never arrives; SSH failures share the status.
+        raise OperationRefused('Coolify did not become healthy after the restart, or Tailscale SSH failed: `tailscale ssh` exited with status '+str(int(result.returncode))+'; error output withheld. Inspect the uncertain claim before retrying.')

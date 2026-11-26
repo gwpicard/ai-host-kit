@@ -119,7 +119,7 @@ def environment(work):
     original_run=subprocess.run;seen=[]
     tools=work/'bin';tools.mkdir()
     child=tools/'tailscale'
-    child.write_text('#!'+sys.executable+'\nimport os,sys\nassert set(os.environ) <= {"PATH", "LC_CTYPE"}\nassert "docker restart coolify" in sys.stdin.read()\n')
+    child.write_text('#!'+sys.executable+'\nimport os,sys\nassert set(os.environ) <= {"PATH", "HOME", "LC_CTYPE"} and os.environ["HOME"]\nassert "docker restart coolify" in sys.stdin.read()\n')
     child.chmod(0o755)
     def ssh(command,**kwargs):
         if command[0]=='tailscale':
