@@ -12,6 +12,8 @@ import tempfile
 sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parents[3]
 COMMANDS = {'setup-hosting', 'go-live', 'check-live', 'change-live'}
+CATEGORIES = ('feature', 'enhancement', 'bug', 'documentation', 'chore', 'skip-release-notes',
+              'release-major', 'release-minor', 'release-patch')
 
 
 def run(args, cwd=ROOT, expected=0, env=None, input=None):
@@ -204,10 +206,48 @@ def pull_request_checks(work):
         assert result.returncode != 0
     run([base], expected=2)
     label = ROOT / '.agents/tools/check-release-label.sh'
-    for value in ('feature', 'enhancement', 'bug', 'documentation', 'chore', 'skip-release-notes', 'release-major', 'release-minor', 'release-patch'):
-        run([label], input=value + '\n')
+    summary = work / 'summary.md'
+    for value in CATEGORIES + ('area:release\nbug', 'release-major\nrelease-patch'):
+        summary.write_text('')
+        result = run([label], input=value + '\n', env={'GITHUB_STEP_SUMMARY': str(summary)})
+        assert '::notice' not in result.stdout and summary.read_text() == '', result.stdout
+    # A missing category passes with a notice; the release step enforces it.
     for value in ('', 'area:release\n', 'not-chore\n', 'chore; echo unsafe\n'):
-        run([label], input=value, expected=1)
+        summary.write_text('')
+        result = run([label], input=value, env={'GITHUB_STEP_SUMMARY': str(summary)})
+        assert result.stdout.startswith('::notice'), result.stdout
+        assert all(name in summary.read_text() for name in CATEGORIES)
+    # The accepted list comes from one file shared with the opener and the release step.
+    tools = snapshot(work / 'tools')
+    categories = tools / '.agents/tools/release-categories.txt'
+    categories.write_text(categories.read_text().replace('\nchore ', '\nhousekeeping '))
+    copied = tools / '.agents/tools/check-release-label.sh'
+    assert run([copied], input='chore\n').stdout.startswith('::notice')
+    assert '::notice' not in run([copied], input='housekeeping\n').stdout
+    opener = ROOT / '.agents/tools/open-pull-request.sh'
+    repo = work / 'repo'; repo.mkdir()
+    run(['git', 'init', '-q', '-b', 'chore/sample'], cwd=repo)
+    (repo / '.agents/tools').mkdir(parents=True)
+    for name in ('open-pull-request.sh', 'release-categories.txt'):
+        shutil.copy2(ROOT / '.agents/tools' / name, repo / '.agents/tools' / name)
+    stub = work / 'bin'; stub.mkdir()
+    record = work / 'gh-arguments'
+    (stub / 'gh').write_text('#!/bin/sh\nfor a in "$@"; do printf "%s\\n" "$a"; done > "$GH_RECORD"\n')
+    (stub / 'gh').chmod(0o755)
+    gh_env = {'PATH': f"{stub}{os.pathsep}{os.environ['PATH']}", 'GH_RECORD': str(record)}
+    copy = repo / '.agents/tools/open-pull-request.sh'
+    run([copy, 'chore', '--title', 'Sample', '--label', 'area:release'], cwd=repo, env=gh_env)
+    assert record.read_text().splitlines() == ['pr', 'create', '--base', 'main', '--head', 'chore/sample',
+                                               '--label', 'chore', '--title', 'Sample', '--label', 'area:release']
+    for arguments in ([], ['housekeeping'], ['area:release'], ['chore; echo unsafe'], ['--title'],
+                      ['chore', '--base', 'stable'], ['chore', '-Bstable'], ['chore', '--head=other']):
+        record.unlink(missing_ok=True)
+        result = run([copy, *arguments], cwd=repo, env=gh_env, expected=2)
+        assert not record.exists(), f'gh ran for {arguments}'
+        assert 'chore' in result.stdout and 'release-patch' in result.stdout
+    run(['git', 'checkout', '-q', '-b', 'main'], cwd=repo)
+    run([copy, 'chore'], cwd=repo, env=gh_env, expected=2)
+    assert not record.exists(), 'gh ran from main'
     workflows = ROOT / '.github/workflows'
     source = yaml_document(workflows / 'source-checks.yml')
     assert set(source['jobs']) == {'source-kit-validation', 'rehearsal'}
@@ -236,7 +276,47 @@ def pull_request_checks(work):
         for job in document['jobs'].values():
             assert 'if' not in job
             assert any('checkout@' in s.get('uses', '') and s.get('with', {}).get('persist-credentials') is False for s in job['steps'])
-    print('Unlabelled pull requests and every base except main refused; workflow wiring passed.')
+    print('Missing categories pass with a notice; the opener refuses unknown categories; every base except main refused; workflow wiring passed.')
+
+
+def release_categories(work):
+    check = ROOT / '.agents/tools/check-release-categories.py'
+    N = chr(35)  # Written this way so the source rule against reference numbers does not match.
+    def merged(number, labels, when='2026-02-01T00:00:00Z'):
+        return {'number': number, 'title': f'Change {number}', 'mergedAt': when,
+                'labels': [{'name': name} for name in labels]}
+    labelled = [merged(n, [c, 'area:release']) for n, c in enumerate(CATEGORIES, start=1)]
+    result = run([sys.executable, check, '--input', '-'], input=json.dumps(labelled))
+    assert all(f'{N}{n} ' in result.stdout for n in range(1, len(CATEGORIES) + 1)), result.stdout
+    unlabelled = labelled + [merged(40, ['area:release']), merged(41, [])]
+    result = run([sys.executable, check, '--input', '-'], input=json.dumps(unlabelled), expected=1)
+    assert N + '40 Change 40' in result.stdout and N + '41 Change 41' in result.stdout, result.stdout
+    assert N + '1 ' not in result.stdout and 'gh pr edit 40 --add-label' in result.stdout
+    # Only pull requests merged after the last release count.
+    before = [merged(1, ['bug']), merged(2, [], '2025-12-31T23:59:59Z')]
+    path = work / 'merged.json'; path.write_text(json.dumps(before))
+    run([sys.executable, check, '--input', path, '--since', '2026-01-01T00:00:00Z'])
+    run([sys.executable, check, '--input', path], expected=1)
+    for broken in ('{"number": 1}', 'not json', '[{"labels": 7}]'):
+        run([sys.executable, check, '--input', '-'], input=broken, expected=2)
+    # Without --input it asks gh; a stub stands in so no test reaches GitHub.
+    stub = work / 'bin'; stub.mkdir()
+    (stub / 'gh').write_text('#!/bin/sh\necho "$*" >> "$GH_RECORD"\ncase "$1" in\n'
+                             '  release) echo \'[{"tagName":"v0.0.1","publishedAt":"2026-01-01T00:00:00Z"}]\' ;;\n'
+                             '  pr) cat "$GH_PULLS" ;;\nesac\n')
+    (stub / 'gh').chmod(0o755)
+    record = work / 'gh-record'
+    env = {'PATH': f"{stub}{os.pathsep}{os.environ['PATH']}", 'GH_RECORD': str(record), 'GH_PULLS': str(path)}
+    result = run([sys.executable, check], env=env)
+    assert 'v0.0.1' in result.stdout and N + '2 ' not in result.stdout, result.stdout
+    calls = record.read_text()
+    assert 'pr list --state merged --base main' in calls and 'release list' in calls, calls
+    path.write_text(json.dumps(before + [merged(3, [], '2026-03-01T00:00:00Z')]))
+    result = run([sys.executable, check], env=env, expected=1)
+    assert N + '3 Change 3' in result.stdout and N + '2 ' not in result.stdout, result.stdout
+    (stub / 'gh').write_text('#!/bin/sh\necho "not signed in" >&2\nexit 4\n')
+    run([sys.executable, check], env=env, expected=2)
+    print('The release step refuses unlabelled merged pull requests, lists them, and proceeds when all have categories.')
 
 
 def commit_hook(work):
@@ -311,6 +391,7 @@ def rehearsal_runner(work):
 if __name__ == '__main__':
     actions = {'source-rules': source_rules, 'release-builder': release_builder,
                'pull-request-checks': pull_request_checks, 'commit-hook': commit_hook,
+               'release-categories': release_categories,
                'rehearsal-runner': rehearsal_runner}
     with tempfile.TemporaryDirectory(prefix='ahk-check-') as folder:
         actions[sys.argv[1]](Path(folder))

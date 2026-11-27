@@ -1,0 +1,7 @@
+{
+  "description": "Coolify 4.7.5 docktail service variables after the oauth-id write, as its UI reported them: build time and runtime on, production. Values are synthetic.",
+  "rows": [
+    {"uuid": "env-id", "key": "TAILSCALE_OAUTH_CLIENT_ID", "value": "synthetic-oauth-only", "is_buildtime": true, "is_runtime": true, "is_preview": false, "is_literal": false, "is_multiline": false, "is_shown_once": false},
+    {"uuid": "env-secret", "key": "TAILSCALE_OAUTH_CLIENT_SECRET", "value": "", "is_buildtime": true, "is_runtime": true, "is_preview": false, "is_literal": false, "is_multiline": false, "is_shown_once": false}
+  ]
+}

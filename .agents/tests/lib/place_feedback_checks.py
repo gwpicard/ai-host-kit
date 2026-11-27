@@ -139,10 +139,16 @@ def key(work):
 def main():
     cases=dict(summary=summary,commands=commands,key=key)
     parser=argparse.ArgumentParser();parser.add_argument('--case',choices=['all',*cases],default='all');args=parser.parse_args()
+    # Only the summary case decrypts a real saved plan; the others still run without OpenTofu.
+    missing=[] if shutil.which('tofu') else ['summary']
     with tempfile.TemporaryDirectory(prefix='place-feedback-') as tmp:
         for name,run in cases.items():
-            if args.case not in ('all',name):continue
+            if args.case not in ('all',name) or name in missing:continue
             work=Path(tmp)/name;work.mkdir();run(work);print('Passed: '+name)
+    if missing and args.case in ('all',*missing):
+        print('could-not-run: OpenTofu 1.13.2 is required for the real encrypted summary case')
+        return 2
+    return 0
 
 
-if __name__=='__main__':main()
+if __name__=='__main__':sys.exit(main())

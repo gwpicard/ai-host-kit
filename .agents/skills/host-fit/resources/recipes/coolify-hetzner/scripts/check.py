@@ -70,11 +70,12 @@ def main():
                 report_refusal(error, gate)
                 raise
         rows = check_place(record, outside_probe, coolify, lambda:package.get('version'))
-        from node import read_node, node_rows
+        from node import read_node, node_rows, ssh_reason
         try:
             rows.extend(node_rows(record, read_node(record['infrastructure']['tailnet_ipv4'])))
-        except (OSError, ValueError, KeyError, TypeError, subprocess.TimeoutExpired):
+        except (OSError, ValueError, KeyError, TypeError, subprocess.TimeoutExpired) as error:
             rows.append(('Tailnet node and temporary key', 'could not decide'))
+            print('Tailnet node read: ' + ssh_reason(error), file=sys.stderr)
         for name, status in rows:
             print(name + ': ' + status)
         return 0 if all(status == 'passed' for _, status in rows) else 1

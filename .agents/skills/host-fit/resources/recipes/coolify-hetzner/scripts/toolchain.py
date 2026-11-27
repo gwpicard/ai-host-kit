@@ -1,4 +1,5 @@
 """Install pinned tools once in the person's lasting local kit folder."""
+from contextlib import contextmanager
 import hashlib
 import importlib.metadata
 import io
@@ -6,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -61,10 +63,29 @@ def requirements(gate):
     return Path(gate.__file__).resolve().parent.parent/'resources/schema-requirements.txt'
 
 
-def run(args, child=None):
+def npm_error_summary(output):
+    # This install receives no credentials and ignores inherited npm settings.
+    # Show only bounded error lines, without terminal control sequences.
+    lines = []
+    for line in output.decode('utf-8', errors='replace').splitlines():
+        line = re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', line)
+        line = ''.join(char for char in line if char.isprintable()).strip()
+        # npm can fail before its usual error logger is configured.
+        if (line.startswith(('npm error', 'npm ERR!', 'double-loading config ', 'Error: double-loading config '))
+                or line == 'Exit prior to config file resolving'):
+            lines.append(line[:400])
+        if len(lines) == 6: break
+    return '\n'.join(lines)
+
+
+def run(args, child=None, npm_errors=False):
     result = subprocess.run(list(map(str,args)), env=child or {'PATH':os.environ.get('PATH','')},
-        stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=600)
-    if result.returncode: raise OperationRefused('A tool command failed. Installation stopped; package diagnostics are withheld.')
+        stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE if npm_errors else subprocess.DEVNULL, timeout=600)
+    if result.returncode:
+        summary = npm_error_summary(result.stderr) if npm_errors else ''
+        raise OperationRefused('A tool command failed with exit status '+str(result.returncode)+'.'+
+                               ('\n'+summary if summary else ''))
     return result.stdout
 
 
@@ -105,41 +126,74 @@ def verify_tools(gate, package=None):
 
 def install(gate, home=None):
     home = Path(home or default_home()).expanduser().absolute()
-    for part in [home, *home.parents]:
-        if part.is_symlink(): raise OperationRefused('The tools folder must not use symlinks.')
-    # No overwrite or removal of an existing tool environment.
     destinations = [home/'opentofu', home/'venv', home/('coolify-mcp-'+pins()['version'])]
-    if any(path.exists() for path in destinations):
-        raise OperationRefused('A tool destination already exists. Keep it; inspect and verify it before choosing a new installation folder.')
-    home.mkdir(parents=True, exist_ok=True)
-    descriptor = os.open(home, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     try:
-        gate.secrets_directory_safe(descriptor,home/'unused',reason='Keep installed tools outside every Git repository.')
-    finally: os.close(descriptor)
-    if any(shutil.which(tool) is None for tool in ('node','npm')):
-        raise OperationRefused('Install Node and npm first; the tool installer does not install system runtimes.')
+        install_steps(gate, home, destinations)
+    except OperationRefused as error:
+        present = [path for path in [*destinations, home/'npm-cache'] if path.exists()]
+        folders = ('Folders present (possibly incomplete): '+', '.join(map(str,present))+'.'
+                   if present else 'No tool destination folders are present.')
+        raise OperationRefused(str(error)+'\nTools home: '+str(home)+'. '+folders+
+            '\nNothing was removed. Before retrying in this home, inspect and remove any existing '+
+            'tool destinations: '+', '.join(map(str,destinations))+'. '+
+            'Alternatively, retry install-tools with --tools-home pointing to a new home.') from None
+
+
+@contextmanager
+def installation_step(name):
+    try:
+        yield
+    except (OSError,ValueError,KeyError,TypeError,subprocess.TimeoutExpired,zipfile.BadZipFile) as error:
+        if isinstance(error, OperationRefused): reason = str(error)
+        elif isinstance(error, subprocess.TimeoutExpired): reason = 'A tool command timed out.'
+        elif isinstance(error, OSError): reason = 'Local file or download access failed.'
+        else: reason = 'Tool output or package metadata could not be verified.'
+        raise OperationRefused('Tool installation failed during '+name+'. '+reason) from None
+
+
+def install_steps(gate, home, destinations):
+    with installation_step('checking the installation folder'):
+        for part in [home, *home.parents]:
+            if part.is_symlink(): raise OperationRefused('The tools folder must not use symlinks.')
+        # No overwrite or removal of an existing tool environment.
+        if any(path.exists() for path in destinations):
+            raise OperationRefused('A tool destination already exists. Keep it; inspect and verify it before choosing a new installation folder.')
+        home.mkdir(parents=True, exist_ok=True)
+        descriptor = os.open(home, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            gate.secrets_directory_safe(descriptor,home/'unused',reason='Keep installed tools outside every Git repository.')
+        finally: os.close(descriptor)
+        if any(shutil.which(tool) is None for tool in ('node','npm')):
+            raise OperationRefused('Install Node and npm first; the tool installer does not install system runtimes.')
     # venv is created at its lasting path so its scripts retain that path.
-    install_tofu(destinations[0])
-    verify = run([destinations[0]/'tofu','version','-json'])
-    if json.loads(verify).get('terraform_version') != VERSION:
-        raise OperationRefused('The installed OpenTofu binary reports a different version.')
-    run([sys.executable,'-I','-m','venv',destinations[1]])
-    python = destinations[1]/'bin/python3'
-    run([python,'-I','-m','pip','--isolated','install','--only-binary=:all:','--no-deps',
-         '--disable-pip-version-check','-r',requirements(gate)])
-    verify_python(gate, python)
-    print('Verified every Python requirement version. Only binary wheels were permitted; no source build scripts ran.')
-    mcp = destinations[2]; mcp.mkdir()
-    (mcp/'package.json').write_text(json.dumps(dict(name='ai-host-kit-tools',version='1.0.0',private=True)))
-    pin = pins()
-    # Ignore user npm configuration and lifecycle hooks, including those of
-    # transitive dependencies. npm checks fetched tarballs against lock SRI.
-    child = {'PATH':os.environ.get('PATH',''), 'HOME':str(home),
-             'NPM_CONFIG_USERCONFIG':'/dev/null', 'NPM_CONFIG_GLOBALCONFIG':'/dev/null',
-             'NPM_CONFIG_CACHE':str(home/'npm-cache')}
-    run(['npm','install','--prefix',mcp,'--ignore-scripts','--save-exact','--no-audit','--no-fund',
-         '--registry=https://registry.npmjs.org',pin['package']+'@'+pin['version']], child)
-    package = mcp/'node_modules'/pin['package']/'package.json'
-    verify_mcp(package)
-    print('Verified MCP '+pin['version']+': exact package version and lock-file SHA-512 integrity match dependencies.json. npm checked downloaded tarballs; all lifecycle scripts were disabled.')
+    with installation_step('OpenTofu installation and verification'):
+        install_tofu(destinations[0])
+        verify = run([destinations[0]/'tofu','version','-json'])
+        if json.loads(verify).get('terraform_version') != VERSION:
+            raise OperationRefused('The installed OpenTofu binary reports a different version.')
+    with installation_step('Python environment installation and verification'):
+        run([sys.executable,'-I','-m','venv',destinations[1]])
+        python = destinations[1]/'bin/python3'
+        run([python,'-I','-m','pip','--isolated','install','--only-binary=:all:','--no-deps',
+             '--disable-pip-version-check','-r',requirements(gate)])
+        verify_python(gate, python)
+        print('Verified every Python requirement version. Only binary wheels were permitted; no source build scripts ran.')
+    with installation_step('MCP installation and verification'):
+        mcp = destinations[2]; mcp.mkdir()
+        (mcp/'package.json').write_text(json.dumps(dict(name='ai-host-kit-tools',version='1.0.0',private=True)))
+        pin = pins()
+        # Ignore user npm configuration and lifecycle hooks, including those of
+        # transitive dependencies. npm checks fetched tarballs against lock SRI.
+        user_config = mcp/'npm-user.conf'; global_config = mcp/'npm-global.conf'
+        for config in (user_config, global_config):
+            descriptor = os.open(config, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            os.close(descriptor)
+        child = {'PATH':os.environ.get('PATH',''), 'HOME':str(home),
+                 'NPM_CONFIG_USERCONFIG':str(user_config), 'NPM_CONFIG_GLOBALCONFIG':str(global_config),
+                 'NPM_CONFIG_CACHE':str(home/'npm-cache')}
+        run(['npm','install','--prefix',mcp,'--ignore-scripts','--save-exact','--no-audit','--no-fund',
+             '--registry=https://registry.npmjs.org',pin['package']+'@'+pin['version']], child, npm_errors=True)
+        package = mcp/'node_modules'/pin['package']/'package.json'
+        verify_mcp(package)
+        print('Verified MCP '+pin['version']+': exact package version and lock-file SHA-512 integrity match dependencies.json. npm checked downloaded tarballs; all lifecycle scripts were disabled.')
     print('Tools installed in '+str(home)+'. Put '+str(home/'opentofu')+' and '+str(home/'venv/bin')+' on PATH. MCP package: '+str(package))

@@ -21,7 +21,7 @@ run_group() {
   script=$2
   required=""
   case "$group" in
-    approval-gate | commit-hook | contracts | host-fit | pull-request-checks | rehearsal-runner | release-builder | source-rules)
+    approval-gate | commit-hook | contracts | host-fit | pull-request-checks | rehearsal-runner | release-builder | release-categories | source-rules)
       required="python3 git" ;;
   esac
   case "$group" in

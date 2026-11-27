@@ -1,17 +1,18 @@
 #!/usr/bin/env sh
-# check-release-label.sh: require a deliberate release category.
+# check-release-label.sh: report whether a pull request carries a release category.
 # Adapted from AI Build Kit; see docs/SOURCES.md.
+#
+# A missing category does not fail this check. The release step,
+# check-release-categories.py, refuses a release while any merged pull request
+# lacks one. This check gives early notice so the label can be added in review.
 set -eu
-
-ACCEPTED="feature
-enhancement
-bug
-documentation
-chore
-skip-release-notes
-release-major
-release-minor
-release-patch"
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd -P)
+CATEGORIES="$ROOT/.agents/tools/release-categories.txt"
+ACCEPTED=$(sed -n 's/^\([a-z][a-z-]*\).*/\1/p' "$CATEGORIES")
+if [ -z "$ACCEPTED" ]; then
+  echo "No release categories could be read from $CATEGORIES." >&2
+  exit 2
+fi
 
 if [ "$#" -gt 0 ]; then
   found=$(printf '%s\n' "$@")
@@ -29,24 +30,33 @@ if [ -n "$matched" ]; then
   exit 0
 fi
 
-# The message is read by a person looking at a red check, so it says what to do
-# rather than what went wrong.
-cat >&2 <<MESSAGE
-This pull request has no label saying what kind of change it is, so the release
-number would be chosen by default rather than by anybody.
+found_list=$(printf '%s\n' "$found" | sed '/^$/d' | paste -sd ',' - | sed 's/,/, /g')
+choices=$(grep -v '^#' "$CATEGORIES" | sed 's/^/  /')
 
-Add one of these, then this check passes:
+# GitHub shows this line as an annotation on the pull request's checks.
+echo "::notice title=No release category yet::This pull request has no release category label. The release will refuse to proceed until it has one. Add one with: gh pr edit <number> --add-label <category>"
 
-  feature, enhancement   a new thing people using the kit can do   (minor)
-  bug                    a repair                                   (patch)
-  documentation          a change to what the kit says              (patch)
-  chore                  maintenance, nothing for a reader          (patch)
-  skip-release-notes     never shows in the notes, such as a
-                         version stamp or maintainer-only material
+explain() {
+  cat <<MESSAGE
+This pull request has no label saying what kind of change it is. This check
+still passes, but the release step refuses to proceed while any merged pull
+request lacks a category, so the version number is somebody's decision.
 
-  release-major, release-minor, release-patch
-                         force the version, whatever else is present
+Add one of these before or after merging:
 
-Labels found on this pull request: ${found:-none}
+$choices
+
+With the GitHub CLI: gh pr edit <number> --add-label <category>
+Labels found on this pull request: ${found_list:-none}
 MESSAGE
-exit 1
+}
+explain
+
+if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+  {
+    printf '## No release category yet\n\n```\n'
+    explain
+    printf '```\n'
+  } >> "$GITHUB_STEP_SUMMARY"
+fi
+exit 0

@@ -1,0 +1,12 @@
+# Release categories: the accepted pull request labels and what each means.
+# check-release-label.sh, open-pull-request.sh and check-release-categories.py read this file.
+# Each line is a label name, then the explanation shown to the person choosing.
+feature             a new thing people using the kit can do (minor)
+enhancement         a new thing people using the kit can do (minor)
+bug                 a repair (patch)
+documentation       a change to what the kit says (patch)
+chore               maintenance, nothing for a reader (patch)
+skip-release-notes  never shows in the notes, such as a version stamp or maintainer-only material
+release-major       forces a major version, whatever else is present
+release-minor       forces a minor version, whatever else is present
+release-patch       forces a patch version, whatever else is present

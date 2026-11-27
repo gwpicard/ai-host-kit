@@ -58,6 +58,43 @@ def canary(name):
 '''
 
 
+def compose_keys(text):
+    """Map each service to its keys in the plain block Compose the kit writes."""
+    # Any other layout returns None, so callers keep the stricter rule.
+    lines=[line for line in text.splitlines() if line.strip()]
+    if not lines or lines[0]!='services:': return None
+    services={}; current=None
+    for line in lines[1:]:
+        service=re.fullmatch(r'  ([a-z0-9][a-z0-9_.-]*):',line)
+        key=re.fullmatch(r'    ([a-z_][a-z0-9_]*):.*',line)
+        if service and service[1] not in services: current=services[service[1]]=set()
+        elif key and current is not None: current.add(key[1])
+        elif line.startswith('      ') and current: continue
+        else: return None
+    return services or None
+
+
+def build_time_applies(compose):
+    """Build-time variables matter unless every service only pulls an image."""
+    services=compose_keys(compose)
+    return services is None or not all('image' in keys and 'build' not in keys for keys in services.values())
+
+
+def oauth_shortfall(rows, key, compose=DOCKTAIL):
+    """Name the first failed read-back condition for one service variable; never its value."""
+    # Coolify 4.7.5 ignores build-time flags on service variables and keeps
+    # the build time it set while parsing Compose. It matters only for builds.
+    if not isinstance(rows,list) or len(rows)!=1 or not isinstance(rows[0],dict):
+        return 'Coolify returned '+(str(len(rows)) if isinstance(rows,list) else 'no list of')+' production rows for '+key+'; exactly one is required.'
+    row=rows[0]
+    if row.get('is_preview') is not False: return 'Coolify reports '+key+' as a preview variable.'
+    if row.get('is_set') is not True: return 'Coolify reports '+key+' as unset.'
+    if row.get('is_runtime') is not True: return 'Coolify reports '+key+' with runtime off.'
+    if build_time_applies(compose) and row.get('is_buildtime') is not False:
+        return 'Coolify reports '+key+' with build time on, and the docktail definition can build an image.'
+    return None
+
+
 def save(path, value):
     path=Path(path)
     require(not path.is_symlink(), 'A progress path must not be a symlink.')
@@ -237,9 +274,8 @@ def run_stage(state, step, approval, gate, api, mcp, confirm, service_definition
         raise
     require(isinstance(result,dict), 'The MCP write returned an unexpected result; inspect the place before retrying.')
     if step in ('oauth-id','oauth-secret'):
-        rows=api.service_env_state(args['uuid'],args['key'])
-        read_require(len(rows)==1 and rows[0]==dict(is_set=True,is_runtime=True,is_buildtime=False,is_preview=False),
-                'Coolify did not confirm a set production runtime value; inspect the uncertain stage.')
+        reason=oauth_shortfall(api.service_env_state(args['uuid'],args['key']),args['key'])
+        read_require(reason is None, 'Coolify did not confirm the stored value. '+str(reason)+' Inspect the uncertain stage.')
     if step in ('project','docktail','register'):
         require(isinstance(result.get('uuid'),str) and bool(result['uuid']), 'The MCP write returned no identity; inspect the place before retrying.')
         return {step+'_uuid':result['uuid']}
@@ -302,12 +338,23 @@ def recovery_context(state, step, original, reader):
 
 def recovery_effect(state, step, original, reader, abandon):
     effect,receipt,saved=recovery_context(state,step,original,reader)
-    require(abandon or step=='claim', 'Only the administrator claim can be completed by this recovery.')
-    return dict(action='place-abandon' if abandon else 'place-recover-claim',journal=state['journal'],
+    require(abandon or step in ('claim','oauth-id','oauth-secret'),
+            'Only the administrator claim and the OAuth variable stages can be completed by this recovery.')
+    if abandon:
+        action='place-abandon'
+        text='Record the '+step+' attempt as abandoned only with proof that no write occurred. Keep its spent receipt marked not-written. A new attempt needs a new effect and approval. No host or access changes.'
+    elif step=='claim':
+        action='place-recover-claim'
+        text='Repeat the administrator claim checks and typed confirmation. Complete only this uncertain claim and its receipt if every check passes. No host or access changes.'
+    else:
+        action='place-recover-oauth'
+        text=('Read '+effect['arguments']['key']+' on the docktail service through the Coolify API in the team recorded at the attempt, reduced to set or unset and deployment flags. '
+              'Complete only this uncertain '+step+' stage and its receipt if exactly one production row is set, runtime and not preview'+
+              (', with build time off.' if build_time_applies(DOCKTAIL) else '. Build time is not checked: the kit\'s docktail definition pulls an image and has no build step.')+
+              ' Sends no value and changes nothing in Coolify.')
+    return dict(action=action,journal=state['journal'],
         progress_sha256=fingerprint(state),place_sha256=fingerprint(state['record']),
-        receipt_sha256=fingerprint(saved),attempt_sha256=fingerprint(effect),step=step,
-        effect=('Record the '+step+' attempt as abandoned only with proof that no write occurred. Keep its spent receipt marked not-written. A new attempt needs a new effect and approval. No host or access changes.' if abandon else
-                'Repeat the administrator claim checks and typed confirmation. Complete only this uncertain claim and its receipt if every check passes. No host or access changes.'))
+        receipt_sha256=fingerprint(saved),attempt_sha256=fingerprint(effect),step=step,effect=text)
 
 
 def abandon_reason(state, step, effect, receipt, api):
@@ -517,6 +564,18 @@ def main():
                 state.setdefault('abandoned_attempts',[]).append(dict(step=args.step,receipt=receipt.name,reason=reason))
                 state['uncertain']=None; save(progress,state)
                 print('Recorded the abandoned attempt. Prepare a new effect and obtain fresh approval.'); return 0
+            if args.step in ('oauth-id','oauth-secret'):
+                # Reads only: the team identity and the reduced variable flags.
+                api=API(record,'',prompt(gate,'Coolify scoped token'))
+                team=api.coolify_team()
+                read_require(saved.get('coolify_team_id') is not None and isinstance(team,dict) and team.get('id')==saved['coolify_team_id'],
+                             'Completion needs the same Coolify team recorded at the attempt; the stage stays uncertain.')
+                key=original['arguments']['key']
+                reason=oauth_shortfall(api.service_env_state(original['arguments']['uuid'],key),key)
+                if reason: raise OperationRefused(reason+' The stage stays uncertain.')
+                state['done'].append(args.step); state['uncertain']=None; save(progress,state)
+                finish_attempt(receipt)
+                print('Completed the checked '+args.step+' stage and its receipt. No value was sent.'); return 0
             print('The Hetzner project token reads the firewall to confirm that inbound access is closed.')
             hcloud=prompt(gate,'Hetzner project token')
             token=prompt(gate,'Coolify scoped token')
@@ -740,6 +799,7 @@ def main():
         if args.command in ('recover','prepare-recovery','discover') and type(error) is ValueError: print('Recovery or discovery checks failed; the stage and receipt were not completed.',file=sys.stderr)
         from api import report_refusal
         report_refusal(error, locals().get('gate'))
+        if args.command=='install-tools': return 1
         if isinstance(state,dict):
             infra=state.get('record',{}).get('infrastructure',{})
             if all(type(infra.get(key)) is int and infra[key]>0 for key in ('server_id','firewall_id','ssh_key_id')):
