@@ -103,6 +103,13 @@ passed; on GitHub it fails the job. The deterministic suite uses no host,
 credentials or model. It tests boundaries and script outcomes. It does not
 claim to prove conversations or hosting promises.
 
+The Coolify recipe's REST requests follow the pinned Coolify release. Before
+changing the `coolify` pin, read that release's `routes/api.php` and the
+controllers for each route listed under `coolify_api` in the recipe's
+`dependencies.json`. Update the field lists in `scripts/api.py` and the
+stand-in in `.agents/tests/lib/place_stage_checks.py` to match. The stand-in
+copies the controllers the maintainer read; it does not check a real Coolify.
+
 Before pushing, save the tree, then run:
 
 ```sh
@@ -166,7 +173,7 @@ a release does. The validator refuses any other plugin source, a version in the
 marketplace entry, and version markers that disagree.
 
 The version markers are both plugin manifests, `.ai-host-kit-version` and
-`KIT_VERSION` in the Coolify recipe's `mcp.py` and its generated host-fit copy.
+`KIT_VERSION` in the Coolify recipe's `api.py` and its generated host-fit copy.
 `main` keeps the version it already has. Only the release commit carries the
 new one, and the release tool reads the last released version from
 `origin/stable` and the local `v` tags.

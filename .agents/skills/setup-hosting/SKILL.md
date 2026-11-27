@@ -34,7 +34,7 @@ permission for provider reads, show the saved-plan summary and let the person
 run approval themselves. Never answer a hidden prompt or manufacture approval.
 
 Continue only through the approved saved apply, bootstrap reads, the person's
-first-admin claim, localhost destination discovery and each named MCP effect.
+first-admin claim, localhost destination discovery and each named Coolify write effect.
 Each write has its own approval. Keep the internal firewall lane closed until
 the claim is read back. Use `lane.py` for a separately approved public-lane
 test. The final record stage preserves the unchanged choice and writes the

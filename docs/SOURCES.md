@@ -40,11 +40,11 @@ and retirement ownership checks are from launchpad. Lane separation, explicit do
 service port and the control-plane write-once port check are from coolify-devops.
 Closely adapted files carry source headers. Both MIT notices remain intact.
 
-`@masonator/coolify-mcp` 3.10.1 is the MIT runtime dependency, from
-[StuMason/coolify-mcp](https://github.com/StuMason/coolify-mcp). Its npm tarball
-was verified against its published SHA-512 integrity before reading. The exact
-pin and integrity are in the recipe's `dependencies.json`; no MCP source is
-copied into the runtime. Its MIT notice is included in NOTICES. The stdio client drives the installed package without copying its code.
+Earlier kits used `@masonator/coolify-mcp` 3.10.1, MIT, from
+[StuMason/coolify-mcp](https://github.com/StuMason/coolify-mcp), as a runtime
+dependency for Coolify writes. The kit now calls Coolify's API itself; the
+reasons are under [Coolify access route](#coolify-access-route). No code from
+that package was copied. Its MIT notice remains in NOTICES.
 Declared token scopes do not establish the abilities of a real token; the
 pinned Coolify API has no current-token introspection route.
 
@@ -67,3 +67,46 @@ behaviour; this pins Coolify's release files, not the whole machine image.
 Coolify's Apache-2.0 licence is preserved in NOTICES, including for these local
 changes. Its tagged OpenAPI and routes confirm rollback and token abilities;
 the recipe owns those facts and their limits. No Coolify source is bundled.
+
+## Coolify access route
+
+The Place stages, and the later slices for going live, changing a live tool,
+backups and previews, call Coolify's REST API directly from the recipe's
+`scripts/api.py`. The `@masonator/coolify-mcp` package was removed. Coolify's
+built-in MCP server is not used by the scripted stages; it remains an option
+for a later, separately approved, read-only agent surface.
+
+The reasons come from reading the Coolify v4.7.5 source (the commit above),
+[laravel/mcp](https://github.com/laravel/mcp) 1.0.1 and the installed
+coolify-mcp 3.10.1 package. Nothing was run against a live Coolify.
+
+- Both MCP routes end in the same REST controllers. Coolify's built-in server
+  sends every write through the REST routes and their middleware
+  (`app/Mcp/Concerns/CallsRestApi.php`), and the package calls the same
+  routes over HTTP. For scripted stages, MCP adds a layer but no ability.
+- Every current and planned need has a REST route in `routes/api.php`:
+  projects, services with Compose, service variables and start or stop;
+  applications from a Dockerfile or image, with runtime-only secrets;
+  PostgreSQL creation, deploys, logs, rollback, backups including run now,
+  and previews. Extra PostgreSQL roles have no route in any of the three
+  options and need `psql` over Tailscale SSH.
+- The dropped build-time flags are server behaviour, not a package fault.
+  `ServicesController::create_env` and `update_env_by_uuid` read only key,
+  value, literal, multiline, shown-once and comment, whichever client sends
+  the request. Calling the API directly lets the kit refuse those flags
+  instead of sending them unnoticed.
+- Supply chain: the package has one maintainer and a stated tested range of
+  Coolify 4.0 to 4.3 (`dist/lib/tested-range.js`), while the kit pins 4.7.5.
+  Its four runtime dependencies use caret ranges, so they were not pinned. It
+  needed Node and npm on the person's computer, and a third-party process held
+  the full-team token.
+- Token exposure stays the same. The REST calls use the same tailnet path to
+  port 8000, with the same token, that the kit already used for reads.
+
+The kit now owns its request shapes. They were taken from the 4.7.5
+controllers, and each Coolify write stage first reads the running version and
+refuses any other. The package's own mapping confirmed one detail: it
+base64-encodes `docker_compose_raw` before `POST /services`, which the 4.7.5
+route requires. The 4.7.5 rate limit on these writes, 200 a minute from the
+`api` throttle, is inferred from the code and has not been tested. A
+supervised run on a fresh place still has to confirm the switch end to end.
