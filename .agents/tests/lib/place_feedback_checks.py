@@ -207,8 +207,11 @@ def proxy(work):
             if self.port==443:raise TimeoutError('synthetic-private-marker')
             return SimpleNamespace(status=503,read=lambda *a:(_ for _ in ()).throw(AssertionError('body read')))
         def close(self):pass
-    class HTTPConnection(Connection):pass
-    class HTTPSConnection(Connection):pass
+    # Inherit the real classes' attributes, which urllib reads when it builds an
+    # opener on newer Python, while the fake methods replace every network call.
+    import http.client
+    class HTTPConnection(Connection,http.client.HTTPConnection):pass
+    class HTTPSConnection(Connection,http.client.HTTPSConnection):pass
     with patch.object(api,'hidden_value',return_value='fixture'),patch.object(check,'outside_probe',side_effect=lambda host,port:port in (80,443)), \
          patch.object(check,'check_place',side_effect=lambda r,probe,read,mcp:[('outside TCP 80','passed')]), \
          patch('node.read_node',return_value={}),patch('node.node_rows',return_value=[]), \
