@@ -82,10 +82,13 @@ def source_rules(work):
     mutation('.agents/skills/recipes/coolify-hetzner/scripts/mcp.py', lambda t: t.replace("KIT_VERSION = '0.0.1'", "KIT_VERSION = '0.0.2'"), 'version markers disagree')
     mutation('.agents/skills/recipes/coolify-hetzner/scripts/mcp.py', lambda t: t.replace("KIT_VERSION = '0.0.1'", "VERSION = '0.0.1'"), 'expected exactly one KIT_VERSION line')
     mutation('.ai-host-kit-version', lambda t: 'v0.0.2\n', 'version markers disagree')
-    # Installs follow the stable branch; any other source would publish main or a fork.
-    for source in ('"./"', '{"source": "github", "repo": "gwpicard/ai-host-kit"}',
-                   '{"source": "github", "repo": "gwpicard/ai-host-kit", "ref": "main"}',
-                   '{"source": "github", "repo": "someone/ai-host-kit", "ref": "stable"}'):
+    # Installs follow the stable branch over public HTTPS; any other source would publish
+    # main or a fork, or need a GitHub SSH key that most people do not have.
+    for source in ('"./"', '{"source": "url", "url": "https://github.com/gwpicard/ai-host-kit.git"}',
+                   '{"source": "url", "url": "https://github.com/gwpicard/ai-host-kit.git", "ref": "main"}',
+                   '{"source": "url", "url": "https://github.com/someone/ai-host-kit.git", "ref": "stable"}',
+                   '{"source": "url", "url": "git@github.com:gwpicard/ai-host-kit.git", "ref": "stable"}',
+                   '{"source": "github", "repo": "gwpicard/ai-host-kit", "ref": "stable"}'):
         mutation('.claude-plugin/marketplace.json',
                  lambda t, s=source: json.dumps(dict(json.loads(t), plugins=[dict(json.loads(t)['plugins'][0], source=json.loads(s))])),
                  'marketplace must install the plugin from gwpicard/ai-host-kit at the stable branch')

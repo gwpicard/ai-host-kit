@@ -466,7 +466,9 @@ def validate(args):
         repository = re.fullmatch(r'https://github\.com/([\w.-]+/[\w.-]+)', str(claude.get('repository', '')))
         require(repository is not None and agent.get('repository') == claude.get('repository'), 'plugin repository must be one GitHub repository')
         # Users receive a change only when the stable branch carries a higher version.
-        stable = {'source': 'github', 'repo': repository.group(1), 'ref': STABLE_BRANCH}
+        # A github source clones over SSH, which fails for anyone without a GitHub
+        # key; the public HTTPS address works for everyone.
+        stable = {'source': 'url', 'url': f'https://github.com/{repository.group(1)}.git', 'ref': STABLE_BRANCH}
         entry = market['plugins'][0]
         require(entry.get('name') == 'ai-host-kit' and entry.get('source') == stable and 'version' not in entry,
                 f'marketplace must install the plugin from {repository.group(1)} at the {STABLE_BRANCH} branch, without its own version')

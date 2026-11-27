@@ -9,8 +9,8 @@
     {
       "name": "ai-host-kit",
       "source": {
-        "source": "github",
-        "repo": "gwpicard/ai-host-kit",
+        "source": "url",
+        "url": "https://github.com/gwpicard/ai-host-kit.git",
         "ref": "stable"
       },
       "description": "Beta hosting kit. Local host choice; creating the place is not built yet.",
