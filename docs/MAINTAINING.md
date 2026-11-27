@@ -45,8 +45,10 @@ The other checks are `pull-request-base` and `release-label`. The `main` ruleset
 requires all four checks, so a failing required check blocks merging. Because
 `release-label` passes without a category, it blocks a merge only if the check
 itself cannot run.
-The first release will establish `stable` and its ruleset; neither exists as
-part of this work. Do not change repository settings during source work.
+`main` is the working branch; people who install the Claude Code plugin
+receive only what a release puts on `stable`, as the release section
+describes. The `stable` ruleset needs a separate instruction. Do not change
+repository settings during source work.
 
 ## Skills and adapters
 
@@ -151,6 +153,101 @@ run both checks and the merged-tree rehearsal, then rehearse both install
 routes in disposable projects. Ask what an existing user must do to upgrade.
 Record missing checks and compatibility limits in the review. Publication,
 tags, release promotion and the `stable` ruleset need separate instructions.
+
+## Release to stable
+
+The marketplace entry in `.claude-plugin/marketplace.json` installs the plugin
+from this repository's `stable` branch. Claude Code computes the plugin's
+version from `version` in `.claude-plugin/plugin.json` on that branch and
+replaces an installed copy only when that version changes, as its
+[version rules](https://code.claude.com/docs/en/plugins/loading.md#how-claude-code-computes-the-version)
+describe. Merging to `main` therefore reaches nobody who installed the plugin;
+a release does. The validator refuses any other plugin source, a version in the
+marketplace entry, and version markers that disagree.
+
+The version markers are both plugin manifests, `.ai-host-kit-version` and
+`KIT_VERSION` in the Coolify recipe's `mcp.py` and its generated host-fit copy.
+`main` keeps the version it already has. Only the release commit carries the
+new one, and the release tool reads the last released version from
+`origin/stable` and the local `v` tags.
+
+After the category check, on a clean checkout of the commit to release:
+
+```sh
+git fetch origin --tags
+git switch main && git pull --ff-only
+.agents/tools/prepare-stable.sh v0.1.0
+```
+
+The tool works offline and pushes nothing. It refuses unsaved or untracked
+files, a commit that is not on `origin/main`, version markers that disagree,
+and a version that is not newer than the last release under Semantic
+Versioning precedence. A second argument names an earlier commit on
+`origin/main` instead of `HEAD`. It builds the release commit in a private
+index without touching the checkout, stamps every version marker, and saves
+the commit as the maintainer on a local `release/v<version>` branch with an
+annotated `v<version>` tag. Unless `stable` is already part of the source
+history, the commit's second parent is the current `origin/stable`, so
+`stable` always moves by fast-forward although the stamp never returns to
+`main`. The tool prints the push commands and the commands that discard the
+local branch and tag.
+
+Check the release tree, then push it:
+
+```sh
+git switch release/v0.1.0
+.agents/tools/validate-kit.sh
+git switch main
+git push origin <release commit>:refs/heads/stable
+git push origin refs/tags/v0.1.0
+```
+
+An ordinary push refuses anything but a fast-forward; never force `stable`.
+Publishing a GitHub release from the tag, for example with
+`gh release create v0.1.0 --verify-tag`, gives the category check its next
+starting point. Without one, pass `--since` to that check. For the Agent
+Plugins package, build the folder from the tag in a separate worktree, such as
+`git worktree add /private/tmp/ai-host-kit-v0.1.0 v0.1.0`, then run that
+worktree's `build-release.sh v0.1.0` with a new output folder.
+
+Finally, add the marketplace in a disposable project as the
+[compatibility guide](COMPATIBILITY.md) describes, install the plugin and
+confirm that `claude plugin list --json` reports the new version.
+
+### The first release
+
+Until `stable` exists, an install or marketplace refresh that reads this entry
+from `main` cannot fetch the plugin. Existing installs keep their cached copy.
+Push the first release as soon as the change that introduced the `stable`
+entry is merged:
+
+1. Before merging, run `.agents/tools/check-release-categories.py` and choose
+   the version. Every pull request so far has a category, and several are
+   `feature`, so the first release is a minor release: `v0.1.0`.
+2. Merge the change.
+3. Run the three release steps above with `v0.1.0`, the checks and the
+   merged-tree rehearsal on the merged `main`, then push both refs.
+4. In a disposable project, install from `gwpicard/ai-host-kit` and confirm
+   version `0.1.0`. Then confirm that an install of `0.0.1` made from `main`
+   moves to `0.1.0` with the update commands in the compatibility guide, and
+   record whether it needed the reinstall described there.
+
+## Try unreleased work
+
+Adding a clone as a marketplace does not load the clone's files, because the
+entry fetches `stable` from GitHub. Load the working tree for one session
+instead:
+
+```sh
+claude --plugin-dir /path/to/ai-host-kit
+```
+
+Claude Code loads a `--plugin-dir` plugin in place, and it replaces an installed
+plugin of the same name for that session, as its
+[loading reference](https://code.claude.com/docs/en/plugins/loading.md#name-conflicts)
+describes. Your installed copy and its settings are unchanged. The install
+rehearsal in the compatibility guide points its disposable copy's marketplace
+entry at that copy, so it also tests the tracked files rather than `stable`.
 
 ## Adopt an upstream handover commit
 

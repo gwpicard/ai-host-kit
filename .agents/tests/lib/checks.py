@@ -79,6 +79,19 @@ def source_rules(work):
     mutation('.agents/tools/kit-inventory.txt', lambda t: t + 'command fifth\n', 'exactly the four hosting commands')
     mutation('release-manifest.txt', lambda t: t + '.agents/maintainer-skills|\n', 'maintainer or undeclared material')
     mutation('.claude-plugin/plugin.json', lambda t: t.replace('"0.0.1"', '"0.0.2"'), 'version markers disagree')
+    mutation('.agents/skills/recipes/coolify-hetzner/scripts/mcp.py', lambda t: t.replace("KIT_VERSION = '0.0.1'", "KIT_VERSION = '0.0.2'"), 'version markers disagree')
+    mutation('.agents/skills/recipes/coolify-hetzner/scripts/mcp.py', lambda t: t.replace("KIT_VERSION = '0.0.1'", "VERSION = '0.0.1'"), 'expected exactly one KIT_VERSION line')
+    mutation('.ai-host-kit-version', lambda t: 'v0.0.2\n', 'version markers disagree')
+    # Installs follow the stable branch; any other source would publish main or a fork.
+    for source in ('"./"', '{"source": "github", "repo": "gwpicard/ai-host-kit"}',
+                   '{"source": "github", "repo": "gwpicard/ai-host-kit", "ref": "main"}',
+                   '{"source": "github", "repo": "someone/ai-host-kit", "ref": "stable"}'):
+        mutation('.claude-plugin/marketplace.json',
+                 lambda t, s=source: json.dumps(dict(json.loads(t), plugins=[dict(json.loads(t)['plugins'][0], source=json.loads(s))])),
+                 'marketplace must install the plugin from gwpicard/ai-host-kit at the stable branch')
+    mutation('.claude-plugin/marketplace.json',
+             lambda t: json.dumps(dict(json.loads(t), plugins=[dict(json.loads(t)['plugins'][0], version='9.9.9')])),
+             'without its own version')
     mutation('.agents/tools/validate-kit.sh',
              lambda t: t + '\nfor ((i=0; i<1; i++)); do :; done\n',
              'script and configuration syntax')
@@ -100,13 +113,12 @@ def source_rules(work):
     run(validator, cwd=tree)
     p.write_text(original)
     # A future stable version may remove the warning, but a different beta cannot.
+    sys.path.insert(0, str(ROOT / '.agents/tools'))
+    import kit
     for version in ('0.9.9', '1.0.0'):
         beta = snapshot(work / ('beta-' + version))
-        for name in ('.claude-plugin/plugin.json', 'agent-plugin/plugin.json'):
-            p = beta / name
-            data = json.loads(p.read_text()); data['version'] = version
-            p.write_text(json.dumps(data, indent=2) + '\n')
-        (beta / '.ai-host-kit-version').write_text('v' + version + '\n')
+        for name, text in kit.stamp_versions(lambda name: (beta / name).read_text(), version).items():
+            (beta / name).write_text(text)
         p = beta / 'README.md'
         p.write_text('\n'.join(s for s in p.read_text().splitlines() if not s.startswith('>')) + '\n')
         if version.startswith('0'):
@@ -136,6 +148,10 @@ def release_builder(work):
         assert (pack / name).read_bytes() == (ROOT / name).read_bytes()
     for name in ('.claude-plugin/plugin.json', 'agent-plugin/plugin.json'):
         assert json.loads((pack / name).read_text())['version'] == '0.0.2'
+    # Every shipped copy of the MCP client reports the release version.
+    for name in ('.agents/skills', 'agent-plugin/skills'):
+        client = (pack / name / 'host-fit/resources/recipes/coolify-hetzner/scripts/mcp.py').read_text()
+        assert "KIT_VERSION = '0.0.2'" in client and '0.0.1' not in client
     for name in COMMANDS:
         source = (ROOT / f'.agents/skills/{name}/SKILL.md').read_bytes()
         assert (pack / f'.agents/skills/{name}/SKILL.md').read_bytes() == source
@@ -191,6 +207,121 @@ def release_builder(work):
     refused(local_builder + [work / 'symlink'], tree, 'release source is a symlink')
     assert not (work / 'symlink').exists()
     print('Repeatable release, complete plugins, preserved notices and all packing refusals passed.')
+
+
+def stable_release(work):
+    """Prepare releases in a disposable clone whose origin is a local bare repository."""
+    origin = work / 'origin.git'
+    run(['git', 'init', '-q', '--bare', '-b', 'main', origin])
+    tree = snapshot(work / 'maintainer')
+    git = ['git', '-c', 'user.name=Guillaume Picard', '-c', 'user.email=rehearsal@example.invalid']
+    def save(message):
+        run(git + ['commit', '-q', '-m', message], cwd=tree)
+        return run(['git', 'rev-parse', 'HEAD'], cwd=tree).stdout.strip()
+    run(['git', 'config', 'user.email', 'rehearsal@example.invalid'], cwd=tree)
+    run(['git', 'checkout', '-q', '-b', 'main'], cwd=tree)
+    first = save('Source')
+    run(['git', 'remote', 'add', 'origin', origin], cwd=tree)
+    run(['git', 'push', '-q', 'origin', 'main'], cwd=tree)
+    run(['git', 'fetch', '-q', 'origin'], cwd=tree)
+    prepare = ['./.agents/tools/prepare-stable.sh']
+    sys.path.insert(0, str(ROOT / '.agents/tools'))
+    import kit
+    def versions(commit):
+        return kit.read_versions(lambda name: run(['git', 'show', f'{commit}:{name}'], cwd=tree).stdout)
+    def refs(repo):
+        return run(['git', 'for-each-ref', '--format=%(refname) %(objectname)'], cwd=repo).stdout
+    assert set(versions(first).values()) == {'0.0.1'}
+    # Refusals leave no branch, tag or commit behind.
+    before = refs(tree)
+    for args, reason in ((['0.1.0'], 'usage:'), (['v0.1'], 'usage:'),
+                         (['v0.0.1'], 'not newer than v0.0.1 (the source commit)'),
+                         (['v0.0.1-rc.1'], 'not newer than v0.0.1'),
+                         (['v0.1.0', 'no-such-commit'], 'no such commit')):
+        refused(prepare + args, tree, reason)
+    assert refs(tree) == before, 'a refusal left a ref behind'
+    (tree / 'README.md').write_text((tree / 'README.md').read_text() + '\nUnsaved.\n')
+    refused(prepare + ['v0.1.0'], tree, 'unsaved or untracked changes')
+    run(['git', 'checkout', '-q', '--', 'README.md'], cwd=tree)
+    (tree / 'stray.txt').write_text('Untracked.\n')
+    refused(prepare + ['v0.1.0'], tree, 'unsaved or untracked changes')
+    (tree / 'stray.txt').unlink()
+    run(['git', 'checkout', '-q', '-b', 'topic'], cwd=tree)
+    (tree / 'NOTICES').write_text((tree / 'NOTICES').read_text() + '\nUnmerged.\n')
+    run(['git', 'add', 'NOTICES'], cwd=tree)
+    unmerged = save('Not on main')
+    refused(prepare + ['v0.1.0'], tree, 'must already be on origin/main')
+    run(['git', 'checkout', '-q', 'main'], cwd=tree)
+    p = tree / 'agent-plugin/plugin.json'
+    original = p.read_text()
+    p.write_text(original.replace('"0.0.1"', '"0.0.2"'))
+    run(['git', 'add', '-A'], cwd=tree)
+    save('Disagreeing versions')
+    run(['git', 'push', '-q', 'origin', 'main'], cwd=tree)
+    run(['git', 'fetch', '-q', 'origin'], cwd=tree)
+    refused(prepare + ['v0.1.0'], tree, 'version markers disagree')
+    p.write_text(original)
+    run(['git', 'add', '-A'], cwd=tree)
+    source = save('Agreeing versions')
+    run(['git', 'push', '-q', 'origin', 'main'], cwd=tree)
+    run(['git', 'fetch', '-q', 'origin'], cwd=tree)
+    pushed = refs(origin)
+
+    # The first release: one parent, every marker stamped, nothing else changed or pushed.
+    result = run(prepare + ['v0.1.0'], cwd=tree)
+    commit = run(['git', 'rev-parse', 'release/v0.1.0'], cwd=tree).stdout.strip()
+    assert run(['git', 'rev-parse', 'v0.1.0^{commit}'], cwd=tree).stdout.strip() == commit
+    assert run(['git', 'cat-file', '-t', 'v0.1.0'], cwd=tree).stdout.strip() == 'tag'
+    assert run(['git', 'rev-parse', 'HEAD'], cwd=tree).stdout.strip() == source
+    assert not run(['git', 'status', '--porcelain'], cwd=tree).stdout
+    assert refs(origin) == pushed, 'the tool pushed'
+    assert run(['git', 'log', '-1', '--format=%P %an', commit], cwd=tree).stdout.split() == [source, 'Guillaume', 'Picard']
+    assert set(versions(commit).values()) == {'0.1.0'}
+    changed = set(run(['git', 'diff', '--name-only', source, commit], cwd=tree).stdout.split())
+    assert changed == set(kit.VERSION_FILES), changed
+    for name in ('.agents/tools/prepare-stable.sh', '.agents/tools/validate-kit.sh'):
+        assert run(['git', 'ls-tree', commit, name], cwd=tree).stdout.startswith('100755 ')
+    for line in (f'git push origin {commit}:refs/heads/stable', 'git push origin refs/tags/v0.1.0'):
+        assert line in result.stdout, result.stdout
+    # The real validator accepts the stamped tree, so the release agrees with itself.
+    checkout = work / 'release-checkout'
+    run(['git', 'worktree', 'add', '-q', checkout, 'release/v0.1.0'], cwd=tree)
+    run(['./.agents/tools/validate-kit.sh'], cwd=checkout)
+    run(['git', 'worktree', 'remove', checkout], cwd=tree)
+    refused(prepare + ['v0.1.0'], tree, 'not newer than v0.1.0 (tag v0.1.0)')
+    for line in result.stdout.splitlines():
+        if line.strip().startswith('git push origin'):
+            run(shlex.split(line), cwd=tree)
+    run(['git', 'fetch', '-q', 'origin'], cwd=tree)
+    assert run(['git', 'rev-parse', 'origin/stable'], cwd=tree).stdout.strip() == commit
+
+    # Without the local tag, the stable branch still records the last release.
+    run(['git', 'tag', '-d', 'v0.1.0'], cwd=tree)
+    refused(prepare + ['v0.1.0'], tree, 'not newer than v0.1.0 (origin/stable)')
+    refused(prepare + ['v0.0.9'], tree, 'not newer than v0.1.0')
+    run(['git', 'fetch', '-q', 'origin', '--tags'], cwd=tree)
+
+    # The next release keeps stable a fast-forward although main never received the stamp.
+    (tree / 'NOTICES').write_text((tree / 'NOTICES').read_text() + '\nLater work.\n')
+    run(['git', 'add', 'NOTICES'], cwd=tree)
+    later = save('Later work')
+    run(['git', 'push', '-q', 'origin', 'main'], cwd=tree)
+    run(['git', 'fetch', '-q', 'origin'], cwd=tree)
+    refused(prepare + ['v0.1.1', unmerged], tree, 'must already be on origin/main')
+    result = run(prepare + ['v0.1.1'], cwd=tree)
+    second = run(['git', 'rev-parse', 'release/v0.1.1'], cwd=tree).stdout.strip()
+    assert run(['git', 'log', '-1', '--format=%P', second], cwd=tree).stdout.split() == [later, commit]
+    assert set(versions(second).values()) == {'0.1.1'}
+    assert run(['git', 'show', f'{second}:NOTICES'], cwd=tree).stdout.endswith('Later work.\n')
+    for line in result.stdout.splitlines():
+        if line.strip().startswith('git push origin'):
+            run(shlex.split(line), cwd=tree)  # A plain push refuses anything but a fast-forward.
+    # A named older commit on main may be released, but only with a newer version.
+    run(['git', 'fetch', '-q', 'origin'], cwd=tree)
+    refused(prepare + ['v0.1.1', source], tree, 'not newer than v0.1.1')
+    run(prepare + ['v0.2.0-rc.1', source], cwd=tree)
+    refused(prepare + ['v0.2.0-beta', source], tree, 'not newer than v0.2.0-rc.1')
+    print('Releases are stamped consistently on local commits, never pushed, and keep stable a fast-forward.')
 
 
 def yaml_document(path):
@@ -391,7 +522,7 @@ def rehearsal_runner(work):
 if __name__ == '__main__':
     actions = {'source-rules': source_rules, 'release-builder': release_builder,
                'pull-request-checks': pull_request_checks, 'commit-hook': commit_hook,
-               'release-categories': release_categories,
+               'release-categories': release_categories, 'stable-release': stable_release,
                'rehearsal-runner': rehearsal_runner}
     with tempfile.TemporaryDirectory(prefix='ahk-check-') as folder:
         actions[sys.argv[1]](Path(folder))

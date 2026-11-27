@@ -21,11 +21,11 @@ run_group() {
   script=$2
   required=""
   case "$group" in
-    approval-gate | commit-hook | contracts | host-fit | pull-request-checks | rehearsal-runner | release-builder | release-categories | source-rules)
+    approval-gate | commit-hook | contracts | host-fit | pull-request-checks | rehearsal-runner | release-builder | release-categories | source-rules | stable-release)
       required="python3 git" ;;
   esac
   case "$group" in
-    pull-request-checks | release-builder | source-rules) required="$required ruby" ;;
+    pull-request-checks | release-builder | source-rules | stable-release) required="$required ruby" ;;
   esac
   for tool in $required; do
     if ! command -v "$tool" >/dev/null 2>&1; then

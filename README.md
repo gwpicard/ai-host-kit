@@ -41,6 +41,13 @@ claude plugin install ai-host-kit@ai-host-kit --scope local
 ```
 
 Its commands use the `ai-host-kit:` prefix, such as `/ai-host-kit:check-live`.
+The plugin installs the latest release. To update it later:
+
+```sh
+claude plugin marketplace update ai-host-kit
+claude plugin update ai-host-kit@ai-host-kit --scope local
+```
+
 For Codex, Cursor, Gemini CLI and other coding agents:
 
 ```sh
@@ -50,7 +57,7 @@ npx skills@1.7.6 add gwpicard/ai-host-kit --skill go-live check-live change-live
 The shared route leaves out `/setup-hosting` because AI Build Kit still owns
 a skill of that name and the installer would replace it. This temporary limit
 ends when AI Build Kit retires its command. The Claude plugin keeps all four.
-See [compatibility](docs/COMPATIBILITY.md) for the limits and agent map.
+See [compatibility](docs/COMPATIBILITY.md) for updates, the limits and the agent map.
 
 ## Credits
 

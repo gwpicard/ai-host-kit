@@ -65,6 +65,13 @@ def rehearsal(build, output):
     for name, source in (('ai-build-kit', build), ('ai-host-kit', ROOT)):
         sources[name] = output / (name + '-source')
         tracked_copy(source, sources[name])
+    # The published entry fetches the stable branch from GitHub. Point the copy at
+    # itself so the rehearsal installs the tracked files under review instead.
+    market = sources['ai-host-kit'] / '.claude-plugin/marketplace.json'
+    catalogue = json.loads(market.read_text())
+    require(catalogue['plugins'][0]['source'].get('ref') == 'stable', 'unexpected Host Kit plugin source')
+    catalogue['plugins'][0]['source'] = './'
+    market.write_text(json.dumps(catalogue, indent=2) + '\n')
 
     evidence = {'installer': INSTALLER, 'commands': {}, 'source_revisions': {}}
     for name, source in (('ai-build-kit', build), ('ai-host-kit', ROOT)):

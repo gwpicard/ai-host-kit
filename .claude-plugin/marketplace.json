@@ -8,7 +8,11 @@
   "plugins": [
     {
       "name": "ai-host-kit",
-      "source": "./",
+      "source": {
+        "source": "github",
+        "repo": "gwpicard/ai-host-kit",
+        "ref": "stable"
+      },
       "description": "Beta hosting kit. Local host choice; creating the place is not built yet.",
       "license": "MIT"
     }

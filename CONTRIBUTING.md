@@ -12,5 +12,7 @@ Pull requests target `main` and need a release label before the next release. Re
 [maintenance guide](https://github.com/gwpicard/ai-host-kit/blob/main/docs/MAINTAINING.md),
 edit the canonical files, regenerate adapters and run the validator and test
 suite. A later release would replace edits made only to generated files.
+A merged change reaches people who installed the Claude Code plugin only when
+a release puts it on the `stable` branch.
 
 Report security problems privately as [SECURITY.md](SECURITY.md) explains.
