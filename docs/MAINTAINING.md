@@ -20,14 +20,31 @@ Use an `area:` label and a type label. `needs-answers` marks an unanswered
 question; `ready` means the maintainer judged the piece shaped.
 
 Start a short-lived branch from `origin/main`. Pull requests target only `main`.
-Use `gh pr create --base main` and choose a release label: `feature`,
-`enhancement`, `bug`, `documentation`, `chore`, `skip-release-notes`,
-`release-major`, `release-minor` or `release-patch`. The label check requires a
-choice; it cannot judge whether the choice fits.
+Push the branch, then open the pull request with a release category:
+
+```sh
+.agents/tools/open-pull-request.sh chore --title "..." --body "..."
+```
+
+The tool refuses a missing or unknown category, then runs
+`gh pr create --base main --head <current branch> --label <category>` with any
+further arguments. Naming the head stops `gh` from pushing; the tool never
+merges. `.agents/tools/release-categories.txt` is the single list of categories
+and what each means for the version: `feature`, `enhancement`, `bug`,
+`documentation`, `chore`, `skip-release-notes`, `release-major`,
+`release-minor` and `release-patch`.
+
+The `release-label` check reports the category but never fails for a missing
+one. Without a category it passes with a notice on the pull request and in the
+job summary, explaining how to add one. The category is enforced when a release
+is prepared, as the release section describes. No check judges whether the
+chosen category fits.
 
 The source workflow has jobs named `source-kit-validation` and `rehearsal`.
 The other checks are `pull-request-base` and `release-label`. The `main` ruleset
-requires all four checks, so a failing required check blocks merging.
+requires all four checks, so a failing required check blocks merging. Because
+`release-label` passes without a category, it blocks a merge only if the check
+itself cannot run.
 The first release will establish `stable` and its ruleset; neither exists as
 part of this work. Do not change repository settings during source work.
 
@@ -111,7 +128,25 @@ both plugin manifests and `.ai-host-kit-version`, and puts full skill copies
 in `agent-plugin/skills/`. It publishes nothing. Version `0.0.1` is the initial
 beta version. Every version below `1.0.0` requires the README beta notice.
 
-Before a release, read [PROMISES.md](PROMISES.md) and [SOURCES.md](SOURCES.md),
+Before choosing a release's version, confirm that every pull request merged
+since the last release has a category:
+
+```sh
+.agents/tools/check-release-categories.py
+```
+
+It asks GitHub through `gh` for the latest published release and the pull
+requests merged into `main` after it. It refuses to proceed while any lacks a
+category, lists each one by number and title, and says how to add a label. When
+all have one, it lists each pull request with its category so a person can
+decide the version. With no published release, it checks every merged pull
+request. `--since` overrides the release time; `--input` reads the
+pull requests from a file, or standard input with `-`, in the shape
+`gh pr list --json number,title,labels,mergedAt` prints. The builder does not
+run this check, because it works offline; nothing maps categories to a version
+automatically.
+
+Then read [PROMISES.md](PROMISES.md) and [SOURCES.md](SOURCES.md),
 run both checks and the merged-tree rehearsal, then rehearse both install
 routes in disposable projects. Ask what an existing user must do to upgrade.
 Record missing checks and compatibility limits in the review. Publication,

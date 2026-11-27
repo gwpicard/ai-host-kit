@@ -29,8 +29,10 @@ Before editing, read `docs/PHILOSOPHY.md` and the relevant parts of
 
 ## How changes are made
 
-Work on one agreed slice on a branch from `origin/main`. Open a pull request
-with `gh pr create --base main`; a person decides whether to merge it. Never
+Work on one agreed slice on a branch from `origin/main`. Push the branch, then
+open a pull request with `.agents/tools/open-pull-request.sh <category>`,
+choosing a release category from `.agents/tools/release-categories.txt`; a
+person decides whether to merge it. Never
 push directly to `main`, force push, merge a pull request, close an issue or
 change repository settings without an explicit instruction allowing it.
 

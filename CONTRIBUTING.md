@@ -8,7 +8,7 @@ expected result and what happened. Include the smallest steps that reproduce
 it. Remove secrets, personal data and private project details before posting.
 For a suggestion, describe when you would use it and what you would expect.
 
-Pull requests target `main` and need a release label. Read the
+Pull requests target `main` and need a release label before the next release. Read the
 [maintenance guide](https://github.com/gwpicard/ai-host-kit/blob/main/docs/MAINTAINING.md),
 edit the canonical files, regenerate adapters and run the validator and test
 suite. A later release would replace edits made only to generated files.
