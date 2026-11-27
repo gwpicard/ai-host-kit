@@ -175,11 +175,17 @@ docktail and canary IDs are recorded as plumbing, with the tailnet service name.
 owned deletions in an encrypted saved destroy plan, checks live ownership,
 requires the typed place name and calls the saved-plan apply gate. It then
 lists remaining Cloud resource IDs, including resources the kit never owned.
+A completed retirement moves the applied flag, outputs and completed stages
+into a retirement entry in setup progress, so a new create can be planned;
+an incomplete one leaves the place applied and planning refuses.
 The page map owns the separate console review for Object Storage, DNS, the
 tailnet machine, service definition, OAuth credentials and fallback API token.
 Retirement prints each relevant entry. Each removal needs separate approval.
 How it is checked: Stand-ins cover wrong IDs, names and labels, wrong typed
 name, non-destroy or extra plan actions, missing resources and remaining volumes.
+`place-retirement.sh` runs full and partial retirement through the setup
+command and checks the progress outcome, unchanged receipts and the refusals
+of a new create for an applied place.
 The shared gate checks the actual encrypted plan approval. No real retirement
 has been run. There is no export path for tools in this slice; retirement
 refuses a record with tools.

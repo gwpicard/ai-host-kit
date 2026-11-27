@@ -9,7 +9,7 @@ from check import load_reader
 from place import Refused, destroy_plan_matches, retire, fingerprint
 
 
-def main(gate=None, token=None, console_context=None):
+def main(gate=None, token=None, console_context=None, retired=None):
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--partial-progress')
     parser.add_argument('--record',default='hosting/place-record.json')
@@ -55,6 +55,8 @@ def main(gate=None, token=None, console_context=None):
                 destroy_plan_matches(record,json.loads(shown.stdout),partial)
             gate.apply(plan,approval)
         remaining=retire(record,api.owned_resources(partial=True) if partial else api.owned_resources(),args.plan,args.approval,api,apply,confirm,partial)
+        # Setup progress records the outcome before any later read can fail.
+        if retired is not None: retired(record,remaining)
         print('Destruction completed. Review every inventory category and the later console checks before completing retirement.')
         for kind,items in remaining.items():
             status='unchecked; review in the Hetzner console' if items is None else ('listed: '+', '.join(str(item['id']) for item in items) if items else 'empty')

@@ -230,6 +230,58 @@ def effect_for(state, step):
     return dict(**common,effect=description,tool=tool,arguments=args)
 
 
+# These fields stay valid after the place's server is destroyed. Every other
+# field belongs to that server and moves into the retirement entry.
+KEPT_AFTER_RETIREMENT=('config','choice_path','choice_sha256','root','journal','provider_plans','retired','retirement_incomplete')
+OWNED_INVENTORY=(('server','servers'),('firewall','firewalls'),('ssh_key','ssh_keys'))
+
+
+def record_retirement(state, record, remaining, plan_sha256, partial, now=None):
+    """Return True when progress now records a completed retirement."""
+    # Receipts and the journal are separate files; this changes progress only.
+    entry=dict(retired_at=now or time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime()),
+               mode='partial' if partial else 'full',plan_sha256=plan_sha256,
+               inventory={kind:'unchecked' if items is None else [item['id'] for item in items]
+                          for kind,items in remaining.items()})
+    infra=record['infrastructure']
+    listed=[kind for kind,plural in OWNED_INVENTORY if kind+'_id' in infra and
+            str(infra[kind+'_id']) in {str(item['id']) for item in remaining.get(plural) or []}]
+    if listed or any(items is None for items in remaining.values()):
+        entry['reason']='owned resources still listed' if listed else 'inventory unchecked'
+        state.setdefault('retirement_incomplete',[]).append(entry)
+        return False
+    entry['previous']={key:value for key,value in state.items() if key not in KEPT_AFTER_RETIREMENT}
+    kept={key:state[key] for key in KEPT_AFTER_RETIREMENT if key in state}
+    state.clear(); state.update(kept)
+    state.setdefault('retired',[]).append(entry)
+    state.update(done=[],uncertain=None,applied=False)
+    return True
+
+
+def retirement_reported(state, progress, record, remaining, plan_sha256, partial):
+    complete=record_retirement(state,record,remaining,plan_sha256,partial)
+    try: save(progress,state)
+    except OSError:
+        print('Destruction completed, but the progress file could not be saved. Keep it unchanged and inspect it before planning again.',file=sys.stderr)
+        return
+    if complete:
+        print('Progress records this retirement and no longer counts the place as applied. Its outputs and completed stages moved into the retirement entry; receipts and the journal are unchanged. A new create starts again at plan.')
+    else:
+        print('Progress still counts the place as applied, because an owned resource is still listed or an inventory category could not be read. The attempt is noted in progress. Review the Hetzner console; a new create cannot be planned from this progress.')
+
+
+APPLIED_MESSAGE=('Progress records this place as applied and not retired; do not apply a place twice. '
+                 'A new create needs a completed retirement first: plan-destroy, summary, approve and retire, with --partial if bootstrap never passed. '
+                 'If an older kit already retired it, see "Progress after an older retirement" in setup.md.')
+INCOMPLETE_MESSAGE=('Progress records an incomplete retirement: destruction ran, but an owned resource was still listed or an inventory category could not be read. '
+                    'The place still counts as applied, so a new create cannot be planned from this progress. Review the Hetzner console first.')
+
+
+def require_unapplied(state):
+    if state.get('applied'):
+        raise OperationRefused(INCOMPLETE_MESSAGE if state.get('retirement_incomplete') else APPLIED_MESSAGE)
+
+
 def read_require(condition, message):
     if not condition: raise OperationRefused(message)
 
@@ -523,7 +575,11 @@ def main():
         root=Path(state['root']); record=state.get('record')
         console_context=configure_console(gate,record,state['config'])
         if args.command=='plan':
+            require_unapplied(state)
             read_require(not state['done'] and not state.get('uncertain'), 'Provisioning has already progressed or has an uncertain write.')
+            if 'choice_sha256' in state:
+                read_require(fingerprint(reader.read_json(state['choice_path']))==state['choice_sha256'],
+                             'The choice file differs from the one this progress was prepared with, so bootstrap would refuse the new place. Restore the recorded choice or prepare a new root.')
         if args.command in ('preflight','plan'):
             preflight.run(state['config'],gate,args.mcp_package)
             if args.command=='preflight': return 0
@@ -540,6 +596,8 @@ def main():
             prune_plans(gate,folder,args.plan); return 0
 
         if args.command in ('run','prepare-recovery','recover','discover'):
+            # A retired place has no record; never lock or act on old identities.
+            require(record is not None, 'Bootstrap must pass before this stage.')
             locks.enter_context(place_lock(record))
             state=reader.read_json(progress); record=state.get('record')
             require(state['journal']==journal_identity(Path(state['choice_path']).parent/'place-attempts',create=False),
@@ -602,12 +660,15 @@ def main():
             os.environ['TF_VAR_host_state_passphrase']=prompt(gate,'State passphrase')
             os.environ['TF_VAR_hcloud_token']=prompt(gate,'Hetzner project token')
             bind_provider(state,args.plan,os.environ['TF_VAR_hcloud_token'],gate)
+            plan_sha256=gate.digest(Path(args.plan).read_bytes())
+            def retired(record,remaining):
+                retirement_reported(state,progress,record,remaining,plan_sha256,args.partial)
             import retire
             previous=sys.argv
             try:
                 sys.argv=['retire','--record',str(Path(args.choice).resolve()),'--plan',args.plan,'--approval',args.approval]
                 if args.partial: sys.argv += ['--partial-progress',str(progress)]
-                return retire.main(gate=gate, token=os.environ['TF_VAR_hcloud_token'],console_context=console_context)
+                return retire.main(gate=gate, token=os.environ['TF_VAR_hcloud_token'],console_context=console_context,retired=retired)
             finally: sys.argv=previous
         if args.command in ('init','plan','plan-destroy','summary','approve','apply'):
 
@@ -623,7 +684,7 @@ def main():
                 os.environ['TF_VAR_tailnet_auth_key']=prompt(gate,'Single-use pre-approved non-ephemeral tag:server Tailscale key, shortest available expiry (one day, Tailscale\'s shortest option)')
                 gate.plan(args.plan)
                 bind_provider(state,args.plan,os.environ['TF_VAR_hcloud_token'],gate,remember=True)
-                state['saved_plan']=args.plan; state.pop('saved_approval',None); save(progress,state)
+                state['saved_plan']=args.plan; state['saved_plan_kind']='create'; state.pop('saved_approval',None); save(progress,state)
                 print('Saved plan: '+args.plan)
                 if folder and superseded_plans(folder,args.plan):
                     print('Older plans remain and can hold a spent key. Run prune-plans with this progress file to review them and choose whether to delete them.')
@@ -639,7 +700,7 @@ def main():
                     state['recovery_record']=partial_record(state,json.loads(shown.stdout)['values'])
                 gate.plan(args.plan,destroy=True)
                 bind_provider(state,args.plan,os.environ['TF_VAR_hcloud_token'],gate,remember=True)
-                state['saved_plan']=args.plan; state.pop('saved_approval',None); save(progress,state)
+                state['saved_plan']=args.plan; state['saved_plan_kind']='destroy'; state.pop('saved_approval',None); save(progress,state)
                 print('Saved plan: '+args.plan)
                 if folder and superseded_plans(folder,args.plan):
                     print('Older plans remain and can hold a spent key. Run prune-plans with this progress file to review them and choose whether to delete them.')
@@ -650,11 +711,16 @@ def main():
                     print(gate.render(sha,gate.read_plan(snapshot),target))
             elif args.command=='approve':
                 require(args.plan and args.approval, 'Supply plan and new approval paths.')
+                # Older progress has no plan kind; the numbered create name stands in.
+                kind=state.get('saved_plan_kind') if args.plan==state.get('saved_plan') else None
+                if kind=='create' or (kind is None and re.fullmatch(r'create-[1-9][0-9]*\.plan',Path(args.plan).name)):
+                    require_unapplied(state)
                 gate.approve(args.plan,args.approval)
                 state['saved_plan']=args.plan; state['saved_approval']=args.approval; save(progress,state)
                 print('Saved approval: '+args.approval)
             else:
-                require(args.plan and args.approval and not state.get('applied'), 'Supply the approved plan; do not apply a place twice.')
+                require_unapplied(state)
+                require(args.plan and args.approval, 'Supply the approved plan.')
                 os.environ['TF_VAR_hcloud_token']=prompt(gate,'Hetzner project token')
                 bind_provider(state,args.plan,os.environ['TF_VAR_hcloud_token'],gate)
                 # Check approval before recording uncertainty, and let apply check again.
