@@ -6,7 +6,7 @@ from pathlib import Path
 import sys
 from api import API, approval_gate, hidden_value, secrets_options, configure_place_secrets
 from check import load_reader
-from place import OperationRefused, lane_effect, set_lane, write_record, attempt_effect, journal_identity
+from place import OperationRefused, Refused, lane_effect, set_lane, write_record, attempt_effect, journal_identity
 
 
 def main():
@@ -32,28 +32,28 @@ def main():
         if args.command=='prepare':
             effect=attempt_effect(effect,api.firewall_rules(record['infrastructure']['firewall_id']),Path(args.record).resolve().parent/'place-attempts')
             if record['infrastructure'].get('journal',effect['journal']) != effect['journal']:
-                raise ValueError('Receipt journal is missing or replaced. Inspect the live state and approve afresh.')
+                raise Refused('Receipt journal is missing or replaced. Inspect the live state and approve afresh.')
             print('Observed firewall rules: '+json.dumps(effect['observed'],sort_keys=True))
             with open(args.effect,'x') as out: json.dump(effect,out,indent=2)
             print('Prepared the lane effect. Run approve-effect to review it and decide.')
             return 0
         if not args.approval or not args.new_record:
-            raise ValueError('Apply requires effect approval and a new record path.')
+            raise Refused('Apply requires effect approval and a new record path.')
         effect=reader.read_json(args.effect)
         gate.match_effect(effect,args.approval)
         # Refuse an existing destination before a cloud write.
-        if Path(args.new_record).exists(): raise ValueError('The new record already exists.')
+        if Path(args.new_record).exists(): raise Refused('The new record already exists.')
         set_lane(record,api.owned_resources(),args.lane,args.port,args.approval,api,gate.match_effect,effect,Path(args.record).resolve().parent/'place-attempts')
         updated=copy.deepcopy(record)
         updated['infrastructure']['journal']=effect['journal']
         updated['firewall']['rules']=[dict(protocol='tcp',ports=[p],sources=['0.0.0.0/0'],purpose='Approved public web access') for p in sorted(args.port)]
         def validate(value):
             loaded=reader.dependencies()
-            if loaded is None: raise ValueError('Install the schema requirements.')
+            if loaded is None: raise Refused('Install the schema requirements.')
             validator,formats=loaded
             schema=reader.read_json(reader.ROOT/'contracts/place-record.schema.json')
             if list(validator(schema,format_checker=formats).iter_errors(value)) or list(reader.secret_fields(value)):
-                raise ValueError('The new record failed validation.')
+                raise Refused('The new record failed validation.')
         write_record(updated,args.new_record,validate)
         print('Applied the approved lane and saved a new record for review.')
         return 0

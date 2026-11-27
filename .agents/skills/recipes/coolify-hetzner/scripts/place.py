@@ -18,13 +18,18 @@ SCOPES = {"read", "read:sensitive", "write", "deploy"}
 PROBE_PORTS = {22, 80, 443, 8000, 8080, 6001, 6002}
 
 
-class OperationRefused(ValueError):
+class Refused(ValueError):
+    """A refusal whose fixed text the kit wrote. Commands print it; it never holds a value."""
+
+
+class OperationRefused(Refused):
     pass
 
 
 def require(condition, message):
+    # Messages are fixed text; place-feedback.sh refuses a computed message.
     if not condition:
-        raise OperationRefused(message) if message == JOURNAL_MESSAGE else ValueError(message)
+        raise OperationRefused(message) if message == JOURNAL_MESSAGE else Refused(message)
 
 
 def fingerprint(value):

@@ -364,7 +364,10 @@ removal needs its own approval naming the data or access it removes.
 
 ## If a stage fails
 
-Stop. Before apply, the runner has prepared local files only. After attempted
+Stop. The first line of the error names the kit's own reason when its text
+holds no value, such as a gate refusal or `do not apply a place twice`.
+Output from OpenTofu, providers and libraries stays withheld. Before apply,
+the runner has prepared local files only. After attempted
 apply, the server, firewall and SSH key may exist. The progress file records
 an uncertain write before it is sent and blocks later writes if its result is
 unknown. Inspect the provider and Coolify records, with permission for those

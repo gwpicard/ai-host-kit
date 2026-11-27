@@ -6,7 +6,7 @@ from pathlib import Path
 import sys
 from api import API, approval_gate, hidden_value, secrets_options, configure_place_secrets
 from check import load_reader
-from place import destroy_plan_matches, retire, fingerprint
+from place import Refused, destroy_plan_matches, retire, fingerprint
 
 
 def main(gate=None, token=None, console_context=None):
@@ -24,7 +24,7 @@ def main(gate=None, token=None, console_context=None):
         partial=bool(args.partial_progress)
         if partial:
             progress=reader.read_json(args.partial_progress)
-            if Path(progress['root']).resolve()!=Path.cwd().resolve(): raise ValueError('Use the recorded root for partial retirement.')
+            if Path(progress['root']).resolve()!=Path.cwd().resolve(): raise Refused('Use the recorded root for partial retirement.')
             record=progress['recovery_record']
         else:
             if reader.validate('place-record',args.record): return 1
@@ -38,11 +38,11 @@ def main(gate=None, token=None, console_context=None):
         with gate.saved_plan(args.plan) as (snapshot,sha):
             gate.planned_identity(args.plan,sha)
             shown=gate.tofu('show','-json',snapshot)
-            if shown.returncode: raise ValueError('Destroy plan could not be read.')
+            if shown.returncode: raise Refused('Destroy plan could not be read.')
             destroy_plan_matches(record,json.loads(shown.stdout),partial)
         if token is None: token=hidden_value(gate,'Hetzner project token')
         if partial and progress.get('provider_plans',{}).get(sha)!=fingerprint(token):
-            raise ValueError('The project token differs from the saved plan.')
+            raise Refused('The project token differs from the saved plan.')
         api=API(record,token)
         def confirm(name):
             with gate.terminal() as tty:
@@ -51,7 +51,7 @@ def main(gate=None, token=None, console_context=None):
             # Re-read and match owned deletions immediately before gated apply.
             with gate.saved_plan(plan) as (snapshot,sha):
                 shown=gate.tofu('show','-json',snapshot)
-                if shown.returncode: raise ValueError('Destroy plan could not be read.')
+                if shown.returncode: raise Refused('Destroy plan could not be read.')
                 destroy_plan_matches(record,json.loads(shown.stdout),partial)
             gate.apply(plan,approval)
         remaining=retire(record,api.owned_resources(partial=True) if partial else api.owned_resources(),args.plan,args.approval,api,apply,confirm,partial)

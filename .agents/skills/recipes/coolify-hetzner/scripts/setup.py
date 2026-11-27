@@ -20,7 +20,7 @@ from api import API, approval_gate, hidden_value as prompt
 from check import load_reader
 from mcp import MCP
 from node import bootstrap_address, bootstrap, read_node, wait_bootstrap, BootstrapFailed, reopen_claim
-from place import OperationRefused, PINS, SCOPES, fingerprint, require, scoped_mcp, tailnet_address, write_record, start_attempt, finish_attempt, mark_dispatch, partial_record, journal_identity, place_lock
+from place import OperationRefused, Refused, PINS, SCOPES, fingerprint, require, scoped_mcp, tailnet_address, write_record, start_attempt, finish_attempt, mark_dispatch, partial_record, journal_identity, place_lock
 from place import JOURNAL_MESSAGE
 from console_pages import configure as configure_console, show as console_page
 from tailscale_reads import read_token
@@ -796,9 +796,9 @@ def main():
         print('Completed '+args.step+'. The place remains empty; use /check-live to read it.')
         return 0
     except (OSError,ValueError,KeyError,TypeError,subprocess.TimeoutExpired) as error:
-        if args.command in ('recover','prepare-recovery','discover') and type(error) is ValueError: print('Recovery or discovery checks failed; the stage and receipt were not completed.',file=sys.stderr)
         from api import report_refusal
         report_refusal(error, locals().get('gate'))
+        if args.command in ('recover','prepare-recovery','discover') and type(error) in (ValueError,Refused): print('Recovery or discovery checks failed; the stage and receipt were not completed.',file=sys.stderr)
         if args.command=='install-tools': return 1
         if isinstance(state,dict):
             infra=state.get('record',{}).get('infrastructure',{})
