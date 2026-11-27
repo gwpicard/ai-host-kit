@@ -7,6 +7,9 @@ import subprocess
 import time
 from place import PINS, require, scoped_mcp, tailnet_address
 
+# The kit version, stamped when a release is prepared.
+KIT_VERSION = '0.0.1'
+
 
 class MCP:
     def __init__(self, package, address, token, scopes, observed_abilities=None):
@@ -26,7 +29,7 @@ class MCP:
         self.sequence = 0
         try:
             hello = self.request('initialize', dict(protocolVersion='2025-11-25', capabilities={},
-                clientInfo=dict(name='ai-host-kit', version='0.0.1')))
+                clientInfo=dict(name='ai-host-kit', version=KIT_VERSION)))
             require(hello.get('serverInfo', {}).get('version') == PINS['mcp'], 'The running MCP version differs.')
             self.send(dict(jsonrpc='2.0',method='notifications/initialized'))
             version = self.call('get_mcp_version', {})

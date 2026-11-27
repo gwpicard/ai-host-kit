@@ -21,6 +21,33 @@ Use `/ai-host-kit:setup-hosting`, `/ai-host-kit:go-live`,
 these separate from AI Build Kit's commands, including its hosting command.
 Each generated command loads the canonical skill from its own plugin folder.
 
+### Updates
+
+The plugin comes from this repository's `stable` branch, which changes only
+when a release is published. Changes merged to `main` do not reach the plugin
+until a release includes them. Claude Code does not refresh this marketplace
+by itself unless you turn on auto-update for it. To update by hand, from the
+same project folder:
+
+```sh
+claude plugin marketplace update ai-host-kit
+claude plugin update ai-host-kit@ai-host-kit --scope local
+```
+
+The update replaces the plugin only when the release on `stable` carries a
+different version from the installed one. Restart Claude Code afterwards.
+
+Installs made before the first release came from `main` and report version
+`0.0.1`. The two commands above should move them to the first release, because
+the refreshed marketplace entry points at `stable` and that release carries a
+higher version. This route has not yet been rehearsed. If the update still
+reports `0.0.1` as the latest version, reinstall once:
+
+```sh
+claude plugin uninstall ai-host-kit@ai-host-kit --scope local
+claude plugin install ai-host-kit@ai-host-kit --scope local
+```
+
 ## Shared skills installer
 
 ```sh
@@ -35,6 +62,11 @@ Claude Code can read `.claude/skills/` through the shared installer. The source
 also carries generated Cursor command files
 and Gemini TOML command files for an archive copied as a whole. There is no
 separate Codex command adapter.
+
+Without a branch, the installer reads the repository's default branch,
+`main`, which can hold changes that no release includes yet. This route has
+no update command of its own; run the same command again to replace the
+installed skills.
 
 AI Build Kit still has `/setup-hosting`. The shared installer uses a skill's
 name as its destination, so installing AI Host Kit's skill of that name would
@@ -54,6 +86,8 @@ The release builder adds full copies of the four command skills and the
 `agent-plugin/skills/`. A client of the Agent Plugins format can use that
 folder and its `plugin.json`; source keeps only the metadata to avoid maintaining
 duplicate skills. No client behaviour is claimed from a metadata check alone.
+This folder has no update channel. To upgrade, replace it with the folder built
+from a newer release tag and compare the `.ai-host-kit-version` files.
 
 The choice script needs Python 3 and the pinned packages in the host-fit
 skill's `resources/schema-requirements.txt`. Its schemas, reader and recipe declarations and runtime files are bundled inside that skill, so it does not need the maintainer
@@ -72,6 +106,8 @@ python3 .agents/tools/rehearse-installs.py /path/to/ai-build-kit /private/tmp/ho
 
 This needs Node.js, npm, network access and Claude Code. It copies tracked files
 to throwaway folders and isolates Claude configuration and the npm cache.
+It points the copied Host Kit marketplace entry at the copy itself, so the
+plugin route tests the tracked files rather than the published `stable` branch.
 It installs AI Build Kit first through each route, then checks that the plugin
 lists four prefixed Host Kit commands and the shared installer adds exactly
 three skills. It compares Build Kit's installed files before and after,

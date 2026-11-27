@@ -9,6 +9,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 
 ROOT = Path(__file__).resolve().parents[2]
 COMMANDS = {'setup-hosting', 'go-live', 'check-live', 'change-live'}
@@ -20,6 +21,17 @@ PUBLIC_FILES = {'README.md', 'LICENSE', 'NOTICES', 'CONTRIBUTING.md', 'SECURITY.
                 '.claude-plugin/plugin.json', '.claude-plugin/marketplace.json',
                 'agent-plugin/plugin.json', '.claude/settings.json'}
 VERSION_RE = r'(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?'
+# Every file that carries the kit version. The canonical MCP client and its
+# generated host-fit copy are stamped alike, so the adapter check still matches.
+VERSION_JSON = ('.claude-plugin/plugin.json', 'agent-plugin/plugin.json')
+VERSION_TEXT = '.ai-host-kit-version'
+VERSION_CODE = ('.agents/skills/recipes/coolify-hetzner/scripts/mcp.py',
+                '.agents/skills/host-fit/resources/recipes/coolify-hetzner/scripts/mcp.py')
+VERSION_FILES = VERSION_JSON + (VERSION_TEXT,) + VERSION_CODE
+CODE_VERSION_RE = re.compile(r"^KIT_VERSION = '([^'\n]*)'$", re.M)
+# Users install the plugin from this branch; main is the working branch.
+STABLE_BRANCH = 'stable'
+MAINTAINER = 'Guillaume Picard'
 
 
 def git(*args):
@@ -217,22 +229,135 @@ def build_release(args):
     if int(version[1:].split('.')[0]) < 1 and not beta_notice((ROOT / 'README.md').read_text()):
         error('README beta notice is required below 1.0')
     packing = packing_list()
-    # Parse both manifests before creating the destination.
-    manifests = {}
-    for name in ('.claude-plugin/plugin.json', 'agent-plugin/plugin.json'):
-        manifests[name] = load_json(ROOT / packing[name])
-        if not isinstance(manifests[name].get('version'), str):
-            error(f'{name}: missing version field')
-        manifests[name]['version'] = version[1:]
+    # Stamp every version-bearing source before creating the destination.
+    stamped = stamp_versions(lambda name: (ROOT / name).read_text(), version[1:])
     output.mkdir(mode=0o755)
     for destination, source in packing.items():
         path = output / destination
         path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(ROOT / source, path)
-    for name, content in manifests.items():
-        (output / name).write_text(json.dumps(content, indent=2) + '\n')
-    (output / '.ai-host-kit-version').write_text(version + '\n')
+        if source in stamped:
+            path.write_text(stamped[source])
     print(f'Built AI Host Kit {version} at {output}')
+
+
+def read_versions(read):
+    """Return the version each version-bearing file carries, without the v prefix."""
+    found = {}
+    for name in VERSION_JSON:
+        value = parse_json(read(name), name).get('version')
+        if not isinstance(value, str):
+            error(f'{name}: missing version field')
+        found[name] = value
+    text = read(VERSION_TEXT)
+    if not re.fullmatch('v' + VERSION_RE + '\n?', text):
+        error(f'{VERSION_TEXT}: expected one line such as v1.2.3')
+    found[VERSION_TEXT] = text.strip()[1:]
+    for name in VERSION_CODE:
+        matches = CODE_VERSION_RE.findall(read(name))
+        if len(matches) != 1:
+            error(f'{name}: expected exactly one KIT_VERSION line')
+        found[name] = matches[0]
+    return found
+
+
+def stamp_versions(read, version):
+    """Return the new text of every version-bearing file, carrying version."""
+    if not re.fullmatch(VERSION_RE, version):
+        error(f'not a version number: {version}')
+    read_versions(read)  # Refuse a file whose version cannot be found.
+    result = {}
+    for name in VERSION_JSON:
+        content = parse_json(read(name), name)
+        content['version'] = version
+        result[name] = json.dumps(content, indent=2) + '\n'
+    result[VERSION_TEXT] = 'v' + version + '\n'
+    for name in VERSION_CODE:
+        result[name] = CODE_VERSION_RE.sub(f"KIT_VERSION = '{version}'", read(name))
+    return result
+
+
+def version_key(version):
+    """Order versions by Semantic Versioning precedence; build metadata is not accepted."""
+    core, _, pre = version.partition('-')
+    numbers = tuple(int(n) for n in core.split('.'))
+    if not pre:
+        return numbers + (1, ())
+    return numbers + (0, tuple((0, int(p), '') if p.isdigit() else (1, 0, p) for p in pre.split('.')))
+
+
+def prepare_stable(args):
+    usage = 'usage: prepare-stable.sh <vMAJOR.MINOR.PATCH> [<commit on origin/main>]'
+    if len(args) not in (1, 2) or not re.fullmatch('v' + VERSION_RE, args[0]):
+        error(usage)
+    tag, version = args[0], args[0][1:]
+    def quiet(*command):
+        return subprocess.run(['git', '-C', str(ROOT), *command], stdout=subprocess.PIPE,
+                              stderr=subprocess.DEVNULL, text=True)
+    def commit_of(ref):
+        result = quiet('rev-parse', '--verify', '--quiet', ref + '^{commit}')
+        return result.stdout.strip() if result.returncode == 0 else None
+    if git('status', '--porcelain').strip():
+        error('the working tree has unsaved or untracked changes; prepare a release from a clean checkout')
+    main = commit_of('refs/remotes/origin/main')
+    if main is None:
+        error('origin/main is not known here; run git fetch origin --tags first')
+    source = commit_of(args[1] if len(args) == 2 else 'HEAD')
+    if source is None:
+        error(f'no such commit: {args[1]}')
+    if quiet('merge-base', '--is-ancestor', source, main).returncode != 0:
+        error('the release commit must already be on origin/main; fetch, or name a commit on origin/main')
+    def read_at(commit):
+        return lambda name: git('show', f'{commit}:{name}').decode()
+    current = read_versions(read_at(source))
+    if len(set(current.values())) != 1:
+        error('version markers disagree at the source commit: ' + ', '.join(f'{k}={v}' for k, v in current.items()))
+    # The newest known release: the stable branch, any local v tag, or the source's own marker.
+    known = [(next(iter(current.values())), 'the source commit')]
+    stable = commit_of(f'refs/remotes/origin/{STABLE_BRANCH}')
+    for ref, label in ((stable, f'origin/{STABLE_BRANCH}'), (commit_of(f'refs/heads/{STABLE_BRANCH}'), STABLE_BRANCH)):
+        if ref:
+            known.append((read_at(ref)(VERSION_TEXT).strip()[1:], label))
+    for name in git('tag', '--list', 'v*').decode().split():
+        if re.fullmatch('v' + VERSION_RE, name):
+            known.append((name[1:], 'tag ' + name))
+    newest, where = max(known, key=lambda item: version_key(item[0]))
+    if version_key(version) <= version_key(newest):
+        error(f'{tag} is not newer than v{newest} ({where})')
+    branch = f'release/{tag}'
+    if quiet('rev-parse', '--verify', '--quiet', f'refs/tags/{tag}').returncode == 0:
+        error(f'tag {tag} already exists')
+    if commit_of(f'refs/heads/{branch}'):
+        error(f'branch {branch} already exists')
+    stamped = stamp_versions(read_at(source), version)
+    # Build the release tree in a private index; the checkout is never touched.
+    with tempfile.TemporaryDirectory(prefix='ahk-stable-') as scratch:
+        env = dict(os.environ, GIT_INDEX_FILE=str(Path(scratch) / 'index'))
+        def indexed(*command, data=None):
+            return subprocess.run(['git', '-C', str(ROOT), *command], env=env, input=data,
+                                  stdout=subprocess.PIPE, check=True).stdout
+        indexed('read-tree', source)
+        for name, text in stamped.items():
+            mode = git('ls-tree', source, '--', name).decode().split()[0]
+            blob = indexed('hash-object', '-w', '--stdin', data=text.encode()).decode().strip()
+            indexed('update-index', '--cacheinfo', f'{mode},{blob},{name}')
+        tree = indexed('write-tree').decode().strip()
+    # A second parent keeps every move of the stable branch a fast-forward.
+    parents = ['-p', source]
+    if stable and quiet('merge-base', '--is-ancestor', stable, source).returncode != 0:
+        parents += ['-p', stable]
+    commit = git('-c', f'user.name={MAINTAINER}', 'commit-tree', tree, *parents,
+                 '-m', f'Release {tag}').decode().strip()
+    git('branch', branch, commit)
+    git('-c', f'user.name={MAINTAINER}', 'tag', '-a', tag, '-m', f'AI Host Kit {tag}', commit)
+    print(f'Prepared AI Host Kit {tag} as {commit} on {branch}, tagged {tag}.')
+    print(f'Source: {source} (origin/main {main}).')
+    print('Previous release: ' + (f'v{newest} ({where})'))
+    print('Nothing was pushed. Check the release tree, then push both refs:')
+    print(f'  git push origin {commit}:refs/heads/{STABLE_BRANCH}')
+    print(f'  git push origin refs/tags/{tag}')
+    print('To discard it instead:')
+    print(f'  git tag -d {tag} && git branch -D {branch}')
 
 
 def beta_notice(readme):
@@ -245,15 +370,19 @@ def beta_notice(readme):
     return False
 
 
-def load_json(path):
+def parse_json(text, name):
     def unique(pairs):
         result = {}
         for key, value in pairs:
             if key in result:
-                error(f'{path.relative_to(ROOT)}: duplicate JSON key')
+                error(f'{name}: duplicate JSON key')
             result[key] = value
         return result
-    return json.loads(path.read_text(), object_pairs_hook=unique)
+    return json.loads(text, object_pairs_hook=unique)
+
+
+def load_json(path):
+    return parse_json(path.read_text(), path.relative_to(ROOT))
 
 
 def validate(args):
@@ -334,10 +463,17 @@ def validate(args):
         require(agent.get('$schema') == 'https://agent-plugins.org/schemas/1.0.0/plugin.schema.json', 'Agent Plugins schema is missing')
         market = load_json(ROOT / '.claude-plugin/marketplace.json')
         require(market.get('name') == 'ai-host-kit' and len(market.get('plugins', [])) == 1, 'marketplace identity differs')
-        require(market['plugins'][0].get('name') == 'ai-host-kit' and market['plugins'][0].get('source') == './', 'marketplace must load the local plugin')
-        version = claude.get('version', '')
+        repository = re.fullmatch(r'https://github\.com/([\w.-]+/[\w.-]+)', str(claude.get('repository', '')))
+        require(repository is not None and agent.get('repository') == claude.get('repository'), 'plugin repository must be one GitHub repository')
+        # Users receive a change only when the stable branch carries a higher version.
+        stable = {'source': 'github', 'repo': repository.group(1), 'ref': STABLE_BRANCH}
+        entry = market['plugins'][0]
+        require(entry.get('name') == 'ai-host-kit' and entry.get('source') == stable and 'version' not in entry,
+                f'marketplace must install the plugin from {repository.group(1)} at the {STABLE_BRANCH} branch, without its own version')
+        versions = read_versions(lambda name: (ROOT / name).read_text())
+        version = versions['.claude-plugin/plugin.json']
         require(re.fullmatch(VERSION_RE, version) is not None, 'plugin version is not a version number')
-        require(agent.get('version') == version and (ROOT / '.ai-host-kit-version').read_text().strip() == 'v' + version, 'version markers disagree')
+        require(len(set(versions.values())) == 1, 'version markers disagree: ' + ', '.join(f'{k}={v}' for k, v in versions.items()))
         if int(version.split('.')[0]) < 1:
             readme = (ROOT / 'README.md').read_text()
             require(beta_notice(readme), 'README beta notice is required below 1.0')
@@ -371,7 +507,8 @@ def validate(args):
 if __name__ == '__main__':
     try:
         action = sys.argv[1] if len(sys.argv) > 1 else ''
-        actions = {'build-adapters': build_adapters, 'validate-kit': validate, 'build-release': build_release}
+        actions = {'build-adapters': build_adapters, 'validate-kit': validate, 'build-release': build_release,
+                   'prepare-stable': prepare_stable}
         if action not in actions:
             error('unknown kit tool')
         actions[action](sys.argv[2:])
