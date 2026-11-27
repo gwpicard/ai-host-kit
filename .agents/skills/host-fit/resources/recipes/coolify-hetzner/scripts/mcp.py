@@ -8,7 +8,7 @@ import time
 from place import PINS, require, scoped_mcp, tailnet_address
 
 # The kit version, stamped when a release is prepared.
-KIT_VERSION = '0.0.1'
+KIT_VERSION = '0.1.0'
 
 
 class MCP:
