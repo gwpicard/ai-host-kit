@@ -2,7 +2,7 @@
 import json
 import urllib.request
 from check import NoRedirect
-from place import tailnet_address
+from place import Refused, tailnet_address
 
 
 def approval_gate():
@@ -15,7 +15,7 @@ def approval_gate():
             gate=importlib.util.module_from_spec(spec)
             spec.loader.exec_module(gate)
             return gate
-    raise ValueError('The installed approval gate is missing.')
+    raise Refused('The installed approval gate is missing.')
 
 
 def hidden_value(gate, label):
@@ -29,7 +29,7 @@ def hidden_value(gate, label):
     elif label.startswith('Tailscale API'): key='TAILSCALE_API_TOKEN'
     elif label.startswith('Coolify'): key='COOLIFY_TEAM_TOKEN'
     elif label in ('TAILSCALE_OAUTH_CLIENT_ID','TAILSCALE_OAUTH_CLIENT_SECRET'): key=label
-    else: raise ValueError('Unknown secret input label.')
+    else: raise Refused('Unknown secret input label.')
     value=gate.secret(key,label,shown=key=='TAILSCALE_OAUTH_CLIENT_ID')
     if not value: raise gate.InputRefused('A required input was empty.')
     if key=='STATE_PASSPHRASE' and len(value)<16:
@@ -145,9 +145,9 @@ class API:
             for _ in range(30):
                 observed=self.cloud('GET','actions/'+str(item['id']))['action']
                 if observed['status']=='success': break
-                if observed['status']=='error': raise ValueError('Firewall action failed; diagnostics withheld.')
+                if observed['status']=='error': raise Refused('Firewall action failed; diagnostics withheld.')
                 time.sleep(1)
-            else: raise ValueError('Firewall action did not complete; read the place before retrying.')
+            else: raise Refused('Firewall action did not complete; read the place before retrying.')
 
     def firewall_rules(self, identity):
         rules=self.cloud('GET','firewalls/'+str(identity))['firewall']['rules']
@@ -169,8 +169,8 @@ def report_refusal(error, gate=None):
     import sys
     import urllib.error
     from urllib.parse import urlsplit
-    from place import OperationRefused
-    if isinstance(error, OperationRefused) or (gate is not None and isinstance(error, (gate.InputRefused, getattr(gate, 'GateRefused', gate.InputRefused)))):
+    from place import Refused
+    if isinstance(error, Refused) or (gate is not None and isinstance(error, (gate.InputRefused, getattr(gate, 'GateRefused', gate.InputRefused)))):
         print(str(error), file=sys.stderr)
         return True
     if isinstance(error, urllib.error.HTTPError):

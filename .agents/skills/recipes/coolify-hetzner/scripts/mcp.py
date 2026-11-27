@@ -5,7 +5,7 @@ from pathlib import Path
 import select
 import subprocess
 import time
-from place import PINS, require, scoped_mcp, tailnet_address
+from place import PINS, Refused, require, scoped_mcp, tailnet_address
 
 # The kit version, stamped when a release is prepared.
 KIT_VERSION = '0.0.1'
@@ -63,7 +63,7 @@ class MCP:
             if value.get('id') == identity:
                 require('error' not in value and 'result' in value, 'MCP refused the request; diagnostics withheld.')
                 return value['result']
-        raise ValueError('MCP timed out; inspect the place before retrying.')
+        raise Refused('MCP timed out; inspect the place before retrying.')
 
     def call(self, tool, arguments):
         result = self.request('tools/call', dict(name=tool, arguments=arguments))
@@ -74,7 +74,7 @@ class MCP:
                 value=json.loads(item.get('text',''))
                 if isinstance(value,(dict,list)): return value
             except ValueError: pass
-        raise ValueError('MCP returned no structured result; inspect the place before retrying.')
+        raise Refused('MCP returned no structured result; inspect the place before retrying.')
 
     def close(self):
         self.process.terminate()

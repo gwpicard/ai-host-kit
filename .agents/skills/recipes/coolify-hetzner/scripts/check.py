@@ -8,12 +8,12 @@ import sys
 import subprocess
 import urllib.request
 import urllib.error
-from place import check_place, tailnet_address
+from place import Refused, check_place, tailnet_address
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, *args, **kwargs):
-        raise ValueError("Redirect refused; no credential was forwarded.")
+        raise Refused("Redirect refused; no credential was forwarded.")
 
 
 def load_reader():
@@ -25,7 +25,7 @@ def load_reader():
             spec.loader.exec_module(reader)
             reader.ROOT = source.parent
             return reader
-    raise ValueError('The installed record reader is missing.')
+    raise Refused('The installed record reader is missing.')
 
 
 def outside_probe(host, port):
@@ -50,7 +50,7 @@ def main():
         record = reader.read_json(args.record)
         package = reader.read_json(args.mcp_package)
         if package.get('name') != '@masonator/coolify-mcp':
-            raise ValueError('The local package is not the pinned Coolify MCP.')
+            raise Refused('The local package is not the pinned Coolify MCP.')
         # API version is an authenticated read using the protected file or prompt.
         from api import approval_gate
         gate = approval_gate()

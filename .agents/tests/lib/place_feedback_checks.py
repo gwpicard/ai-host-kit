@@ -136,8 +136,79 @@ def key(work):
     assert all('one hour' not in label for label in labels)
 
 
+def reasons(work):
+    # Kit-authored refusals lead the output; the recovery guidance follows.
+    gate=fixtures.load()
+    record=json.loads((ROOT/'.agents/tests/fixtures/place/place-record.json').read_text())
+    plan=work/'create-1.plan';plan.write_bytes(b'synthetic saved plan')
+    approval=work/'approval-1.json';approval.write_text('{}')
+    progress=work/'progress.json'
+    state=dict(root=str(work),config=dict(place=record['place'],secrets=str(work/'absent.env')),done=[],uncertain=None,
+               provider_plans={gate.digest(plan.read_bytes()):flow.fingerprint('synthetic-only')})
+    def run(*args,applied=False,**patches):
+        progress.write_text(json.dumps(dict(state,applied=applied)))
+        with patch.object(flow,'approval_gate',return_value=gate),patch.object(gate,'configure_secrets',create=True), \
+             patch.object(flow,'prompt',return_value='synthetic-only'), \
+             patch.object(gate,'apply',side_effect=AssertionError('apply reached the gate')):
+            with patch.multiple(gate,**patches) if patches else patch.object(gate,'unused_marker',None,create=True):
+                status,text=invoke(flow,*args,'--progress',progress)
+        lines=text.splitlines()
+        assert status!=0 and lines and lines[-1].startswith('Stopped: setup inputs, approval or transport failed'),text
+        return lines
+    lines=run('apply','--plan',plan,'--approval',approval,applied=True)
+    assert 'do not apply a place twice' in lines[0],lines
+    # A fixed require() message from setup itself.
+    lines=run('prepare')
+    assert lines[0]=='Name the stage and new effect path.',lines
+    # A gate refusal raised while apply checks the approval.
+    @contextmanager
+    def saved(*args):yield ('snapshot',gate.digest(plan.read_bytes()))
+    lines=run('apply','--plan',plan,'--approval',approval,saved_plan=saved,read_plan=lambda *a:{},
+              validate_record=lambda *a:gate.refuse('The approval record does not match this saved plan.'))
+    assert lines[0]=='The approval record does not match this saved plan.',lines
+    # Library exceptions may quote a value, so only the generic text appears.
+    for error in (ValueError('synthetic-private-marker'),json.JSONDecodeError('synthetic-private-marker','synthetic-private-marker',0),
+                  KeyError('synthetic-private-marker'),subprocess.TimeoutExpired('synthetic-private-marker',1)):
+        def fail(*args,error=error):raise error
+        lines=run('apply','--plan',plan,'--approval',approval,saved_plan=saved,read_plan=lambda *a:{},validate_record=fail)
+        assert lines==[lines[-1]],(type(error).__name__,lines)
+
+
+def fixed(work):
+    # Commands print require() and Refused text, so each message must be fixed
+    # text: a literal, or a name its module (or place.py, for an import) binds
+    # only to literals.
+    import ast
+    trees={path.name:ast.parse(path.read_text()) for path in sorted((RECIPE/'scripts').glob('*.py'))}
+    def bindings(tree):
+        found={}
+        for node in ast.walk(tree):
+            if isinstance(node,ast.Assign):
+                for target in node.targets:
+                    if isinstance(target,ast.Name):
+                        found.setdefault(target.id,[]).append(isinstance(node.value,ast.Constant) and isinstance(node.value.value,str))
+        return found
+    shared=bindings(trees['place.py'])
+    checked=0;computed=[]
+    for name,tree in trees.items():
+        local=bindings(tree)
+        for node in ast.walk(tree):
+            if not isinstance(node,ast.Call):continue
+            called=getattr(node.func,'id',getattr(node.func,'attr',None))
+            if called=='require':message=node.args[1] if len(node.args)>1 else None
+            elif called=='Refused':message=node.args[0] if node.args else None
+            else:continue
+            # require() itself forwards its own parameter.
+            if name=='place.py' and isinstance(message,ast.Name) and message.id=='message':continue
+            checked+=1
+            if not ((isinstance(message,ast.Constant) and isinstance(message.value,str)) or
+                    (isinstance(message,ast.Name) and all(local.get(message.id,shared.get(message.id,[False]))))):
+                computed.append(name+':'+str(node.lineno))
+    assert checked>100 and not computed,computed
+
+
 def main():
-    cases=dict(summary=summary,commands=commands,key=key)
+    cases=dict(summary=summary,commands=commands,key=key,reasons=reasons,fixed=fixed)
     parser=argparse.ArgumentParser();parser.add_argument('--case',choices=['all',*cases],default='all');args=parser.parse_args()
     # Only the summary case decrypts a real saved plan; the others still run without OpenTofu.
     missing=[] if shutil.which('tofu') else ['summary']

@@ -13,7 +13,7 @@ import subprocess
 import sys
 import urllib.request
 import zipfile
-from place import OperationRefused
+from place import OperationRefused, Refused
 
 VERSION = '1.13.2'
 CHECKSUMS = {
@@ -144,7 +144,7 @@ def installation_step(name):
     try:
         yield
     except (OSError,ValueError,KeyError,TypeError,subprocess.TimeoutExpired,zipfile.BadZipFile) as error:
-        if isinstance(error, OperationRefused): reason = str(error)
+        if isinstance(error, Refused): reason = str(error)
         elif isinstance(error, subprocess.TimeoutExpired): reason = 'A tool command timed out.'
         elif isinstance(error, OSError): reason = 'Local file or download access failed.'
         else: reason = 'Tool output or package metadata could not be verified.'

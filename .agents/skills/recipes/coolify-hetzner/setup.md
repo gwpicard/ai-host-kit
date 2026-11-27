@@ -362,9 +362,39 @@ automatically. Keep the state and its key until recovery and retained copies
 have been reviewed. Each further console
 removal needs its own approval naming the data or access it removes.
 
+When destruction completes, every inventory category is readable and none
+lists a destroyed server, firewall or SSH key, retirement records itself in the
+progress file. It adds an entry to `retired` with the time, mode, saved-plan
+checksum and listed inventory. The applied flag, outputs, completed stages,
+saved plan and approval, and the Coolify and tailnet fields of the destroyed
+server move into that entry. The progress file then counts the place as not
+applied, so a new create starts again at `plan`. Receipts and the journal
+generation stay unchanged. This works the same for `retire` and
+`retire --partial`. If a category is unreadable or still lists an owned
+resource, the place still counts as applied. The attempt is added to
+`retirement_incomplete`, and `plan` refuses with that reason.
+
+`plan` and `approve` refuse a new create while progress counts the place as
+applied, before preflight runs. `bootstrap`, `discover` and later stages refuse
+once retirement has cleared the record and outputs. After a full retirement
+that followed the `record` stage, the choice file holds the retired record, so
+`plan` refuses until the recorded choice is restored or a new root is prepared.
+
+### Progress after an older retirement
+
+Retirement with an earlier kit version left the applied flag and outputs in
+the progress file. `plan` and `approve` now refuse a new create for that file,
+with the reason. The kit does not change the file for you. Confirm in the
+Hetzner console that the server, firewall and SSH key named in its outputs are
+gone, then ask for a reviewed reset of the progress file. Keep a copy of the
+file, and keep receipts, approvals and the journal unchanged.
+
 ## If a stage fails
 
-Stop. Before apply, the runner has prepared local files only. After attempted
+Stop. The first line of the error names the kit's own reason when its text
+holds no value, such as a gate refusal or `do not apply a place twice`.
+Output from OpenTofu, providers and libraries stays withheld. Before apply,
+the runner has prepared local files only. After attempted
 apply, the server, firewall and SSH key may exist. The progress file records
 an uncertain write before it is sent and blocks later writes if its result is
 unknown. Inspect the provider and Coolify records, with permission for those
