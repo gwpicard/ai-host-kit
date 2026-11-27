@@ -1,0 +1,13 @@
+{
+  "action": "release",
+  "status": "held",
+  "reason": "rehearsal-failed",
+  "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "migration": true,
+  "running_commit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "rehearsal": {
+    "status": "passed",
+    "evidence": "checks/rehearsal.txt"
+  },
+  "evidence": "checks/held-release.txt"
+}
