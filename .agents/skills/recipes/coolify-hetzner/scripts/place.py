@@ -13,7 +13,7 @@ from pathlib import Path
 import socket
 import sys
 
-PINS = dict(coolify="4.7.5", mcp="3.10.1", docktail="1.8.6", hcloud="1.70.2")
+PINS = dict(coolify="4.7.5", docktail="1.8.6", hcloud="1.70.2")
 SCOPES = {"read", "read:sensitive", "write", "deploy"}
 PROBE_PORTS = {22, 80, 443, 8000, 8080, 6001, 6002}
 
@@ -230,14 +230,13 @@ def register_docktail(record, name, container_port, approval, api, gate, effect=
     return effect
 
 
-def scoped_mcp(scopes, version):
+def token_scopes(scopes):
     require(set(scopes) == SCOPES and len(scopes) == len(SCOPES),
             "Use read, read:sensitive, write and deploy scopes only; root is refused.")
-    require(version == PINS["mcp"], "MCP version differs from the pin.")
-    return dict(command="npx", args=["--yes", "@masonator/coolify-mcp@" + PINS["mcp"]])
+    return sorted(scopes)
 
 
-def check_place(record, probe, coolify_get, mcp_version):
+def check_place(record, probe, coolify_get):
     infra = record["infrastructure"]
     require(all(rule['protocol'] == 'tcp' and rule['sources'] == ['0.0.0.0/0']
                 and set(rule['ports']) <= {80, 443} for rule in record['firewall']['rules']),
@@ -252,15 +251,13 @@ def check_place(record, probe, coolify_get, mcp_version):
         except (OSError, TimeoutError):
             status = "could not decide"
         rows.append(("outside TCP " + str(port), status))
+    # The kit's Coolify requests follow the pinned version's routes, and setup
+    # refuses writes to any other version. This row reads the same version.
     try:
         address = tailnet_address(infra["tailnet_ipv4"])
         rows.append(("Coolify over the tailnet", "passed" if coolify_get(address) == PINS["coolify"] else "failed"))
     except (ValueError, OSError, TimeoutError):
         rows.append(("Coolify over the tailnet", "could not decide"))
-    try:
-        rows.append(("MCP version", "passed" if mcp_version() == PINS["mcp"] else "failed"))
-    except (OSError, TimeoutError):
-        rows.append(("MCP version", "did not run"))
     return rows
 
 

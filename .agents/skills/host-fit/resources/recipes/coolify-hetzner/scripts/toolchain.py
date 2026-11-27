@@ -7,7 +7,6 @@ import json
 import os
 from pathlib import Path
 import platform
-import re
 import shutil
 import subprocess
 import sys
@@ -24,17 +23,8 @@ CHECKSUMS = {
 }
 
 
-def pins():
-    return json.loads((Path(__file__).resolve().parent.parent/'dependencies.json').read_text())['mcp']
-
-
 def default_home():
     return Path.home()/'.local/share/ai-host-kit'
-
-
-def default_package():
-    pin = pins()
-    return default_home()/('coolify-mcp-'+pin['version'])/'node_modules'/pin['package']/'package.json'
 
 
 def install_tofu(destination):
@@ -63,45 +53,12 @@ def requirements(gate):
     return Path(gate.__file__).resolve().parent.parent/'resources/schema-requirements.txt'
 
 
-def npm_error_summary(output):
-    # This install receives no credentials and ignores inherited npm settings.
-    # Show only bounded error lines, without terminal control sequences.
-    lines = []
-    for line in output.decode('utf-8', errors='replace').splitlines():
-        line = re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', line)
-        line = ''.join(char for char in line if char.isprintable()).strip()
-        # npm can fail before its usual error logger is configured.
-        if (line.startswith(('npm error', 'npm ERR!', 'double-loading config ', 'Error: double-loading config '))
-                or line == 'Exit prior to config file resolving'):
-            lines.append(line[:400])
-        if len(lines) == 6: break
-    return '\n'.join(lines)
-
-
-def run(args, child=None, npm_errors=False):
-    result = subprocess.run(list(map(str,args)), env=child or {'PATH':os.environ.get('PATH','')},
-        stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE if npm_errors else subprocess.DEVNULL, timeout=600)
+def run(args):
+    result = subprocess.run(list(map(str,args)), env={'PATH':os.environ.get('PATH','')},
+        stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=600)
     if result.returncode:
-        summary = npm_error_summary(result.stderr) if npm_errors else ''
-        raise OperationRefused('A tool command failed with exit status '+str(result.returncode)+'.'+
-                               ('\n'+summary if summary else ''))
+        raise OperationRefused('A tool command failed with exit status '+str(result.returncode)+'.')
     return result.stdout
-
-
-def verify_mcp(package):
-    pin = pins()
-    package = Path(package)
-    # package = <install>/node_modules/@masonator/coolify-mcp/package.json
-    lock = package.parents[3]/'package-lock.json'
-    metadata = json.loads(package.read_text())
-    saved = json.loads(lock.read_text())
-    dependency = saved['packages']['node_modules/'+pin['package']]
-    if (metadata.get('name') != pin['package'] or metadata.get('version') != pin['version']
-            or saved['packages']['']['dependencies'].get(pin['package']) != pin['version']
-            or dependency.get('version') != pin['version'] or dependency.get('integrity') != pin['integrity']
-            or not (package.parent/'dist/index.js').is_file()):
-        raise OperationRefused('MCP package or lock-file integrity differs from dependencies.json.')
 
 
 def verify_python(gate, executable=None):
@@ -116,21 +73,20 @@ def verify_python(gate, executable=None):
     if observed != expected: raise OperationRefused('The Python environment differs from the pinned requirements.')
 
 
-def verify_tools(gate, package=None):
+def verify_tools(gate):
     gate.check_version()
     verify_python(gate)
-    verify_mcp(package or default_package())
-    if any(shutil.which(tool) is None for tool in ('node','npm','tailscale')):
-        raise OperationRefused('Install Node, npm and the Tailscale client before planning.')
+    if shutil.which('tailscale') is None:
+        raise OperationRefused('Install the Tailscale client before planning.')
 
 
 def install(gate, home=None):
     home = Path(home or default_home()).expanduser().absolute()
-    destinations = [home/'opentofu', home/'venv', home/('coolify-mcp-'+pins()['version'])]
+    destinations = [home/'opentofu', home/'venv']
     try:
         install_steps(gate, home, destinations)
     except OperationRefused as error:
-        present = [path for path in [*destinations, home/'npm-cache'] if path.exists()]
+        present = [path for path in destinations if path.exists()]
         folders = ('Folders present (possibly incomplete): '+', '.join(map(str,present))+'.'
                    if present else 'No tool destination folders are present.')
         raise OperationRefused(str(error)+'\nTools home: '+str(home)+'. '+folders+
@@ -163,8 +119,6 @@ def install_steps(gate, home, destinations):
         try:
             gate.secrets_directory_safe(descriptor,home/'unused',reason='Keep installed tools outside every Git repository.')
         finally: os.close(descriptor)
-        if any(shutil.which(tool) is None for tool in ('node','npm')):
-            raise OperationRefused('Install Node and npm first; the tool installer does not install system runtimes.')
     # venv is created at its lasting path so its scripts retain that path.
     with installation_step('OpenTofu installation and verification'):
         install_tofu(destinations[0])
@@ -178,22 +132,4 @@ def install_steps(gate, home, destinations):
              '--disable-pip-version-check','-r',requirements(gate)])
         verify_python(gate, python)
         print('Verified every Python requirement version. Only binary wheels were permitted; no source build scripts ran.')
-    with installation_step('MCP installation and verification'):
-        mcp = destinations[2]; mcp.mkdir()
-        (mcp/'package.json').write_text(json.dumps(dict(name='ai-host-kit-tools',version='1.0.0',private=True)))
-        pin = pins()
-        # Ignore user npm configuration and lifecycle hooks, including those of
-        # transitive dependencies. npm checks fetched tarballs against lock SRI.
-        user_config = mcp/'npm-user.conf'; global_config = mcp/'npm-global.conf'
-        for config in (user_config, global_config):
-            descriptor = os.open(config, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-            os.close(descriptor)
-        child = {'PATH':os.environ.get('PATH',''), 'HOME':str(home),
-                 'NPM_CONFIG_USERCONFIG':str(user_config), 'NPM_CONFIG_GLOBALCONFIG':str(global_config),
-                 'NPM_CONFIG_CACHE':str(home/'npm-cache')}
-        run(['npm','install','--prefix',mcp,'--ignore-scripts','--save-exact','--no-audit','--no-fund',
-             '--registry=https://registry.npmjs.org',pin['package']+'@'+pin['version']], child, npm_errors=True)
-        package = mcp/'node_modules'/pin['package']/'package.json'
-        verify_mcp(package)
-        print('Verified MCP '+pin['version']+': exact package version and lock-file SHA-512 integrity match dependencies.json. npm checked downloaded tarballs; all lifecycle scripts were disabled.')
-    print('Tools installed in '+str(home)+'. Put '+str(home/'opentofu')+' and '+str(home/'venv/bin')+' on PATH. MCP package: '+str(package))
+    print('Tools installed in '+str(home)+'. Put '+str(home/'opentofu')+' and '+str(home/'venv/bin')+' on PATH.')

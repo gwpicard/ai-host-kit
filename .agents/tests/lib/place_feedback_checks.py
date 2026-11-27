@@ -86,10 +86,9 @@ def commands(work):
     gate=fixtures.load()
     record=json.loads((ROOT/'.agents/tests/fixtures/place/place-record.json').read_text())
     place=work/'place.json';place.write_text(json.dumps(record))
-    package=work/'package.json';package.write_text(json.dumps(dict(name='@masonator/coolify-mcp',version='3.10.1')))
     progress=work/'progress.json';progress.write_text(json.dumps(dict(config=dict(place=record['place'],secrets=str(work/'absent.env')),root=str(work))))
     paths=[(flow,['summary','--progress',progress,'--plan',work/'unused.plan']),
-           (check,['--record',place,'--mcp-package',package]),
+           (check,['--record',place]),
            (lane,['prepare','--record',place,'--lane','internal','--effect',work/'effect.json']),
            (retire,['--record',place,'--plan',work/'unused.plan','--approval',work/'approval.json'])]
     for module,args in paths:
@@ -180,9 +179,8 @@ def missing_value(work):
     # A read-only command names the missing value instead of asking for approval.
     record=json.loads((ROOT/'.agents/tests/fixtures/place/place-record.json').read_text())
     place=work/'place.json';place.write_text(json.dumps(record))
-    package=work/'package.json';package.write_text(json.dumps(dict(name='@masonator/coolify-mcp',version='3.10.1')))
     with patch.object(sys,'stdin',io.StringIO()):
-        status,text=invoke(check,'--record',place,'--mcp-package',package,'--secrets',work/'absent.env')
+        status,text=invoke(check,'--record',place,'--secrets',work/'absent.env')
     assert status!=0 and 'Missing value: COOLIFY_TEAM_TOKEN is not in the protected secrets file' in text,text
     assert 'Approval needs' not in text and 'Run approve' not in text,text
 
@@ -196,7 +194,6 @@ def proxy(work):
     assert "proxy" not in place.lane_effect(record,'internal',[])['effect']
     record['firewall']['rules']=[dict(protocol='tcp',ports=[80,443],sources=['0.0.0.0/0'],purpose='Approved public web access')]
     path=work/'place.json';path.write_text(json.dumps(record))
-    package=work/'package.json';package.write_text(json.dumps(dict(name='@masonator/coolify-mcp',version='3.10.1')))
     requests=[]
     class Connection:
         def __init__(self,host,port,timeout,context=None):
@@ -213,10 +210,10 @@ def proxy(work):
     class HTTPConnection(Connection,http.client.HTTPConnection):pass
     class HTTPSConnection(Connection,http.client.HTTPSConnection):pass
     with patch.object(api,'hidden_value',return_value='fixture'),patch.object(check,'outside_probe',side_effect=lambda host,port:port in (80,443)), \
-         patch.object(check,'check_place',side_effect=lambda r,probe,read,mcp:[('outside TCP 80','passed')]), \
+         patch.object(check,'check_place',side_effect=lambda r,probe,read:[('outside TCP 80','passed')]), \
          patch('node.read_node',return_value={}),patch('node.node_rows',return_value=[]), \
          patch.object(check.http.client,'HTTPConnection',HTTPConnection),patch.object(check.http.client,'HTTPSConnection',HTTPSConnection):
-        status,text=invoke(check,'--record',path,'--mcp-package',package,'--secrets',work/'absent.env')
+        status,text=invoke(check,'--record',path,'--secrets',work/'absent.env')
     assert status==0,text
     assert "Public TCP 80 answers HTTP 503. Coolify's proxy answers 503 until a tool is routed." in text,text
     assert 'Public TCP 443: no HTTP response could be read.' in text,text

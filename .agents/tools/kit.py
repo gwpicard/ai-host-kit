@@ -21,12 +21,12 @@ PUBLIC_FILES = {'README.md', 'LICENSE', 'NOTICES', 'CONTRIBUTING.md', 'SECURITY.
                 '.claude-plugin/plugin.json', '.claude-plugin/marketplace.json',
                 'agent-plugin/plugin.json', '.claude/settings.json'}
 VERSION_RE = r'(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?'
-# Every file that carries the kit version. The canonical MCP client and its
-# generated host-fit copy are stamped alike, so the adapter check still matches.
+# Every file that carries the kit version. The canonical Coolify transport and
+# its generated host-fit copy are stamped alike, so the adapter check still matches.
 VERSION_JSON = ('.claude-plugin/plugin.json', 'agent-plugin/plugin.json')
 VERSION_TEXT = '.ai-host-kit-version'
-VERSION_CODE = ('.agents/skills/recipes/coolify-hetzner/scripts/mcp.py',
-                '.agents/skills/host-fit/resources/recipes/coolify-hetzner/scripts/mcp.py')
+VERSION_CODE = ('.agents/skills/recipes/coolify-hetzner/scripts/api.py',
+                '.agents/skills/host-fit/resources/recipes/coolify-hetzner/scripts/api.py')
 VERSION_FILES = VERSION_JSON + (VERSION_TEXT,) + VERSION_CODE
 CODE_VERSION_RE = re.compile(r"^KIT_VERSION = '([^'\n]*)'$", re.M)
 # Users install the plugin from this branch; main is the working branch.

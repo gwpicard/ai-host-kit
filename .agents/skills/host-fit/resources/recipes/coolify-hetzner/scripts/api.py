@@ -1,8 +1,33 @@
 """Fixed-route transports. Keys are supplied in memory; responses are never logged."""
+import base64
 import json
+import re
 import urllib.request
+from urllib.parse import quote
 from check import NoRedirect
-from place import Refused, tailnet_address
+from place import Refused, require, tailnet_address
+
+# The kit version, stamped when a release is prepared.
+KIT_VERSION = '0.0.1'
+
+# The Coolify 4.7.5 write routes the kit calls, with the request fields each
+# route reads. The project and service routes answer 422 to any other field.
+# The service variable routes accept any other field and drop it unread, which
+# includes is_buildtime, is_runtime and is_preview. The kit refuses such a
+# field instead of sending it. Sources: ProjectController::create_project and
+# ServicesController::create_service, create_env, update_env_by_uuid and
+# action_deploy at v4.7.5.
+SERVICE_VARIABLE_FIELDS = frozenset({'key', 'value', 'is_literal', 'is_multiline', 'is_shown_once', 'comment'})
+COOLIFY_WRITES = {
+    ('POST', 'projects'): frozenset({'name', 'description'}),
+    ('POST', 'services'): frozenset({'name', 'description', 'project_uuid', 'environment_name', 'environment_uuid',
+                                     'server_uuid', 'destination_uuid', 'instant_deploy', 'docker_compose_raw',
+                                     'connect_to_docker_network', 'urls', 'force_domain_override',
+                                     'is_container_label_escape_enabled', 'redact_all_env_values_in_logs', 'tags'}),
+    ('POST', 'services/{uuid}/envs'): SERVICE_VARIABLE_FIELDS,
+    ('PATCH', 'services/{uuid}/envs'): SERVICE_VARIABLE_FIELDS,
+    ('POST', 'services/{uuid}/start'): frozenset(),
+}
 
 
 def approval_gate():
@@ -61,9 +86,67 @@ class API:
     def request(self, method, url, token, body=None):
         data=None if body is None else json.dumps(body).encode()
         request=urllib.request.Request(url,data=data,method=method,
-                headers={'Authorization':'Bearer '+token,'Content-Type':'application/json','Accept':'application/json'})
+                headers={'Authorization':'Bearer '+token,'Content-Type':'application/json','Accept':'application/json',
+                         'User-Agent':'ai-host-kit/'+KIT_VERSION})
         with self.opener.open(request,timeout=20) as response:
             return json.loads(response.read(4*1024*1024))
+
+    def coolify_url(self, path):
+        return 'http://'+tailnet_address(self.record['infrastructure']['tailnet_ipv4'])+':8000/api/v1/'+path
+
+    def coolify_version(self):
+        """Read the running Coolify version. 4.7.5 answers with plain text."""
+        request=urllib.request.Request(self.coolify_url('version'),method='GET',
+                headers={'Authorization':'Bearer '+self.coolify_token,'User-Agent':'ai-host-kit/'+KIT_VERSION})
+        with self.opener.open(request,timeout=20) as response:
+            text=response.read(4096).decode('utf-8',errors='replace').strip()
+        try: value=json.loads(text)
+        except ValueError: value=text
+        return value if isinstance(value,str) and re.fullmatch(r'[0-9A-Za-z.-]{1,40}',value) else None
+
+    def coolify_write(self, method, route, body=None, uuid=None):
+        """Send one fixed Coolify write. Return only a created identity, never a value."""
+        fields=COOLIFY_WRITES.get((method,route))
+        require(fields is not None, 'The kit has no fixed Coolify write route for this request; nothing was sent.')
+        body=dict(body or {})
+        require(set(body) <= fields,
+                'The request names a field that Coolify 4.7.5 ignores or refuses on this route; nothing was sent.')
+        require(('{uuid}' in route) == (uuid is not None) and (uuid is None or (isinstance(uuid,str) and bool(uuid))),
+                'A Coolify write needs exactly the resource identity its route names; nothing was sent.')
+        if 'docker_compose_raw' in body:
+            # The 4.7.5 service route accepts Compose only as base64 text.
+            body['docker_compose_raw']=base64.b64encode(body['docker_compose_raw'].encode()).decode()
+        path=route.replace('{uuid}',quote(uuid,safe='')) if uuid is not None else route
+        request=urllib.request.Request(self.coolify_url(path),data=json.dumps(body).encode(),method=method,
+                headers={'Authorization':'Bearer '+self.coolify_token,'Content-Type':'application/json',
+                         'Accept':'application/json','User-Agent':'ai-host-kit/'+KIT_VERSION})
+        with self.opener.open(request,timeout=30) as response:
+            status=response.status
+            raw=response.read(64*1024)
+        require(200 <= status < 300, 'Coolify answered the write without success; inspect the place before retrying.')
+        if (method,route) not in (('POST','projects'),('POST','services')):
+            # Variable writes echo the stored value. Discard the reply unread.
+            return None
+        # Reduce the reply at the boundary: only the new identity leaves here.
+        try: identity=json.loads(raw).get('uuid')
+        except (ValueError, AttributeError): identity=None
+        require(isinstance(identity,str) and re.fullmatch(r'[A-Za-z0-9-]{1,64}',identity) is not None,
+                'The Coolify write returned no identity; inspect the place before retrying.')
+        return identity
+
+    def create_project(self, name):
+        return self.coolify_write('POST','projects',dict(name=name))
+
+    def create_service(self, fields):
+        return self.coolify_write('POST','services',fields)
+
+    def set_service_variable(self, method, uuid, key, value):
+        # Only key and value are sent. Coolify keeps the deployment flags it
+        # set when it parsed the Compose definition.
+        self.coolify_write(method,'services/{uuid}/envs',dict(key=key,value=value),uuid)
+
+    def start_service(self, uuid):
+        self.coolify_write('POST','services/{uuid}/start',None,uuid)
 
     def cloud(self, method, path, body=None):
         return self.request(method,'https://api.hetzner.cloud/v1/'+path,self.hcloud_token,body)
@@ -78,15 +161,18 @@ class API:
         address=tailnet_address(self.record['infrastructure']['tailnet_ipv4'])
         return self.request('GET','http://'+address+':8000/api/v1/team',self.coolify_token)
 
-    def service_env_state(self, uuid, key):
+    def service_env_rows(self, uuid, key):
         # Reduce raw response values at the transport boundary. Callers receive
         # only presence and deployment flags, never a value or its last digits.
-        from urllib.parse import quote
-        address=tailnet_address(self.record['infrastructure']['tailnet_ipv4'])
-        rows=self.request('GET','http://'+address+':8000/api/v1/services/'+quote(uuid,safe='')+'/envs',self.coolify_token)
+        rows=self.request('GET',self.coolify_url('services/'+quote(uuid,safe='')+'/envs'),self.coolify_token)
+        if not isinstance(rows,list): return None
         return [dict(is_set=isinstance(row.get('value'),str) and bool(row['value']),
                      is_runtime=row.get('is_runtime'),is_buildtime=row.get('is_buildtime'),is_preview=row.get('is_preview'))
-                for row in rows if row.get('key')==key and row.get('is_preview') is False]
+                for row in rows if isinstance(row,dict) and row.get('key')==key]
+
+    def service_env_state(self, uuid, key):
+        rows=self.service_env_rows(uuid,key)
+        return None if rows is None else [row for row in rows if row['is_preview'] is False]
 
     def coolify_resources(self, kind):
         from place import require
@@ -94,9 +180,9 @@ class API:
         address=tailnet_address(self.record['infrastructure']['tailnet_ipv4'])
         rows=[]; seen=set()
         reason='The resource inventory could not prove completeness; the attempt stays uncertain.'
-        # The pinned MCP uses page/per_page and receives arrays. Read through
-        # an empty terminal page, even after a short page. Reject ignored
-        # pagination, duplicate identities and unbounded inventories.
+        # Request page/per_page and read through an empty terminal page, even
+        # after a short page. Reject ignored pagination, duplicate identities
+        # and unbounded inventories.
         for page in range(1,1001):
             batch=self.request('GET','http://'+address+':8000/api/v1/'+kind+
                                '?page='+str(page)+'&per_page=50',self.coolify_token)

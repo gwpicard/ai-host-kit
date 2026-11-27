@@ -97,12 +97,13 @@ def outcomes(ops, gate, work):
     assert len(api.writes) == 1
     calls = []
     rows = ops.check_place(record, lambda host, port: calls.append(port) or False,
-                           lambda address: '4.7.5', lambda: '3.10.1')
+                           lambda address: '4.7.5')
     assert 8080 in calls and all(status == 'passed' for _, status in rows)
-    assert ops.check_place(record, lambda *a: True, lambda a: '4.7.5', lambda:'3.10.1')[0][1] == 'failed'
-    assert ops.scoped_mcp(['read','read:sensitive','write','deploy'],'3.10.1')['args'][-1].endswith('@3.10.1')
-    refused(lambda: ops.scoped_mcp(['root'],'3.10.1'))
-    refused(lambda: ops.scoped_mcp(['read','read:sensitive','write','deploy'],'latest'))
+    assert ops.check_place(record, lambda *a: True, lambda a: '4.7.5')[0][1] == 'failed'
+    assert ops.check_place(record, lambda *a: False, lambda a: '4.7.6')[-1] == ('Coolify over the tailnet', 'failed')
+    assert ops.token_scopes(['read','read:sensitive','write','deploy']) == sorted(ops.SCOPES)
+    refused(lambda: ops.token_scopes(['root']))
+    refused(lambda: ops.token_scopes(['read','read:sensitive','write','deploy','root']))
     destroyed = []
     apply = lambda plan, approval: destroyed.append(plan)
     refused(lambda: ops.retire(record, owned, 'destroy-plan', approval, api, apply, lambda name: 'wrong'))
@@ -139,7 +140,7 @@ def mutations(work):
         ('lane approval','    gate(effect, approval)\n    receipt = start_attempt','    receipt = start_attempt'),
         ('typed place name','confirm(name) == name','True'),
         ('root refusal','set(scopes) == SCOPES and len(scopes) == len(SCOPES)','True'),
-        ('MCP pin','version == PINS["mcp"]','True'),
+        ('Coolify version row','coolify_get(address) == PINS["coolify"]','True'),
         ('write-once ports','before is None or before.get("ports") == ["tcp:443"]','True'),
         ('outside probe','PROBE_PORTS = {22, 80, 443, 8000, 8080, 6001, 6002}','PROBE_PORTS = {22, 80, 443, 8000, 6001, 6002}'),
         ('destroy ownership','    ownership(record, found, partial)','    pass'),
@@ -245,8 +246,14 @@ def record_checks(work):
         elif change=='phase': del bad['phase']
         elif change=='tools': bad['tools']=[{'name':'tool','host_record':'hosting/host-record.json'}]
         elif change=='address': bad['infrastructure']['tailnet_ipv4']='not-an-ip'
-        else: bad['infrastructure']['versions']['mcp']='latest'
+        else: bad['infrastructure']['versions']['coolify']='latest'
         assert list(validator(schema,format_checker=formats).iter_errors(bad)),change
+    # Records from kits that used the MCP package keep validating; the field
+    # stays pinned when present.
+    older=copy.deepcopy(record); older['infrastructure']['versions']['mcp']='3.10.1'
+    assert not list(validator(schema,format_checker=formats).iter_errors(older))
+    older['infrastructure']['versions']['mcp']='latest'
+    assert list(validator(schema,format_checker=formats).iter_errors(older))
     # Removing the place-stage required fields makes the same invalid record pass.
     changed=copy.deepcopy(schema); changed['properties']['infrastructure']['required'].remove('server_id')
     bad=copy.deepcopy(record); del bad['infrastructure']['server_id']
@@ -347,7 +354,7 @@ def main():
     if checks.load().records.dependencies() is None:
         print('could-not-run: schema packages are missing')
         raise SystemExit(2)
-    for relative in ['scripts/setup.py','scripts/mcp.py','scripts/node.py','scripts/place.py','scripts/check.py','scripts/api.py','scripts/lane.py','scripts/retire.py','tofu/hetzner-server/main.tf','tofu/hetzner-server/cloud-init.sh','tofu/hetzner-server/.terraform.lock.hcl']:
+    for relative in ['scripts/setup.py','scripts/node.py','scripts/place.py','scripts/check.py','scripts/api.py','scripts/lane.py','scripts/retire.py','tofu/hetzner-server/main.tf','tofu/hetzner-server/cloud-init.sh','tofu/hetzner-server/.terraform.lock.hcl']:
         bundled=ROOT/'.agents/skills/host-fit/resources/recipes/coolify-hetzner'/relative
         assert bundled.is_file() and bundled.read_bytes()==(RECIPE/relative).read_bytes(),relative
     with tempfile.TemporaryDirectory(prefix='ai-host-kit-place-checks-') as temporary:

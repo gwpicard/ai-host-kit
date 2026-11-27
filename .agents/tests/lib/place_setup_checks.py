@@ -7,8 +7,6 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
-import threading
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -19,7 +17,6 @@ def exercise(work, checks):
     try:
         import setup as flow
         import node
-        import mcp
         gate=checks.load(); reader=flow.load_reader()
         record=json.loads((FIXTURE/'place-record.json').read_text())
         facts=dict(coolify_healthy=True,cloud_init_state='done',status=dict(BackendState='Running',Self=dict(HostName='test-place',TailscaleIPs=['100.64.0.10'],Tags=['tag:server'],KeyExpiry=None)),prefs=dict(RunSSH=True),key_file_gone=True,instance_id='101',cloud_init={'v1':{'errors':[]}})
@@ -61,7 +58,12 @@ def exercise(work, checks):
             refused(lambda:flow.prepare_root(bad,path,work/'bad-root',work/'bad-progress',reader,gate))
         state=json.loads(progress.read_text());state.update(record=record,server_uuid='server-one',destination_uuid='network-one')
         api=StandIn();api.firewall_rules=lambda identity:[]
-        fake=SimpleNamespace(call=lambda tool,args:[] if args.get('action')=='list' else dict(uuid='created-'+tool))
+        # In-memory Coolify writes; the loopback REST stand-in is in place_stage_checks.
+        api.service_env_rows=lambda uuid,key:[]
+        api.create_project=lambda name:'created-project'
+        api.create_service=lambda fields:'created-service'
+        api.set_service_variable=lambda method,uuid,key,value:None
+        api.start_service=lambda uuid:None
         api.service_env_state=lambda uuid,key:[dict(is_set=True,is_runtime=True,is_buildtime=False,is_preview=False)]
         confirm=lambda name:'claimed '+name
         definition=lambda name:dict(ports=['tcp:443'])
@@ -72,25 +74,25 @@ def exercise(work, checks):
         # Complete the stages with injected transports and synthetic approvals only.
         for step in flow.STEPS:
             effect=flow.effect_for(state,step);approval=approve(effect)
-            refused(lambda:flow.run_stage(state,step,work/'missing-approval',gate,api,fake,confirm,definition,lambda:True))
+            refused(lambda:flow.run_stage(state,step,work/'missing-approval',gate,api,confirm,definition,lambda:True))
             if step=='claim':
-                refused(lambda:flow.run_stage(state,step,approval,gate,api,fake,lambda name:'other',definition,lambda:True))
+                refused(lambda:flow.run_stage(state,step,approval,gate,api,lambda name:'other',definition,lambda:True))
                 api.registration_closed=lambda:False
-                refused(lambda:flow.run_stage(state,step,approval,gate,api,fake,confirm,definition,lambda:True))
+                refused(lambda:flow.run_stage(state,step,approval,gate,api,confirm,definition,lambda:True))
                 api.registration_closed=lambda:True
                 api.firewall_rules=lambda identity:[{'port':'80'}]
-                refused(lambda:flow.run_stage(state,step,approval,gate,api,fake,confirm,definition,lambda:True))
+                refused(lambda:flow.run_stage(state,step,approval,gate,api,confirm,definition,lambda:True))
                 api.firewall_rules=lambda identity:[]
             else:
                 api.registration_closed=lambda:False
-                refused(lambda:flow.run_stage(state,step,approval,gate,api,fake,confirm,definition,lambda:True))
+                refused(lambda:flow.run_stage(state,step,approval,gate,api,confirm,definition,lambda:True))
                 api.registration_closed=lambda:True
             if step in ('register','start-register'):
-                refused(lambda:flow.run_stage(state,step,approval,gate,api,fake,confirm,lambda name:dict(ports=['tcp:80']),lambda:True))
+                refused(lambda:flow.run_stage(state,step,approval,gate,api,confirm,lambda name:dict(ports=['tcp:80']),lambda:True))
             if step=='record':
-                refused(lambda:flow.run_stage(state,step,approval,gate,api,fake,confirm,definition,lambda:False))
+                refused(lambda:flow.run_stage(state,step,approval,gate,api,confirm,definition,lambda:False))
             with patch.object(flow,'prompt',return_value='synthetic-only'):
-                update=flow.run_stage(state,step,approval,gate,api,fake,confirm,definition,lambda:True)
+                update=flow.run_stage(state,step,approval,gate,api,confirm,definition,lambda:True)
             state.update(update);state['done'].append(step)
         assert state['done']==flow.STEPS
         # Removal tests rerun the same protected outcome and require it to escape.
@@ -124,12 +126,14 @@ def exercise(work, checks):
                 if kind=='approval':approval=work/'missing-approval'
                 api.registration_closed=lambda:kind!='registration'
                 api.firewall_rules=lambda identity:[{'port':'80'}] if kind=='firewall' else []
-                result=mod.run_stage(test,step,approval,gate,api,fake,lambda name:'other' if kind=='confirm' else 'claimed '+name,
+                result=mod.run_stage(test,step,approval,gate,api,lambda name:'other' if kind=='confirm' else 'claimed '+name,
                     lambda name:dict(ports=['tcp:80'] if kind=='ports' else ['tcp:443']),lambda:kind!='canary')
             print('Protection removal detected: '+name)
-        # Scope declarations and returned abilities are independently refused.
-        for scopes,observed in [(['root'],None),(sorted(flow.SCOPES),['root'])]:
-            refused(lambda:mcp.MCP('/missing/package.json','100.64.0.10','synthetic',scopes,observed))
+        # Scope declarations and returned abilities are refused alike.
+        for scopes in (['root'],sorted(flow.SCOPES)+['root'],['read']):
+            refused(lambda:flow.token_scopes(scopes))
+        bad=copy.deepcopy(config);bad['scopes']=['root']
+        refused(lambda:flow.prepare_root(bad,path,work/'scope-root',work/'scope-progress',reader,gate))
         record_state=copy.deepcopy(state)
         record_state['choice_path']=str(path)
         changed=copy.deepcopy(choice);changed['choice']['answers']['cloud']='none'
@@ -169,9 +173,7 @@ def exercise(work, checks):
         refused(lambda:flow.bind_provider(binding,saved,'synthetic-project-one',gate))
         print('Protection removal detected: project token bound to saved plan')
         cloud_init(work,RECIPE)
-        protocol(work,mcp,flow)
-        protocol_guards(work,mcp,flow)
-        print('Offline staged setup, claim, node and MCP checks passed.')
+        print('Offline staged setup, claim and node checks passed.')
     finally: sys.path.pop(0)
 
 
@@ -202,24 +204,24 @@ def cli(work,flow,gate,reader,config,choice,facts,journal_probes=True):
         def registration_closed(self):return True
         def coolify_team(self):return {'id':1}
         def token_abilities(self):return sorted(flow.SCOPES)
+        def coolify_version(self):return '4.7.5'
         def firewall_rules(self,*args):return []
+        def service_env_rows(self,*args):return []
         def service_env_state(self,*args):return [dict(is_set=True,is_runtime=True,is_buildtime=False,is_preview=False)]
+        def create_project(self,name):writes.append(('project',name));return 'created-project'
+        def create_service(self,fields):writes.append(('service',fields));return 'created-service'
+        def set_service_variable(self,*args):writes.append(('variable',args))
+        def start_service(self,uuid):writes.append(('start',uuid))
         def request(self,method,url,*args):
             if url.endswith('/destinations'):return [{'uuid':'destination-one'}]
             if '/servers/' in url:return {'ip':'host.docker.internal','name':'localhost'}
             return {'ports':['tcp:443']}
     writes=[]
-    class MCP:
-        def __init__(self,*args):pass
-        def call(self,tool,args):
-            if args.get('action')=='list':return []
-            writes.append((tool,args));return {'uuid':'created-'+tool}
-        def close(self):pass
     def prompt(g,label):return 'claimed test-place' if 'type claimed' in label else 'synthetic-only'
     reuse_results=[]
     @contextmanager
     def terminal():yield None
-    with patch.object(gate,'terminal',terminal),patch.object(flow,'reopen_claim'),patch.object(flow,'API',API),patch.object(flow,'MCP',MCP),patch.object(flow,'prompt',side_effect=prompt):
+    with patch.object(gate,'terminal',terminal),patch.object(flow,'reopen_claim'),patch.object(flow,'API',API),patch.object(flow,'prompt',side_effect=prompt):
         for step in flow.STEPS:
             effect=folder/(step+'.json');approval=folder/(step+'-approval.json')
             assert command('prepare','--step',step,'--effect',str(effect))==0
@@ -234,25 +236,25 @@ def cli(work,flow,gate,reader,config,choice,facts,journal_probes=True):
                     if value.get('uncertain')==step:raise OSError('Synthetic crash before progress save')
                     return original_save(path,value)
                 with patch.object(flow,'save',side_effect=crash):
-                    assert command('run','--step',step,'--effect',str(effect),'--approval',str(approval),'--mcp-package',str(folder/'package.json'))!=0
+                    assert command('run','--step',step,'--effect',str(effect),'--approval',str(approval))!=0
                 assert json.loads(progress.read_text())==before
                 journal=choice_path.parent/'place-attempts';parked=folder/'parked-receipts'
                 count_before=len(writes)
-                assert command('run','--step',step,'--effect',str(effect),'--approval',str(approval),'--mcp-package',str(folder/'package.json'))!=0
+                assert command('run','--step',step,'--effect',str(effect),'--approval',str(approval))!=0
                 journal.rename(parked)
                 for replacement in ('missing','empty','copied'):
                     if replacement!='missing':journal.mkdir()
                     if replacement=='copied':shutil.copyfile(parked/'generation',journal/'generation')
-                    assert command('run','--step',step,'--effect',str(effect),'--approval',str(approval),'--mcp-package',str(folder/'package.json'))!=0
+                    assert command('run','--step',step,'--effect',str(effect),'--approval',str(approval))!=0
                     assert len(writes)==count_before
                     if journal.exists():shutil.rmtree(journal)
                 parked.rename(journal)
                 # Restore the stand-in fixture only, retaining the original directory.
                 (journal/(flow.fingerprint(value)+'.json')).unlink()
-            assert command('run','--step',step,'--effect',str(effect),'--approval',str(approval),'--mcp-package',str(folder/'package.json'))==0
+            assert command('run','--step',step,'--effect',str(effect),'--approval',str(approval))==0
             after=json.loads(progress.read_text());choice_after=choice_path.read_text();count=len(writes)
             flow.save(progress,before);choice_path.write_text(choice_before)
-            status=command('run','--step',step,'--effect',str(effect),'--approval',str(approval),'--mcp-package',str(folder/'package.json'))
+            status=command('run','--step',step,'--effect',str(effect),'--approval',str(approval))
             reuse_results.append((step,status!=0 and len(writes)==count))
             # Restore fixture progress and observed write count for the next stage.
             del writes[count:];flow.save(progress,after);choice_path.write_text(choice_after)
@@ -319,100 +321,3 @@ curl() { test ! -e "$BOOT_KEY" || exit 44; touch "$BOOT_INSTALLED"; }
     assert outcome(section.replace('    exit 1','    true'),1)[0]==0
     assert outcome(section.replace('rm -f "$TAILSCALE_KEY_FILE"\ntailscale ip','true\ntailscale ip'),0)[0]!=0
     print('Protection removals detected: failed-join cleanup, hard failure and cleanup before Coolify.')
-
-
-def protocol(work,mcp,flow,package=None):
-    # Exercise the actual stdio framing using a local child process, no model.
-    child=work/'stdio.py'
-    child.write_text('''import sys,json
-for line in sys.stdin:
- r=json.loads(line)
- if 'id' not in r: continue
- if r['method']=='initialize': result={'serverInfo':{'version':'3.10.1'}}
- else: result={'content':[{'type':'text','text':json.dumps({'version':'3.10.1','uuid':'synthetic-service'})}]}
- print(json.dumps({'jsonrpc':'2.0','id':r['id'],'result':result}),flush=True)
-''')
-    folder=work/'package';folder.mkdir(exist_ok=True)
-    (folder/'package.json').write_text(json.dumps(dict(name='@masonator/coolify-mcp',version='3.10.1')))
-    original=subprocess.Popen;calls=[]
-    def spawn(command,**kwargs):
-        assert command[0]=='node' and kwargs['env']['COOLIFY_BASE_URL']=='http://100.64.0.10:8000'
-        assert not set(kwargs['env'])-{'PATH','COOLIFY_BASE_URL','COOLIFY_ACCESS_TOKEN'}
-        calls.append(command)
-        return original([sys.executable,'-u',str(child)],**kwargs)
-    with patch.object(mcp.subprocess,'Popen',side_effect=spawn):
-        client=mcp.MCP(folder/'package.json','100.64.0.10','synthetic-only',sorted(flow.SCOPES))
-        try: assert client.call('service',dict(action='create'))['uuid']=='synthetic-service'
-        finally:client.close()
-    assert calls
-    if package:
-        actual_package(work,mcp,flow,package)
-
-
-def protocol_guards(work,mcp,flow):
-    from place_checks import load, refused, RECIPE
-    folder=work/'guard-package';folder.mkdir()
-    package=folder/'package.json'
-    child=work/'guard-stdio.py'
-    original=subprocess.Popen
-    def attempt(module,kind):
-        version='9.0.0' if kind=='package' else '3.10.1'
-        package.write_text(json.dumps(dict(name='@masonator/coolify-mcp',version=version)))
-        hello='9.0.0' if kind=='hello' else '3.10.1'
-        tool='9.0.0' if kind=='tool' else '3.10.1'
-        child.write_text("import sys,json\nfor line in sys.stdin:\n r=json.loads(line)\n if 'id' not in r: continue\n result={'serverInfo':{'version':"+repr(hello)+"}} if r['method']=='initialize' else {'content':[{'type':'text','text':json.dumps({'version':"+repr(tool)+"})}]}\n print(json.dumps({'jsonrpc':'2.0','id':r['id'],'result':result}),flush=True)\n")
-        def spawn(command,**kwargs):return original([sys.executable,'-u',str(child)],**kwargs)
-        with patch.object(module.subprocess,'Popen',side_effect=spawn):
-            client=module.MCP(package,'100.64.0.10','synthetic-only',
-                ['root'] if kind=='declared' else sorted(flow.SCOPES),['root'] if kind=='observed' else None)
-            client.close()
-    source=(RECIPE/'scripts/mcp.py').read_text()
-    cases=[
-        ('declared',"        scoped_mcp(scopes, PINS['mcp'])","        pass"),
-        ('observed',"            scoped_mcp(observed_abilities, PINS['mcp'])","            pass"),
-        ('package',"metadata.get('name') == '@masonator/coolify-mcp' and metadata.get('version') == PINS['mcp']",'True'),
-        ('hello',"hello.get('serverInfo', {}).get('version') == PINS['mcp']",'True'),
-        ('tool',"version.get('version') == PINS['mcp']",'True'),
-    ]
-    for kind,old,new in cases:
-        refused(lambda:attempt(mcp,kind))
-        assert old in source
-        path=work/'mutated-mcp.py';path.write_text(source.replace(old,new,1))
-        attempt(load(path),kind)
-        print('Protection removal detected: MCP '+kind)
-
-
-def actual_package(work,mcp,flow,package):
-    calls=[]
-    class Handler(BaseHTTPRequestHandler):
-        def log_message(self,*args):pass
-        def do_GET(self):
-            calls.append(('GET',self.path,None))
-            self.send_response(200);self.end_headers();self.wfile.write(b'"4.7.5"')
-        def do_POST(self):
-            body=json.loads(self.rfile.read(int(self.headers.get('Content-Length','0')))) if int(self.headers.get('Content-Length','0')) else None if int(self.headers.get('Content-Length','0')) else None
-            calls.append(('POST',self.path,body))
-            self.send_response(200);self.send_header('Content-Type','application/json');self.end_headers()
-            self.wfile.write(b'{"uuid":"synthetic-service"}')
-    server=ThreadingHTTPServer(('127.0.0.1',0),Handler)
-    assert server.server_port!=3000
-    thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
-    original=subprocess.Popen
-    def spawn(command,**kwargs):
-        kwargs['env']['COOLIFY_BASE_URL']='http://127.0.0.1:'+str(server.server_port)
-        return original(command,**kwargs)
-    try:
-        with patch.object(mcp.subprocess,'Popen',side_effect=spawn):
-            client=mcp.MCP(package,'100.64.0.10','synthetic-only',sorted(flow.SCOPES))
-            try:
-                result=client.call('service',dict(action='create',server_uuid='localhost',project_uuid='project',
-                                   environment_name='production',name='docktail',instant_deploy=False,docker_compose_raw=flow.DOCKTAIL))
-                assert result['uuid']=='synthetic-service'
-                client.call('control',dict(resource='service',action='start',uuid='synthetic-service'))
-            finally: client.close()
-        import base64
-        posted=next(body for method,path,body in calls if path=='/api/v1/services' and method=='POST')
-        assert base64.b64decode(posted['docker_compose_raw']).decode()==flow.DOCKTAIL and posted['instant_deploy'] is False
-        assert any(path=='/api/v1/services/synthetic-service/start' for method,path,body in calls)
-        print('Unmodified MCP 3.10.1 created and started a synthetic service against a loopback API stand-in.')
-    finally:server.shutdown();server.server_close();thread.join()

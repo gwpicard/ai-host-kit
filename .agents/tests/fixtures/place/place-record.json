@@ -32,7 +32,6 @@
     "tailnet_ipv4": "100.64.0.10",
     "versions": {
       "coolify": "4.7.5",
-      "mcp": "3.10.1",
       "docktail": "1.8.6",
       "hcloud": "1.70.2"
     }

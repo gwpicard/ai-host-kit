@@ -67,7 +67,7 @@ def storage_failure(error):
             ['hetzner.storage-keys', 'hetzner.bucket'])
 
 
-def run(config, gate, package=None):
+def run(config, gate):
     from toolchain import verify_tools
     gate_refused = getattr(gate, 'GateRefused', gate.InputRefused)
     failures = []
@@ -76,10 +76,10 @@ def run(config, gate, package=None):
         print('Preflight failed: '+reason)
         for page in pages: show(page)
     try:
-        verify_tools(gate, package)
+        verify_tools(gate)
         print('Preflight: pinned tools and Python requirements verified.')
     except (OSError, ValueError, KeyError, TypeError):
-        failures.append('Pinned tools are missing or differ. Run setup.py install-tools, then put its opentofu and venv/bin folders on PATH. Node, npm and Tailscale must also be installed.')
+        failures.append('Pinned tools are missing or differ. Run setup.py install-tools, then put its opentofu and venv/bin folders on PATH. Tailscale must also be installed.')
         print('Preflight failed: '+failures[-1])
     # A timeout, an outage and a refusal need different actions. Only a
     # refusal that names keys or the bucket points to the console pages.

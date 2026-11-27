@@ -393,6 +393,7 @@
               "const": "4.7.5"
             },
             "mcp": {
+              "description": "Written only by kits that used the Coolify MCP package. Newer kits call the Coolify API directly and omit it.",
               "const": "3.10.1"
             },
             "docktail": {
@@ -404,7 +405,6 @@
           },
           "required": [
             "coolify",
-            "mcp",
             "docktail",
             "hcloud"
           ]

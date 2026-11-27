@@ -1,4 +1,7 @@
 """Strict loopback services through the setup command, with synthetic approvals."""
+# The Coolify stand-in follows the v4.7.5 controllers for every route the kit
+# calls: fixed field lists, base64 Compose, key-only variable lookup and the
+# deployment flags that the service variable routes drop unread.
 from contextlib import contextmanager, redirect_stdout, redirect_stderr
 import argparse
 import base64
@@ -23,7 +26,6 @@ RECIPE=Path(os.environ.get('PLACE_STAGE_RECIPE',ROOT/'.agents/skills/recipes/coo
 sys.path.insert(0,str(RECIPE/'scripts'))
 import setup as flow
 import api as transport
-import mcp as protocol
 import node
 from place import fingerprint, journal_identity, place_lock
 
@@ -47,6 +49,7 @@ class Services:
         self.closed=True;self.started=None;self.never=False;self.ports=['tcp:443']
         self.inventory=[];self.empty_readback=False;self.conflict=False;self.bad_env=False
         self.team_id=0;self.window_closed=False;self.expire_during_claim=False;self.restarts=0;self.claim_active=False;self.restart_failed=False;self.keep_window_closed=False
+        self.version='4.7.5'
 
     def handle(self,method,path,token,body):
         self.calls.append((method,path))
@@ -58,7 +61,7 @@ class Services:
             if self.window_closed:return 200,'Setup window closed. You can create the root account only in the first 10 minutes after Coolify starts. To open the window again, run this command on the server, then reload this page: docker restart coolify',{}
             return (302,{},dict(Location='/login')) if self.closed else (200,'<form>Register</form>', {})
         if path=='/api/v1/team':return 200,dict(id=self.team_id),{}
-        if path=='/api/v1/version':return 200,'4.7.5',{}
+        if path=='/api/v1/version':return 200,self.version,{'Content-Type':'text/html; charset=UTF-8'}
         if path=='/api/v1/servers/server-one':return 200,self.server,{}
         if path=='/api/v1/servers/server-one/destinations':
             return 200,[dict(uuid='destination-one',name='coolify',server_id=0)],{}
@@ -67,37 +70,70 @@ class Services:
             return 200,dict(ports=self.ports),{}
         if path=='/canary':
             return (200,{}, {}) if not self.never and self.started is not None and self.clock.now-self.started>=50 else (503,{}, {})
+        # Coolify 4.7.5 ignores page and per_page here and returns every row.
         if method=='GET' and path.split('?')[0] in ('/api/v1/services','/api/v1/projects'):
             return 200,self.inventory,{}
-        if path in ('/api/v1/services','/api/v1/projects'):
-            if method=='GET':return 200,self.inventory,{}
+        if method=='POST' and path=='/api/v1/projects':
+            # ProjectController::create_project refuses any field but these.
+            if not isinstance(body,dict) or set(body)-{'name','description'} or not body.get('name'):
+                return 422,dict(message='Validation failed.'),{}
             self.writes.append((method,path,copy.deepcopy(body)))
-            compose=body.get('docker_compose_raw','')
-            if 'TAILSCALE_OAUTH_CLIENT_ID' not in compose:
-                try:compose=base64.b64decode(compose).decode()
-                except (ValueError,UnicodeError):pass
-            if path.endswith('/services') and 'TAILSCALE_OAUTH_CLIENT_ID' in compose:
-                self.env=[dict(key='TAILSCALE_OAUTH_CLIENT_'+suffix,value='',is_runtime=True,is_buildtime=True,is_preview=False) for suffix in ('ID','SECRET')]
-            return 200,dict(uuid='docktail-one' if path.endswith('/services') else 'project-one'),{}
-        if path=='/api/v1/services/docktail-one/envs':
-            if method=='GET':
-                rows=copy.deepcopy(self.env)
-                if self.empty_readback:
-                    for row in rows:row['value']=''
-                return 200,rows,{}
-            existing=[row for row in self.env if row['key']==body['key'] and row['is_preview']==body['is_preview']]
-            if self.conflict or (method=='POST' and existing):return 409,dict(message='Environment variable already exists. Use PATCH request to update it.'),{}
-            if method=='PATCH' and not existing:return 404,{},{}
-            self.writes.append((method,path,copy.deepcopy(body)))
-            # Coolify 4.7.5 applies only these fields and ignores deployment flags.
-            applied={key:body[key] for key in ('key','value','is_literal','is_multiline','is_shown_once','comment') if key in body}
-            if not existing:self.env.append(dict(applied,is_runtime=True,is_buildtime=True,is_preview=False))
-            else:existing[0].update(applied)
-            return 200,dict(uuid='env-one'),{}
+            return 201,dict(uuid='project-one'),{}
+        if method=='POST' and path=='/api/v1/services':
+            return self.create_service(method,path,body)
+        if path.startswith('/api/v1/services/') and path.endswith('/envs'):
+            return self.variables(method,path,body)
         if path.endswith('/start'):
+            if method!='POST':return 400,dict(message='Use POST.'),{}
             self.started=self.clock.now;self.writes.append((method,path,body))
             return 200,dict(message='Service starting request queued.'),{}
         raise AssertionError('Unexpected stand-in route: '+method+' '+path)
+
+    COMPOSE_FIELDS={'name','description','project_uuid','environment_name','environment_uuid','server_uuid','destination_uuid',
+                    'instant_deploy','docker_compose_raw','connect_to_docker_network','urls','force_domain_override',
+                    'is_container_label_escape_enabled','redact_all_env_values_in_logs','tags'}
+
+    def create_service(self,method,path,body):
+        # ServicesController::create_service, Compose branch.
+        if not isinstance(body,dict) or set(body)-self.COMPOSE_FIELDS:return 422,dict(message='Validation failed.'),{}
+        if not body.get('project_uuid') or not body.get('server_uuid') or not body.get('environment_name'):
+            return 422,dict(message='Validation failed.'),{}
+        raw=body.get('docker_compose_raw')
+        try:
+            compose=base64.b64decode(raw,validate=True).decode()
+            assert base64.b64encode(base64.b64decode(raw)).decode()==raw
+        except (ValueError,UnicodeError,TypeError,AssertionError):
+            return 422,dict(message='Validation failed.',errors=dict(docker_compose_raw='The docker_compose_raw should be base64 encoded.')),{}
+        self.writes.append((method,path,copy.deepcopy(body)))
+        # Parsing Compose creates each referenced variable empty, with build
+        # time and runtime on, in production.
+        if 'TAILSCALE_OAUTH_CLIENT_ID' in compose:
+            self.env=[dict(key='TAILSCALE_OAUTH_CLIENT_'+suffix,value='',is_runtime=True,is_buildtime=True,is_preview=False) for suffix in ('ID','SECRET')]
+        identity='register-one' if body.get('name','').endswith('-register') else 'docktail-one'
+        return 201,dict(uuid=identity,domains=[]),{}
+
+    def variables(self,method,path,body):
+        if path!='/api/v1/services/docktail-one/envs':return 404,dict(message='Service not found.'),{}
+        if method=='GET':
+            if self.bad_env:return 200,{'unexpected':'reply'},{}
+            rows=copy.deepcopy(self.env)
+            if self.empty_readback:
+                for row in rows:row['value']=''
+            return 200,rows,{}
+        if not isinstance(body,dict) or not body.get('key'):return 422,dict(message='Validation failed.'),{}
+        # create_env and update_env_by_uuid look a row up by key alone, apply
+        # only these fields and drop every other field unread.
+        existing=[row for row in self.env if row['key']==body['key']]
+        if self.conflict or (method=='POST' and existing):return 409,dict(message='Environment variable already exists. Use PATCH request to update it.'),{}
+        if method=='PATCH' and not existing:return 404,dict(message='Environment variable not found.'),{}
+        self.writes.append((method,path,copy.deepcopy(body)))
+        applied={key:body[key] for key in ('key','value','is_literal','is_multiline','is_shown_once','comment') if key in body}
+        if not existing:
+            row=dict(applied,is_runtime=True,is_buildtime=True,is_preview=False);self.env.append(row)
+        else:
+            row=existing[0];row.update(applied)
+        # The reply echoes the stored value to a token that can read it.
+        return 201,dict(row,uuid='env-one'),{}
 
 
 @contextmanager
@@ -110,9 +146,10 @@ def standins(service):
             self.send_response(status)
             for key,val in headers.items():self.send_header(key,val)
             page=self.path=='/register' and isinstance(value,str)
-            self.send_header('Content-Type','text/html' if page else 'application/json')
+            plain=self.path=='/api/v1/version'
+            if not plain:self.send_header('Content-Type','text/html' if page else 'application/json')
             self.end_headers()
-            self.wfile.write(('<html><body>'+value+'</body></html>').encode() if page else json.dumps(value).encode())
+            self.wfile.write(('<html><body>'+value+'</body></html>').encode() if page else value.encode() if plain else json.dumps(value).encode())
         do_GET=do_POST=do_PATCH=dispatch
     server=ThreadingHTTPServer(('127.0.0.1',0),Handler)
     assert server.server_port!=3000
@@ -143,24 +180,6 @@ def standins(service):
                 return opener.open(urllib.request.Request(target,data=data,headers=headers,method=method),**kwargs)
             except urllib.error.HTTPError as error:
                 raise urllib.error.HTTPError(url,error.code,'Provider reply',error.headers,error) from None
-    class MCP:
-        def __init__(self,*args):self.api=transport.API({},'',COOLIFY)
-        def close(self):pass
-        def call(self,tool,args):
-            if tool=='env_vars':
-                path='/api/v1/services/'+args['uuid']+'/envs'
-                if args['action']=='list':
-                    assert args.get('reveal') is not True
-                    rows=self.api.request('GET',base+path,COOLIFY)
-                    if service.bad_env:return {'unexpected':'reply'}
-                    return [dict(row,value='***') for row in rows if row['key']==args['key']]
-                assert args['action'] in ('create','update')
-                body={key:args[key] for key in ('key','value','is_buildtime','is_runtime','is_preview')}
-                return self.api.request('POST' if args['action']=='create' else 'PATCH',base+path,COOLIFY,body)
-            if tool in ('service','projects'):
-                return self.api.request('POST',base+'/api/v1/'+('services' if tool=='service' else tool),COOLIFY,args)
-            if tool=='control':return self.api.request('GET',base+'/api/v1/services/'+args['uuid']+'/start',COOLIFY)
-            raise AssertionError(tool)
     def inputs(gate,label):
         if 'type claimed' in label:
             if service.expire_during_claim:service.window_closed=True
@@ -195,16 +214,11 @@ def standins(service):
             assert log.read_text().splitlines()==(['restart'] if service.restart_failed else ['restart','inspect','inspect'])
             return result
         return original_run(command,**kwargs)
-    original_spawn=subprocess.Popen
-    def spawn(command,**kwargs):
-        if command[0]=='node':
-            kwargs['env']['COOLIFY_BASE_URL']=base
-        return original_spawn(command,**kwargs)
     @contextmanager
     def terminal(): yield None
     gate=flow.approval_gate()
     try:
-        with patch.object(flow,'approval_gate',return_value=gate),patch.object(gate,'terminal',terminal),patch.object(subprocess,'run',side_effect=ssh),patch.object(urllib.request,'build_opener',return_value=Rewrite()),patch.object(flow,'MCP',protocol.MCP if os.environ.get('PLACE_STAGE_MCP_PACKAGE') else MCP),patch.object(subprocess,'Popen',side_effect=spawn),patch.object(flow,'prompt',side_effect=inputs),patch.object(flow,'time',service.clock,create=True):
+        with patch.object(flow,'approval_gate',return_value=gate),patch.object(gate,'terminal',terminal),patch.object(subprocess,'run',side_effect=ssh),patch.object(urllib.request,'build_opener',return_value=Rewrite()),patch.object(flow,'prompt',side_effect=inputs),patch.object(flow,'time',service.clock,create=True):
             yield
     finally:server.shutdown();server.server_close();thread.join()
 
@@ -239,7 +253,7 @@ class Scenario:
         value=json.loads(effect.read_text())
         path.write_text(json.dumps(dict(effect_sha256=self.gate.effect_sha(value),effect=value['effect'],words='Synthetic fixture approval',approved_at='2026-11-17T12:00:00Z',method='foreground-terminal')))
 
-    def run(self):return self.command('run','--step',self.step,'--effect',self.effect,'--approval',self.approval,'--mcp-package',os.environ.get('PLACE_STAGE_MCP_PACKAGE',self.folder/'package.json'))
+    def run(self):return self.command('run','--step',self.step,'--effect',self.effect,'--approval',self.approval)
     def read(self):return json.loads(self.progress.read_text())
     def receipt(self):return self.journal/(fingerprint(json.loads(self.effect.read_text()))+'.json')
     def recovery(self,abandon=False):
@@ -334,24 +348,22 @@ def oauth(work,step):
     svc=Services();case=Scenario(work,step)
     with standins(svc):
         # Compose parsing creates both empty production keys with build time on.
-        client=flow.MCP(os.environ.get('PLACE_STAGE_MCP_PACKAGE'),'100.64.0.10',COOLIFY,sorted(flow.SCOPES))
-        client.call('service',dict(action='create',name='test-place-docktail',server_uuid='server-one',project_uuid='project-one',destination_uuid='destination-one',environment_name='production',instant_deploy=False,docker_compose_raw=flow.DOCKTAIL))
+        client=transport.API(case.state['record'],'',COOLIFY)
+        assert client.create_service(flow.effect_for(dict(case.state,done=flow.STEPS[:2]),'docktail')['arguments'])=='docktail-one'
         assert len(svc.env)==2 and all(row['value']=='' and row['is_buildtime'] for row in svc.env)
         status,text=case.run();assert status==0,text
         writes=[(method,body) for method,path,body in svc.writes if path.endswith('/envs')]
         assert len(writes)==1 and writes[0][0]=='PATCH'
-        body=writes[0][1];assert body['is_buildtime'] is False and body['is_runtime'] is True and body['is_preview'] is False
+        # Only the fields the route reads reach Coolify; no ignored flag is sent.
+        body=writes[0][1];assert set(body)=={'key','value'} and body['value']==OAUTH
         assert case.read()['uncertain'] is None
         # Coolify kept build time on; the image-only definition makes that acceptable.
-        assert transport.API(case.state['record'],'',COOLIFY).service_env_state('docktail-one',body['key'])==[dict(is_set=True,is_buildtime=True,is_runtime=True,is_preview=False)]
+        assert client.service_env_state('docktail-one',body['key'])==[dict(is_set=True,is_buildtime=True,is_runtime=True,is_preview=False)]
         # A second create must conflict, exactly as Coolify does.
         before=len(svc.calls)
-        try:client.call('env_vars',dict(body,resource='service',action='create',uuid='docktail-one'))
+        try:client.set_service_variable('POST','docktail-one',body['key'],'synthetic-other')
         except urllib.error.HTTPError as error:assert error.code==409
-        except ValueError:
-            assert os.environ.get('PLACE_STAGE_MCP_PACKAGE') # The real MCP withholds HTTP diagnostics.
         else:raise AssertionError('The duplicate-create stand-in was permissive')
-        finally:client.close()
         assert ('POST','/api/v1/services/docktail-one/envs') in svc.calls[before:]
 
 
@@ -471,6 +483,11 @@ def abandon(work):
         assert case.recover()[0]!=0 and case.progress.read_bytes()==before
         svc.inventory={'data':[]}
         assert case.recover()[0]!=0 and case.progress.read_bytes()==before
+        # Coolify 4.7.5 ignores page and per_page, so any listed row repeats on
+        # the next page. The inventory cannot prove completeness and the
+        # attempt stays uncertain, even when the named service is absent.
+        svc.inventory=[dict(uuid='other',name='test-place-docktail')]
+        assert case.recover()[0]!=0 and case.progress.read_bytes()==before
         svc.inventory=[];assert case.recover()[0]==0
     # A crash before the uncertainty save still consumes the original effect.
     svc=Services();case=Scenario(work/'crash','project')
@@ -494,15 +511,17 @@ def oauth_edges(work):
         if mode=='bad-list':svc.bad_env=True
         with standins(svc):
             status,text=case.run()
-            if mode in ('absent','preview'):
+            if mode=='absent':
                 assert status==0,text
                 assert [method for method,path,body in svc.writes]==['POST']
-                if mode=='preview':assert svc.env[0]['value']=='preview' and svc.env[0]['is_buildtime']
             else:
                 assert status!=0 and case.read()['uncertain']=='oauth-id'
                 assert json.loads(case.receipt().read_text())['status']=='uncertain'
+                # Coolify 4.7.5 finds a service variable by key alone, so a
+                # preview row with the key would take the write. Nothing is sent.
+                if mode=='preview':assert 'scope is ambiguous' in text and not svc.writes and svc.env[0]['value']=='preview',text
                 case.recovery(True)
-                if mode=='bad-list':assert case.recover()[0]==0 and not svc.writes
+                if mode in ('bad-list','preview'):assert case.recover()[0]==0 and not svc.writes
                 else:assert case.recover()[0]!=0
 
 
@@ -585,8 +604,94 @@ def recover_oauth(work):
         assert status!=0 and not (work/'project-recovery.json').exists()
 
 
+def rest_boundaries(work):
+    # The transport sends only fields the 4.7.5 route reads, encodes Compose
+    # and returns an identity or nothing, never a stored value.
+    svc=Services();case=Scenario(work,'oauth-id')
+    key='TAILSCALE_OAUTH_CLIENT_ID'
+    with standins(svc):
+        client=transport.API(case.state['record'],'',COOLIFY)
+        assert client.coolify_version()=='4.7.5'
+        assert client.create_project('test-place-infrastructure')=='project-one'
+        arguments=flow.effect_for(dict(case.state,done=flow.STEPS[:2]),'docktail')['arguments']
+        assert client.create_service(arguments)=='docktail-one'
+        posted=svc.writes[-1][2]
+        assert set(posted)==set(arguments) and posted['instant_deploy'] is False
+        assert base64.b64decode(posted['docker_compose_raw']).decode()==flow.DOCKTAIL
+        # Raw Compose is refused by the route, so the encoding is required.
+        try:client.request('POST',client.coolify_url('services'),COOLIFY,arguments)
+        except urllib.error.HTTPError as error:assert error.code==422
+        else:raise AssertionError('The stand-in accepted raw Compose')
+        assert client.set_service_variable('PATCH','docktail-one',key,OAUTH) is None
+        assert svc.env[0]['value']==OAUTH
+        calls=len(svc.calls)
+        for method,route,body,uuid in [('PATCH','services/{uuid}/envs',dict(key=key,value='x',is_buildtime=False),'docktail-one'),
+                                       ('POST','services/{uuid}/envs',dict(key=key,value='x',is_runtime=True),'docktail-one'),
+                                       ('PATCH','services/{uuid}/envs',dict(key=key,value='x',is_preview=False),'docktail-one'),
+                                       ('POST','projects',dict(name='x',environment_name='production'),None),
+                                       ('DELETE','services/{uuid}',None,'docktail-one'),
+                                       ('POST','services/{uuid}/start',None,None)]:
+            try:client.coolify_write(method,route,body,uuid)
+            except ValueError:pass
+            else:raise AssertionError('The transport sent a refused request: '+method+' '+route)
+        assert len(svc.calls)==calls
+        # Removing the field check lets an ignored flag reach Coolify, which
+        # accepts the request and keeps build time on.
+        source=(RECIPE/'scripts/api.py').read_text();old='set(body) <= fields'
+        assert old in source
+        mutated=work/'mutated-api.py';mutated.write_text(source.replace(old,'True',1))
+        import importlib.util
+        spec=importlib.util.spec_from_file_location('mutated_api',mutated);module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+        module.API(case.state['record'],'',COOLIFY).coolify_write('PATCH','services/{uuid}/envs',dict(key=key,value=OAUTH,is_buildtime=False),'docktail-one')
+        assert svc.writes[-1][2].get('is_buildtime') is False and svc.env[0]['is_buildtime'] is True
+        print('Protection removal detected: ignored deployment flag refusal')
+
+
+def older_effects(work):
+    # Effects an older kit prepared for the MCP package never run, but their
+    # uncertain attempts still reach the same recovery reads and proofs.
+    for step in ('project','oauth-id'):
+        svc=Services();case=Scenario(work/step,step)
+        legacy=flow.effect_for(case.read(),step,legacy=True)
+        assert 'tool' in legacy and 'request' not in legacy and legacy['effect']==json.loads(case.effect.read_text())['effect']
+        case.effect.write_text(json.dumps(legacy));case.approve(case.effect,case.approval)
+        with standins(svc):
+            status,text=case.run()
+            assert status!=0 and 'older kit' in text and not svc.writes,text
+            assert not case.receipt().exists() and case.read()['uncertain'] is None
+            # The older kit recorded its attempt, then stopped without a result.
+            from place import start_attempt
+            start_attempt(legacy,case.approval,case.journal,coolify_team_id=0)
+            state=case.read();state['uncertain']=step;flow.save(case.progress,state)
+            if step=='project':
+                case.recovery(True)
+                svc.inventory=[dict(uuid='existing',name='test-place-infrastructure')]
+                assert case.recover()[0]!=0 and case.read()['uncertain']==step
+                svc.inventory=[]
+            else:
+                svc.env=copy.deepcopy(ENV_ROWS);svc.env[0]['is_runtime']=False
+                case.recovery()
+                status,text=case.recover();assert status!=0 and 'runtime off' in text,text
+                svc.env[0]['is_runtime']=True
+            status,text=case.recover();assert status==0,text
+            assert case.read()['uncertain'] is None and not svc.writes
+            assert json.loads(case.receipt().read_text())['status']==('not-written' if step=='project' else 'completed')
+
+
+def version(work):
+    # Writes follow the pinned version's routes; any other version is refused
+    # before an attempt is recorded.
+    svc=Services();svc.version='4.7.6';case=Scenario(work,'project')
+    with standins(svc):
+        status,text=case.run()
+        assert status!=0 and 'pinned' in text and not svc.writes,text
+        assert not case.receipt().exists() and case.read()['uncertain'] is None
+        svc.version='4.7.5'
+        assert case.run()[0]==0 and len(svc.writes)==1
+
+
 def main():
-    cases={'http-status':http_status,'restart-boundaries':restart_boundaries,'closed-window':closed_window,'claim':claim,'discover':discover,'oauth-id':lambda w:oauth(w,'oauth-id'),
+    cases={'rest-boundaries':rest_boundaries,'older-effects':older_effects,'version':version,'http-status':http_status,'restart-boundaries':restart_boundaries,'closed-window':closed_window,'claim':claim,'discover':discover,'oauth-id':lambda w:oauth(w,'oauth-id'),
            'oauth-secret':lambda w:oauth(w,'oauth-secret'),'record':record,'record-failures':failed_record,
            'recover-claim':recover_claim,'abandon':abandon,'oauth-edges':oauth_edges,'oauth-readback':oauth_readback,'recover-oauth':recover_oauth}
     parser=argparse.ArgumentParser();parser.add_argument('--case',choices=list(cases)+['all'],default='all');args=parser.parse_args()
