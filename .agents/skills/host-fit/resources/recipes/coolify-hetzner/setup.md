@@ -78,19 +78,17 @@ every secret. Each prompt names its visibility.
 
 After approval for local downloads and installation, run
 `python3 "$RECIPE/scripts/setup.py" install-tools`. It installs OpenTofu
-1.13.2, the pinned Python environment and `@masonator/coolify-mcp` 3.10.1 under
-`~/.local/share/ai-host-kit/`. It compares published and pinned OpenTofu
-checksums, permits only Python wheels and verifies installed versions, and uses
-`npm install --ignore-scripts --save-exact` with the lock-file integrity in
-`dependencies.json`. Two separate empty config files in the MCP folder exclude
-user and global npm settings. It reports each verification and refuses existing
-tool destinations. If installation fails, it names the failed step and remaining
-folders, and shows npm's short error summary when available. It removes nothing.
-Inspect and remove existing tool destinations before retrying, or use
-`--tools-home` with a new home. It checks checksums over HTTPS, without release
-signatures.
-Install Node, npm and Tailscale separately. Put the printed opentofu and
-venv/bin folders on PATH and use the printed MCP package path.
+1.13.2 and the pinned Python environment under `~/.local/share/ai-host-kit/`.
+It compares published and pinned OpenTofu checksums, permits only Python
+wheels and verifies installed versions. It reports each verification and
+refuses existing tool destinations. If installation fails, it names the failed
+step and remaining folders. It removes nothing. Inspect and remove existing
+tool destinations before retrying, or use `--tools-home` with a new home. It
+checks checksums over HTTPS, without release signatures.
+Install Tailscale separately. Put the printed opentofu and venv/bin folders on
+PATH. Node and npm are not needed: the kit calls Coolify's API itself. A
+`coolify-mcp-3.10.1` folder left by an earlier kit is no longer used; review it
+before deleting it.
 
 Use the `tailscale.read-credential` entry for the recommended read OAuth route.
 It has Services Read plus the read scopes required for policy, DNS and HTTPS
@@ -115,7 +113,6 @@ names the folder, its owner and mode, and prints the `chmod 700` command; it
 never changes a mode itself. Such a folder can hold older saved plans with
 spent auth keys. Keep encrypted state in the selected bucket, with its
 passphrase elsewhere.
-`MCP_PACKAGE` is the installed package's `package.json`, not a command.
 
 ```sh
 cd "$PLACE"
@@ -123,7 +120,7 @@ SETUP="$RECIPE/scripts/setup.py"
 PROGRESS="$PLACE/hosting/place-progress.json"
 ```
 
-`PLACE`, `RECIPE`, `GATE` and `MCP_PACKAGE` are supplied as
+`PLACE`, `RECIPE` and `GATE` are supplied as
 absolute paths by the person. `RECIPE` is the installed host-fit recipe folder;
 `GATE` is the installed setup-hosting scripts folder.
 `SERVER_UUID` and `DESTINATION_UUID` are non-secret values read from the newly
@@ -176,8 +173,8 @@ created place, not invented in advance.
    copies cannot be recalled and why a spent or expired key is worthless.
 
    ```sh
-   python3 "$SETUP" preflight --progress "$PROGRESS" --mcp-package "$MCP_PACKAGE"
-   python3 "$SETUP" plan --progress "$PROGRESS" --mcp-package "$MCP_PACKAGE"
+   python3 "$SETUP" preflight --progress "$PROGRESS"
+   python3 "$SETUP" plan --progress "$PROGRESS"
    python3 "$SETUP" summary --progress "$PROGRESS"
    ```
 
@@ -268,7 +265,7 @@ created place, not invented in advance.
    stage() {
      python3 "$SETUP" prepare --progress "$PROGRESS" --step "$1" --effect "$PLACE/$1-effect.json" &&
      python3 "$GATE/approval_gate.py" approve-effect "$PLACE/$1-effect.json" "$PLACE/$1-approval.json" &&
-     python3 "$SETUP" run --progress "$PROGRESS" --step "$1" --effect "$PLACE/$1-effect.json" --approval "$PLACE/$1-approval.json" --mcp-package "$MCP_PACKAGE"
+     python3 "$SETUP" run --progress "$PROGRESS" --step "$1" --effect "$PLACE/$1-effect.json" --approval "$PLACE/$1-approval.json"
    }
    stage project
    stage docktail
@@ -283,18 +280,22 @@ created place, not invented in advance.
    `project` creates only the infrastructure project. `docktail` creates its
    unmodified container definition with Docker and Tailscale socket access.
    The two OAuth stages separately approve storing each prompted value in
-   Coolify's runtime environment. Each reads the production key first, updates
-   it if present and creates it only if absent. Coolify creates empty keys
-   while parsing Compose, so a duplicate create would fail. MCP masks empty and
-   set values alike. The read-back therefore reduces the authenticated API
-   response inside the local transport to set or unset and deployment flags;
-   no value reaches command output and no reveal tool runs. It requires exactly
-   one production row that is set, runtime on and not preview. The write asks
-   for build time off, but Coolify 4.7.5 ignores build-time flags on service
-   variables and keeps the build time it set while parsing Compose. Build time
-   only feeds image builds. The read-back accepts it because the kit's own
-   docktail definition pulls a pinned image and has no `build:` section; for
-   any definition with a build step it still requires build time off.
+   Coolify's runtime environment. Each reads the key first, updates it with
+   `PATCH` if present and creates it with `POST` only if absent. Coolify
+   creates empty keys while parsing Compose, so a duplicate create would fail.
+   Coolify 4.7.5 finds a service variable by key alone, whatever its preview
+   scope, so the stage writes only when there is no row or exactly one
+   production row; otherwise it sends nothing. The kit reduces every read
+   inside its local transport to set or unset and deployment flags, and
+   discards the write reply, which echoes the value; no value reaches command
+   output. The read-back requires exactly one production row that is set,
+   runtime on and not preview. The write sends only the key and value.
+   Coolify 4.7.5's service variable routes drop build-time, runtime and
+   preview flags unread, so the kit refuses to send them, and Coolify keeps
+   the build time it set while parsing Compose. Build time only feeds image
+   builds. The read-back accepts it because the kit's own docktail definition
+   pulls a pinned image and has no `build:` section; for any definition with a
+   build step it still requires build time off.
    `start-docktail` approves its ability to
    reconcile labelled Tailscale services. `register` defines the pinned canary
    with no published ports. `start-register` lets docktail advertise it to the
@@ -314,7 +315,7 @@ created place, not invented in advance.
 8. After permission for reads, run the place checks and review every row.
 
    ```sh
-   python3 "$RECIPE/scripts/check.py" --record "$PLACE/hosting/place-record.json" --mcp-package "$MCP_PACKAGE"
+   python3 "$RECIPE/scripts/check.py" --record "$PLACE/hosting/place-record.json"
    ```
 
 9. A public-lane test has a separate effect approval naming the selected ports.
@@ -349,7 +350,7 @@ created place, not invented in advance.
    python3 "$GATE/approval_gate.py" approve-effect "$PLACE/public-effect.json" "$PLACE/public-approval.json"
    python3 "$RECIPE/scripts/lane.py" apply --record "$PLACE/hosting/place-record.json" --lane public --port 80 --port 443 --effect "$PLACE/public-effect.json" --approval "$PLACE/public-approval.json" --new-record "$PLACE/hosting/place-record-public.json"
    mv "$PLACE/hosting/place-record-public.json" "$PLACE/hosting/place-record.json"
-   python3 "$RECIPE/scripts/check.py" --record "$PLACE/hosting/place-record.json" --mcp-package "$MCP_PACKAGE"
+   python3 "$RECIPE/scripts/check.py" --record "$PLACE/hosting/place-record.json"
    ```
 
    `check.py` expects each approved port to connect and reports the HTTP
@@ -494,6 +495,17 @@ Recovery also accepts the matching uncertain receipt if a crash happened
 before progress could be marked uncertain. If a recovery itself stops during
 its local writes, keep all evidence for inspection; do not restore receipts
 from an earlier copy.
+
+### Effects from a kit that used the MCP package
+
+Earlier kits wrote to Coolify through the `@masonator/coolify-mcp` package,
+and their Coolify write effects name an MCP tool. This kit calls Coolify's
+API directly, so those effects name the API request instead and have a
+different checksum. A prepared but unused effect from an earlier kit is
+refused before anything is sent. Prepare that stage again and approve the
+new effect. An uncertain attempt recorded by an earlier kit keeps its original
+effect and receipt; the recovery commands above accept it unchanged, and
+their reads and proofs are the same.
 
 After bootstrap, export a fresh candidate record for retirement without
 claiming that setup finished:

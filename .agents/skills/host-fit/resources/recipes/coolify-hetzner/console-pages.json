@@ -158,7 +158,7 @@
           "button": "API access",
           "field": "API access: on",
           "shown_once": false,
-          "note": "Leave the built-in MCP server off; this recipe uses the pinned stdio package."
+          "note": "Leave the built-in MCP server off; this recipe calls the Coolify API directly."
         },
         "team-token": {
           "url": "http://{address}:8000/security/api-tokens",

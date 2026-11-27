@@ -2,7 +2,7 @@
 
 Deploy target: Coolify on Hetzner
 Family: Coolify
-Command-line tools: OpenTofu 1.13.2, Python 3, Tailscale, Node for the MCP
+Command-line tools: OpenTofu 1.13.2, Python 3, Tailscale
 Last checked: 2026-11-16, public release files, offline mocks and stand-ins only
 Last proven: Never
 Proven on: No recorded real run
@@ -37,12 +37,10 @@ setup. It is never described as read-only. The separate docktail credential
 has write abilities and is never used by preflight.
 
 `setup.py install-tools` installs into `~/.local/share/ai-host-kit/`: OpenTofu
-1.13.2 checked against published and pinned SHA-256, the pinned Python wheel
-environment, and MCP 3.10.1 installed with scripts disabled and an exact version.
-The MCP lock integrity must match `dependencies.json`; npm verifies fetched
-tarballs. Existing destinations are refused. These are checksum and version
-checks, without release signature verification. Node, npm and Tailscale are
-separate system prerequisites. The installer changes no host or console.
+1.13.2 checked against published and pinned SHA-256, and the pinned Python
+wheel environment. Existing destinations are refused. These are checksum and
+version checks, without release signature verification. Tailscale is a
+separate system prerequisite. The installer changes no host or console.
 
 ### Place provisioning
 
@@ -117,10 +115,19 @@ opened port answers from the internet, with HTTP 503 until a tool is routed;
 the lane effect names this before approval. The internal lane has no public
 inbound rules.
 
-The installed, unmodified Coolify MCP 3.10.1 runs over stdio with an explicit
-tailnet URL and a prompted token. Every Coolify write uses it. Project creation,
-docktail definition, each OAuth field, each container start and canary definition
-have separate effects and approvals. docktail 1.8.6 runs unmodified as its own
+Every Coolify write is a fixed REST request from `scripts/api.py` to Coolify's
+API on the tailnet address, port 8000, with the person's team token, no proxy
+and no redirect. Project creation, docktail definition, each OAuth field, each
+container start and canary definition have separate effects and approvals. Each
+effect names its request. Before any write, the stage reads Coolify's version
+and refuses anything but the pinned 4.7.5, because the request shapes were
+checked only against that version. The transport sends only the fields each
+4.7.5 route reads, encodes Compose as base64 as the route requires, and returns
+only a created identity; it discards replies that echo a stored value. The
+service variable routes drop build-time, runtime and preview flags unread, so
+the transport refuses to send them. The earlier MCP package did not wait on
+any of these calls, so the kit adds no polling; the record stage still waits
+for the canary. docktail 1.8.6 runs unmodified as its own
 container, with Docker and Tailscale socket access and no published ports.
 Its recorded `update_check=true` performs an outbound version check. The
 recipe keeps this default because an off switch has not been verified for
@@ -139,10 +146,13 @@ proof; the script reports this limit and the person checks the token in
 Coolify. No synthetic response establishes a real token's abilities.
 How it is checked: Local transports cover the complete staged command flow,
 missing approval, stage order, uncertain writes, claim confirmation, closed
-registration, firewall closure, registration ports and read-back. The pinned
-MCP has also created and started a synthetic service against a loopback API.
-Protection removals cover the tested guards. No provider account is used.
-Script: `scripts/setup.py`, `scripts/mcp.py`, `scripts/lane.py`, `scripts/api.py`.
+registration, firewall closure, registration ports and read-back. A loopback
+stand-in that follows the 4.7.5 controllers for each route the kit calls runs
+every Coolify stage through the real transport, including the refused raw
+Compose, the dropped flags, key-only variable lookup and duplicate-create
+conflicts. Protection removals cover the tested guards. No provider account or
+real Coolify is used.
+Script: `scripts/setup.py`, `scripts/lane.py`, `scripts/api.py`.
 Who runs it: The person approves each effect and keeps the protected file; missing values use terminal prompts.
 Ask: Review the tailnet policy, OAuth client abilities and who gains access
 before approving a container start. The kit does not edit that policy. A failed
@@ -151,14 +161,14 @@ or interrupted write stops the sequence and requires inspection before retrying.
 ### Place health
 
 How it works: Read-only checks compare outside TCP probes, including 8080, with
-the recorded lane, reach Coolify over its tailnet IPv4 address and compare the
-installed MCP package version with the pin. Fixed reads over Tailscale SSH
+the recorded lane, and read Coolify's version over its tailnet IPv4 address and
+compare it with the pin. Fixed reads over Tailscale SSH
 check the Hetzner instance identity, node name and address, temporary-key file
 absence, server tag, disabled node-key expiry, Tailscale SSH and completed
 cloud-init and a healthy Coolify container. Bootstrap waits up to twenty minutes
 for running cloud-init, with progress. Failed rows name a fixed reason; cloud-init
 failures include recognised module names without raw logs. Missing reads are
-reported separately. Nothing refreshes state, installs a package, calls a write tool or changes a host. A timeout on a TCP connection
+reported separately. Nothing refreshes state, installs a package, sends a write or changes a host. A timeout on a TCP connection
 is treated as unreachable; a passing tailnet read is also required. For each
 approved public port it also reports the HTTP status that answers, without
 reading the body; that status is information, not a pass condition. This is a
@@ -167,7 +177,7 @@ How it is checked: Stand-ins cover matching, unexpected open ports, wrong
 versions, node facts and missing reads. Protection removals detect a missing
 8080 probe and removed node guards.
 Script: `scripts/check.py`.
-Who runs it: `/check-live`, using the person's read token and installed MCP path.
+Who runs it: `/check-live`, using the person's read token.
 
 ### Place retirement and record
 
@@ -201,10 +211,10 @@ anything else. Keep the encrypted state and its key for recovery.
 
 ### Release and rollback facts
 
-The pins were checked on 16 November 2026 against Coolify's stable release and
-npm. MCP 3.10.1 is the current release; it includes the service-storage fix and
-current client validation. Its unmodified package is rehearsed over stdio
-against a loopback API, not a real Coolify instance.
+The pins were checked on 16 November 2026 against Coolify's stable release.
+The kit's REST requests were checked against the Coolify 4.7.5 source, not a
+real Coolify instance. [Sources](https://github.com/gwpicard/ai-host-kit/blob/main/docs/SOURCES.md#coolify-access-route)
+records why the kit calls the API directly rather than through an MCP server.
 
 Coolify 4.7.5's tagged OpenAPI documents `GET /applications/{uuid}/rollback-images`
 and `POST /applications/{uuid}/rollback`. The read returns `current` and `images`;

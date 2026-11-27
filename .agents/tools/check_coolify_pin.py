@@ -35,7 +35,7 @@ def check(recipe):
     if f'LATEST_HELPER_VERSION={helper}\\n' not in cloud:
         raise ValueError('Cloud-init helper version differs.')
     source = (recipe/'scripts/place.py').read_text()
-    if f'coolify="{version}"' not in source or f'mcp="{dependencies["mcp"]["version"]}"' not in source:
+    if f'coolify="{version}"' not in source:
         raise ValueError('Runtime version pins differ from dependencies.json.')
     for guard in ['sha256sum --check --status', 'exit 1', "('install.sh', 5), ('upgrade.sh', 4)", 'if changed != count:', 'AUTOUPDATE=false', 'HEALTH_WAIT=600', 'MAX_WAIT=600']:
         if guard not in cloud:

@@ -11,7 +11,6 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
-import tarfile
 import tempfile
 from unittest.mock import patch
 from types import SimpleNamespace
@@ -163,35 +162,24 @@ def prerequisites(work):
     with patch.dict(os.environ,{'AWS_PROFILE':'synthetic-profile'}),patch.object(toolchain,'verify_tools'),patch.object(preflight.urllib.request,'build_opener',return_value=reads):
         assert command(gate,'preflight',*base)[0]!=0
     # Exercise the actual tool verifier through preflight as well as the
-    # installer. Its version and package reads are independent stand-ins.
-    pin=toolchain.pins();install=work/'tools';package=install/'node_modules'/pin['package']
-    package.mkdir(parents=True);(package/'dist').mkdir();(package/'dist/index.js').touch()
-    (package/'package.json').write_text(json.dumps(dict(name=pin['package'],version=pin['version'])))
-    lock={'packages':{'':dict(dependencies={pin['package']:pin['version']}),
-        'node_modules/'+pin['package']:dict(version=pin['version'],integrity=pin['integrity'])}}
-    (install/'package-lock.json').write_text(json.dumps(lock))
+    # installer. Its version reads are independent stand-ins. Only Tailscale
+    # is a required command; Node and npm are no longer needed.
     versions=dict(line.split('==') for line in toolchain.requirements(gate).read_text().splitlines())
     with patch.object(preflight.urllib.request,'build_opener',return_value=reads),patch.object(gate,'check_version'), \
          patch.object(toolchain.importlib.metadata,'version',side_effect=lambda name:versions[name]), \
-         patch.object(toolchain.shutil,'which',return_value='/fixture/tool'):
-        status,text=command(gate,'preflight',*base,'--mcp-package',package/'package.json');assert status==0,text
-        for fault in ('lock','python','tofu','runtime'):
+         patch.object(toolchain.shutil,'which',side_effect=lambda name:'/fixture/tool' if name=='tailscale' else None):
+        status,text=command(gate,'preflight',*base);assert status==0,text
+        for fault in ('python','tofu','tailscale'):
             with patch.object(gate,'plan',side_effect=AssertionError('Bad tools reached plan')):
-                if fault=='lock':
-                    lock['packages']['node_modules/'+pin['package']]['integrity']='bad'
-                    (install/'package-lock.json').write_text(json.dumps(lock))
-                    status,text=command(gate,'plan',*base,'--mcp-package',package/'package.json')
-                    lock['packages']['node_modules/'+pin['package']]['integrity']=pin['integrity']
-                    (install/'package-lock.json').write_text(json.dumps(lock))
-                elif fault=='python':
+                if fault=='python':
                     with patch.object(toolchain.importlib.metadata,'version',side_effect=toolchain.importlib.metadata.PackageNotFoundError('fixture')):
-                        status,text=command(gate,'plan',*base,'--mcp-package',package/'package.json')
+                        status,text=command(gate,'plan',*base)
                 elif fault=='tofu':
                     with patch.object(gate,'check_version',side_effect=ValueError('wrong version')):
-                        status,text=command(gate,'plan',*base,'--mcp-package',package/'package.json')
+                        status,text=command(gate,'plan',*base)
                 else:
                     with patch.object(toolchain.shutil,'which',return_value=None):
-                        status,text=command(gate,'plan',*base,'--mcp-package',package/'package.json')
+                        status,text=command(gate,'plan',*base)
                 assert status!=0 and 'install-tools' in text,(fault,text)
     # Service stages request Services Read alone. A failed exchange cannot
     # fall back to the broad API token or consume a write approval.
@@ -326,9 +314,8 @@ def installer(work):
     gate=plans.load(SOURCE/'.agents/skills/setup-hosting')
     archive=io.BytesIO()
     with zipfile.ZipFile(archive,'w') as zipped:zipped.writestr('tofu',b'fixture tofu executable')
-    good=archive.getvalue();checksum=hashlib.sha256(good).hexdigest();pin=toolchain.pins()
-    for case in ('good','published','archive','tofu-version','python-version','mcp-version','integrity','missing-dist',
-                 'npm-error','npm-config-error','npm-timeout','npm-missing','pip-error','download-error'):
+    good=archive.getvalue();checksum=hashlib.sha256(good).hexdigest()
+    for case in ('good','published','archive','tofu-version','python-version','pip-error','download-error'):
         target=work/case;calls=[]
         class Download:
             def open(self,url,**kwargs):
@@ -349,120 +336,32 @@ def installer(work):
                 versions=dict(line.split('==') for line in toolchain.requirements(gate).read_text().splitlines())
                 if case=='python-version':versions['jsonschema']='0.0.0'
                 return subprocess.CompletedProcess(args,0,json.dumps(versions).encode(),b'')
-            elif args[0]=='npm':
-                assert '--ignore-scripts' in args and '--save-exact' in args
-                assert pin['package']+'@'+pin['version'] in args
-                user=Path(kwargs['env']['NPM_CONFIG_USERCONFIG'])
-                global_config=Path(kwargs['env']['NPM_CONFIG_GLOBALCONFIG'])
-                if user.samefile(global_config):
-                    message='double-loading config "'+str(global_config)+'" as "global", previously loaded as "user"'
-                    print('npm stand-in: '+message)
-                    return subprocess.CompletedProcess(args,1,b'',('Exit prior to config file resolving\ncause\n'+message+'\n').encode())
-                assert user.is_file() and global_config.is_file()
-                assert user.read_bytes()==global_config.read_bytes()==b''
-                assert user.parent==global_config.parent==target/('coolify-mcp-'+pin['version'])
-                assert user.stat().st_mode & 0o777 == global_config.stat().st_mode & 0o777 == 0o600
-                assert set(kwargs['env'])=={'PATH','HOME','NPM_CONFIG_USERCONFIG','NPM_CONFIG_GLOBALCONFIG','NPM_CONFIG_CACHE'}
-                if case=='npm-error':
-                    (target/'npm-cache').mkdir()
-                    return subprocess.CompletedProcess(args,1,b'non-summary output',
-                        b'private non-summary diagnostics\nnpm error code ECONFIG\n\x1b[31mnpm error local fixture failed\x1b[0m\x07\n')
-                if case=='npm-config-error':
-                    return subprocess.CompletedProcess(args,1,b'',
-                        b'Exit prior to config file resolving\ncause\ndouble-loading config "/fixture" as "global", previously loaded as "user"\n')
-                if case=='npm-timeout':raise subprocess.TimeoutExpired(args,600,stderr=b'private timeout diagnostics')
-                if case=='npm-missing':raise FileNotFoundError('synthetic-read-secret')
-                root=Path(args[args.index('--prefix')+1]);package=root/'node_modules'/pin['package']
-                package.mkdir(parents=True);(package/'dist').mkdir()
-                if case!='missing-dist':(package/'dist/index.js').touch()
-                (package/'package.json').write_text(json.dumps(dict(name=pin['package'],version='0.0.0' if case=='mcp-version' else pin['version'])))
-                (root/'package-lock.json').write_text(json.dumps(dict(lockfileVersion=3,packages={
-                    '':dict(dependencies={pin['package']:pin['version']}),
-                    'node_modules/'+pin['package']:dict(version=pin['version'],integrity='bad' if case=='integrity' else pin['integrity'])})))
             else:raise AssertionError(args)
             return subprocess.CompletedProcess(args,0,b'',b'')
         with patch.object(toolchain.platform,'system',return_value='Linux'),patch.object(toolchain.platform,'machine',return_value='x86_64'), \
              patch.object(toolchain,'CHECKSUMS',{'linux_amd64':checksum}),patch.object(toolchain.urllib.request,'build_opener',return_value=Download()), \
-             patch.object(toolchain.subprocess,'run',side_effect=process),patch.object(toolchain.shutil,'which',return_value='/fixture/tool'),patch.object(gate,'secrets_directory_safe'):
+             patch.object(toolchain.subprocess,'run',side_effect=process),patch.object(toolchain.shutil,'which',return_value=None),patch.object(gate,'secrets_directory_safe'):
             status,text=command(gate,'install-tools','--tools-home',target)
             assert (status==0)==(case=='good'),'Installer result differed for '+case+': '+text
+            # No Node, npm or package install runs, and none is needed.
+            assert not any(Path(args[0]).name in ('node','npm','npx') for args in calls),calls
             if case=='good':
-                assert 'SHA-256' in text and 'SHA-512' in text and 'lifecycle scripts were disabled' in text
-                assert 'Tools installed' in text
+                assert 'SHA-256' in text and 'binary wheels' in text and 'Tools installed' in text
+                assert sorted(path.name for path in target.iterdir())==['opentofu','venv']
                 before=len(calls)
                 status,text=command(gate,'install-tools','--tools-home',target)
                 assert status!=0 and len(calls)==before
                 assert 'already exists' in text and '--tools-home' in text
             else:
                 assert 'Tools installed' not in text
-                stage=('OpenTofu' if case in ('published','archive','tofu-version','download-error') else
-                       'Python environment' if case in ('python-version','pip-error') else 'MCP')
+                stage='OpenTofu' if case in ('published','archive','tofu-version','download-error') else 'Python environment'
                 assert 'Tool installation failed during '+stage in text,text
                 assert 'Nothing was removed' in text and 'inspect and remove' in text and '--tools-home' in text,text
-                present=[target/name for name in ('opentofu','venv','coolify-mcp-'+pin['version'],'npm-cache') if (target/name).exists()]
+                present=[target/name for name in ('opentofu','venv') if (target/name).exists()]
                 if present:assert 'Folders present (possibly incomplete): '+', '.join(map(str,present))+'.' in text,text
                 else:assert 'No tool destination folders are present' in text,text
-                if case.startswith('npm-'):
-                    assert (target/'opentofu/tofu').read_bytes()==b'fixture tofu executable'
-                    assert (target/'venv/bin/python3').is_file()
-                    assert (target/('coolify-mcp-'+pin['version'])/'package.json').is_file()
-                    before=len(calls)
-                    assert command(gate,'install-tools','--tools-home',target)[0]!=0 and len(calls)==before
-                if case=='npm-error':
-                    assert 'npm error code ECONFIG' in text and 'npm error local fixture failed' in text,text
-                    assert '\x1b' not in text and '\x07' not in text and 'private non-summary' not in text
-                if case=='npm-config-error':
-                    assert 'Exit prior to config file resolving' in text and 'double-loading config "/fixture"' in text,text
-                if case=='npm-timeout':assert 'timed out' in text and 'private timeout' not in text
             assert not any(value in text for value in ('Before apply','partial retirement','plan-destroy','uncertain write')),text
-    print('Passed: real installer path, checksum, wheel versions, npm scripts and lock integrity refusals')
-
-
-def real_npm(work):
-    if shutil.which('npm') is None or shutil.which('node') is None:
-        print('could-not-run: Node and npm are needed for the offline npm installation check')
-        return 2
-    import base64
-    pin=toolchain.pins();home=work/'home';home.mkdir()
-    marker=work/'lifecycle-ran';archive=work/'fixture.tgz'
-    script='node -e '+json.dumps('require("fs").writeFileSync('+json.dumps(str(marker))+', "ran")')
-    metadata=dict(name=pin['package'],version=pin['version'],scripts={name:script for name in ('preinstall','install','postinstall')})
-    with tarfile.open(archive,'w:gz') as tar:
-        for name,data in [('package.json',json.dumps(metadata).encode()),('dist/index.js',b'// offline fixture\n')]:
-            member=tarfile.TarInfo('package/'+name);member.size=len(data);tar.addfile(member,io.BytesIO(data))
-    integrity='sha512-'+base64.b64encode(hashlib.sha512(archive.read_bytes()).digest()).decode()
-    # This generated config must be ignored. No real home or config is read.
-    (home/'.npmrc').write_text('registry=http://127.0.0.1:1\nignore-scripts=false\nforce=true\n')
-    gate=plans.load(SOURCE/'.agents/skills/setup-hosting')
-    versions=dict(line.split('==') for line in toolchain.requirements(gate).read_text().splitlines())
-    real_run=subprocess.run
-    class ProbeComplete(Exception):pass
-    def process(args,**kwargs):
-        args=list(map(str,args))
-        if 'pass_fds' in kwargs:return real_run(args,**kwargs)
-        if args[0]=='npm':
-            # Keep the installer's flags and environment; replace only the
-            # registry package with a local tarball and require offline mode.
-            result=real_run([*args[:-1],str(archive),'--offline'],cwd=work,**kwargs)
-            assert result.returncode==0,'Real offline npm failed: '+toolchain.npm_error_summary(result.stderr)
-            mcp=Path(args[args.index('--prefix')+1])
-            lock=json.loads((mcp/'package-lock.json').read_text())
-            assert lock['packages']['node_modules/'+pin['package']]['integrity']==integrity
-            assert json.loads((mcp/'node_modules'/pin['package']/'package.json').read_text())==metadata
-            assert not marker.exists(),'npm ran a lifecycle script'
-            version=real_run(['npm','--version'],cwd=work,env=kwargs['env'],stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=30)
-            assert version.returncode==0
-            print('Passed: real npm '+version.stdout.decode().strip()+' installed a local tarball offline with isolated configs, disabled lifecycle scripts and matching lock integrity')
-            raise ProbeComplete
-        if '-c' in args:output=versions
-        elif args[0].endswith('/tofu'):output=dict(terraform_version='1.13.2')
-        else:output={}
-        return subprocess.CompletedProcess(args,0,json.dumps(output).encode(),b'')
-    with patch.object(toolchain,'install_tofu'),patch.object(toolchain.subprocess,'run',side_effect=process):
-        try:toolchain.install(gate,home)
-        except ProbeComplete:pass
-        else:raise AssertionError('Installer did not reach real npm')
-    return 0
+    print('Passed: real installer path, checksum and wheel version refusals, with no Node or npm step')
 
 
 def pages(work):
@@ -536,7 +435,7 @@ CASES = ('prerequisites','diagnosis','oauth_stage','update_effects','installer',
 
 
 def main():
-    parser=argparse.ArgumentParser();parser.add_argument('--case',choices=(*CASES,'real_npm'))
+    parser=argparse.ArgumentParser();parser.add_argument('--case',choices=CASES)
     args=parser.parse_args()
     for name in ([args.case] if args.case else CASES):
         case=globals()[name]

@@ -134,16 +134,19 @@ synthetic values and transports, with no provider or password-manager account.
 The Coolify on Hetzner recipe remains off the menu. `place.sh` exercises the
 provider-mocked module, one-off key rendering, a local S3 stand-in, named-effect
 approval, claim confirmation and registration read-back, lanes, ownership,
-node reads, sampled ports including 8080, the MCP protocol, scope declarations,
-docktail port definitions, staged record assembly, destroy membership and
-leftovers. A generated root validates with the pinned provider. The complete
-setup command sequence uses stand-ins and synthetic approvals. The unmodified
-MCP pin has also created and started a synthetic service against a loopback
-API. Tests remove the corresponding guards in throwaway copies.
+node reads, sampled ports including 8080, scope declarations, docktail port
+definitions, staged record assembly, destroy membership and leftovers. A
+generated root validates with the pinned provider. The complete setup command
+sequence uses stand-ins and synthetic approvals. `place-stages.sh` runs every
+Coolify stage through the kit's own REST transport against a loopback stand-in
+that follows the Coolify 4.7.5 controllers for those routes, including their
+refused fields and the variable flags they drop. Tests remove the
+corresponding guards in throwaway copies.
 
 These checks do not prove who claimed a real administrator, real tailnet
-policy, token abilities unavailable through the pinned API, actual docktail
-reconciliation, Hetzner locking or versioning, or either real-run outcome.
+policy, token abilities unavailable through the pinned API, that a real
+Coolify 4.7.5 answers as the stand-in does, actual docktail reconciliation,
+Hetzner locking or versioning, or either real-run outcome.
 The recipe owns the key-retention warning and approval sequence. A one-off
 key is still a secret while unused and unexpired. No broad hosting promise
 above changes to a guarantee.

@@ -70,7 +70,6 @@ def report_public_responses(record):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--record', default='hosting/place-record.json')
-    parser.add_argument('--mcp-package', required=True, help='Local installed MCP package.json; no package is fetched.')
     from api import secrets_options, configure_place_secrets, hidden_value
     secrets_options(parser)
     args = parser.parse_args()
@@ -79,9 +78,6 @@ def main():
         if reader.validate('place-record', args.record):
             return 1
         record = reader.read_json(args.record)
-        package = reader.read_json(args.mcp_package)
-        if package.get('name') != '@masonator/coolify-mcp':
-            raise Refused('The local package is not the pinned Coolify MCP.')
         # API version is an authenticated read using the protected file or prompt.
         from api import approval_gate
         gate = approval_gate()
@@ -100,7 +96,7 @@ def main():
                 from api import report_refusal
                 report_refusal(error, gate)
                 raise
-        rows = check_place(record, outside_probe, coolify, lambda:package.get('version'))
+        rows = check_place(record, outside_probe, coolify)
         from node import read_node, node_rows, ssh_reason
         try:
             rows.extend(node_rows(record, read_node(record['infrastructure']['tailnet_ipv4'])))

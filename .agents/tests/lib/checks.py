@@ -79,8 +79,8 @@ def source_rules(work):
     mutation('.agents/tools/kit-inventory.txt', lambda t: t + 'command fifth\n', 'exactly the four hosting commands')
     mutation('release-manifest.txt', lambda t: t + '.agents/maintainer-skills|\n', 'maintainer or undeclared material')
     mutation('.claude-plugin/plugin.json', lambda t: t.replace('"0.0.1"', '"0.0.2"'), 'version markers disagree')
-    mutation('.agents/skills/recipes/coolify-hetzner/scripts/mcp.py', lambda t: t.replace("KIT_VERSION = '0.0.1'", "KIT_VERSION = '0.0.2'"), 'version markers disagree')
-    mutation('.agents/skills/recipes/coolify-hetzner/scripts/mcp.py', lambda t: t.replace("KIT_VERSION = '0.0.1'", "VERSION = '0.0.1'"), 'expected exactly one KIT_VERSION line')
+    mutation('.agents/skills/recipes/coolify-hetzner/scripts/api.py', lambda t: t.replace("KIT_VERSION = '0.0.1'", "KIT_VERSION = '0.0.2'"), 'version markers disagree')
+    mutation('.agents/skills/recipes/coolify-hetzner/scripts/api.py', lambda t: t.replace("KIT_VERSION = '0.0.1'", "VERSION = '0.0.1'"), 'expected exactly one KIT_VERSION line')
     mutation('.ai-host-kit-version', lambda t: 'v0.0.2\n', 'version markers disagree')
     # Installs follow the stable branch over public HTTPS; any other source would publish
     # main or a fork, or need a GitHub SSH key that most people do not have.
@@ -151,9 +151,9 @@ def release_builder(work):
         assert (pack / name).read_bytes() == (ROOT / name).read_bytes()
     for name in ('.claude-plugin/plugin.json', 'agent-plugin/plugin.json'):
         assert json.loads((pack / name).read_text())['version'] == '0.0.2'
-    # Every shipped copy of the MCP client reports the release version.
+    # Every shipped copy of the Coolify transport reports the release version.
     for name in ('.agents/skills', 'agent-plugin/skills'):
-        client = (pack / name / 'host-fit/resources/recipes/coolify-hetzner/scripts/mcp.py').read_text()
+        client = (pack / name / 'host-fit/resources/recipes/coolify-hetzner/scripts/api.py').read_text()
         assert "KIT_VERSION = '0.0.2'" in client and '0.0.1' not in client
     for name in COMMANDS:
         source = (ROOT / f'.agents/skills/{name}/SKILL.md').read_bytes()

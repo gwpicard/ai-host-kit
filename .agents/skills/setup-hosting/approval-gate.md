@@ -264,7 +264,7 @@ The effect approval prompt also takes the checksum alone, visibly, with Enter
 to cancel and optional words. Preparation saves the effect; approval displays
 it once before the decision.
 
-The staged Place runner uses this gate for each Coolify MCP write, the
+The staged Place runner uses this gate for each Coolify API write, the
 person-led administrator claim and final record assembly. The recipe owns
 the exact sequence and failure recovery. An approval record alone does not perform the action.
 Claim completion and abandonment use separate recovery effects bound to the

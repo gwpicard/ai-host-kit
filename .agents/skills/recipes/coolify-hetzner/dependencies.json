@@ -1,11 +1,26 @@
 {
   "coolify": "4.7.5",
   "hcloud": "1.70.2",
-  "mcp": {
-    "package": "@masonator/coolify-mcp",
-    "version": "3.10.1",
-    "integrity": "sha512-a3vdgvMDVp3YUxdgJdSQYKBVYwvgpg/HGcBM8iLzVnxbHSZjlx5jr35ogL5JOwLVx3cCPN25aiQqyaMiaIMjRQ==",
-    "licence": "MIT"
+  "coolify_api": {
+    "access": "REST over the tailnet to port 8000 with the person's team token; no proxy, no redirect",
+    "writes": [
+      "POST /api/v1/projects",
+      "POST /api/v1/services",
+      "POST /api/v1/services/{uuid}/envs",
+      "PATCH /api/v1/services/{uuid}/envs",
+      "POST /api/v1/services/{uuid}/start"
+    ],
+    "reads": [
+      "GET /api/v1/version",
+      "GET /api/v1/team",
+      "GET /api/v1/servers/{uuid}",
+      "GET /api/v1/servers/{uuid}/destinations",
+      "GET /api/v1/services/{uuid}/envs",
+      "GET /api/v1/projects",
+      "GET /api/v1/services"
+    ],
+    "compose_encoding": "base64",
+    "checked_against": "Coolify v4.7.5 routes/api.php and its Api controllers"
   },
   "docktail": {
     "image": "ghcr.io/marvinvr/docktail:1.8.6",
@@ -22,15 +37,28 @@
   "coolify_helper": "1.0.19",
   "coolify_builtin_server": {
     "name": "localhost",
-    "addresses": ["127.0.0.1", "localhost", "host.docker.internal"],
+    "addresses": [
+      "127.0.0.1",
+      "localhost",
+      "host.docker.internal"
+    ],
     "destination_reply": "JSON list, including the coolify Standalone Docker with server_id 0"
   },
   "coolify_service_environment": {
     "compose_creates_empty_oauth_keys": true,
     "duplicate_create_status": 409,
     "update_method": "PATCH",
-    "mcp_masks_empty_values": true,
-    "readback": "Local transport projects raw values to set or unset and deployment flags; no reveal call"
+    "rows_selected_by": "key only, whatever the preview scope",
+    "request_fields": [
+      "key",
+      "value",
+      "is_literal",
+      "is_multiline",
+      "is_shown_once",
+      "comment"
+    ],
+    "ignored_fields": "Any other field, including is_buildtime, is_runtime and is_preview, is dropped unread; the kit refuses to send one",
+    "readback": "Local transport projects raw values to set or unset and deployment flags"
   },
   "coolify_files": {
     "install.sh": {

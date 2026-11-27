@@ -166,10 +166,8 @@ def stage_input_boundaries(work):
         def __init__(self,*args):pass
         def token_abilities(self):return None
         def registration_closed(self):return True
+        def coolify_version(self):return '4.7.5'
         def request(self,*args):return {'ports':['tcp:443']}
-    class MCP:
-        def __init__(self,*args):pass
-        def close(self):pass
     @contextmanager
     def terminal():yield None
     for step,target in [('claim','Coolify'),('claim','Hetzner'),('oauth-id','TAILSCALE_OAUTH_CLIENT_ID'),
@@ -192,8 +190,8 @@ def stage_input_boundaries(work):
                 requested.append(label)
                 raise flow.OperationRefused('Synthetic missing input.')
             return 'claimed '+record['place']['name'] if 'type claimed' in label else 'synthetic-only'
-        with patch.object(gate,'terminal',terminal),patch.object(gate,'configure_secrets'),patch.object(gate,'SECRET_VALUES',{'COOLIFY_TEAM_TOKEN':'synthetic-only'}),patch.object(flow,'approval_gate',return_value=gate),patch.object(flow,'prompt',side_effect=missing),patch.object(flow,'API',API),patch.object(flow,'MCP',MCP):
-            assert invoke(flow,'run','--step',step,'--progress',progress,'--effect',effect_path,'--approval',approved,'--mcp-package',folder/'package.json')[0]!=0
+        with patch.object(gate,'terminal',terminal),patch.object(gate,'configure_secrets'),patch.object(gate,'SECRET_VALUES',{'COOLIFY_TEAM_TOKEN':'synthetic-only'}),patch.object(flow,'approval_gate',return_value=gate),patch.object(flow,'prompt',side_effect=missing),patch.object(flow,'API',API):
+            assert invoke(flow,'run','--step',step,'--progress',progress,'--effect',effect_path,'--approval',approved)[0]!=0
         assert requested, 'The fixture did not reach the missing input at '+step
         assert progress.read_bytes()==before and list(journal.iterdir())==receipts, 'Input failure consumed approval at '+step
         gate.match_effect(effect,approved)
@@ -292,7 +290,6 @@ def exercise(work):
     with patch.object(flow,'API',API),patch.object(gate.shutil,'which',return_value='/fixture/op'),patch.object(gate.subprocess,'run',side_effect=op_read):
         assert command('discover','--secrets',reference,'--server-uuid','server-one','--destination-uuid','destination-one')[0]==0
     # Read-only entry points accept the file with non-terminal stdin and stdout.
-    package=work/'package.json';package.write_text(json.dumps(dict(name='@masonator/coolify-mcp',version='3.10.1')))
     class Response:
         def __enter__(self):return self
         def __exit__(self,*args):pass
@@ -300,9 +297,9 @@ def exercise(work):
     def version(r):
         assert r.get_header('Authorization')=='Bearer '+VALUES['COOLIFY_TEAM_TOKEN']
         return Response()
-    with patch.object(api,'approval_gate',return_value=gate),patch.object(check.urllib.request,'build_opener',return_value=SimpleNamespace(open=lambda r,**kw:version(r))),patch.object(check,'check_place',side_effect=lambda r,probe,read,mcp:[('Version','passed' if read('100.64.0.10')=='4.7.5' else 'failed')]),patch('node.read_node',return_value={}),patch('node.node_rows',return_value=[]):
+    with patch.object(api,'approval_gate',return_value=gate),patch.object(check.urllib.request,'build_opener',return_value=SimpleNamespace(open=lambda r,**kw:version(r))),patch.object(check,'check_place',side_effect=lambda r,probe,read:[('Version','passed' if read('100.64.0.10')=='4.7.5' else 'failed')]),patch('node.read_node',return_value={}),patch('node.node_rows',return_value=[]):
         place=work/'place.json';place.write_text(json.dumps(record))
-        assert invoke(check,'--record',place,'--mcp-package',package,'--config',settings)[0]==0
+        assert invoke(check,'--record',place,'--config',settings)[0]==0
     with patch.object(lane,'approval_gate',return_value=gate),patch.object(lane,'API',API):
         assert invoke(lane,'prepare','--record',place,'--lane','internal','--effect',work/'lane-effect.json','--config',settings)[0]==0
     # A missing person-only confirmation must leave the claim approval unused.
