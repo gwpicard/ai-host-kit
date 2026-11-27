@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import pty
 import select
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -333,6 +334,10 @@ def guidance(f):
 def main():
     parser=argparse.ArgumentParser();parser.add_argument('--case',choices=['summary','approval','effect','lane_effect','paths','bootstrap','guidance'])
     args=parser.parse_args()
+    # Every case saves a real encrypted plan, so a missing OpenTofu is not a failure.
+    if not shutil.which('tofu'):
+        print('could-not-run: OpenTofu 1.13.2 is required for real saved plans')
+        return 2
     cases=[args.case] if args.case else ['summary','approval','effect','lane_effect','paths','bootstrap','guidance']
     for case in cases:
         with tempfile.TemporaryDirectory(prefix='ai-host-kit-guidance-') as temp:
