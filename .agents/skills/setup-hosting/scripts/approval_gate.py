@@ -1,6 +1,7 @@
 """Save a plan with its identity, summarise it, record approval and apply its bytes."""
 import argparse
-from contextlib import contextmanager, redirect_stdout
+import codecs
+from contextlib import ExitStack, contextmanager, redirect_stdout
 from datetime import datetime, timezone
 import hashlib
 import io
@@ -140,7 +141,15 @@ def secret(key, label, shown=False):
             raise InputRefused('1Password could not read a non-empty single-line value. Unlock it and check the reference.')
     if value:
         return value
-    with terminal() as tty:
+    with ExitStack() as stack:
+        try:
+            tty = stack.enter_context(terminal())
+        except InputRefused:
+            # Name the missing value, never a value. Read-only commands approve
+            # nothing, so the terminal refusal alone would point the wrong way.
+            error = InputRefused('A required value is missing from the protected secrets file. Add it there, or run this command yourself in your terminal to type it.')
+            error.details = ('Missing value: ' + key + ' is not in the protected secrets file, and no foreground terminal is available to ask for it.',)
+            raise error from None
         if CONSOLE_GUIDANCE is not None:
             CONSOLE_GUIDANCE(key)
         return typed(tty, label + (' (shown): ' if shown else ' (hidden): '))
@@ -693,9 +702,11 @@ def terminal():
         yield tty
 
 
-def typed(tty, prompt, optional=False):
+def typed(tty, prompt, optional=False, expected=None):
     shown = '(shown)' in prompt
-    if not shown and '(hidden)' not in prompt:
+    if shown:
+        return shown_input(tty, prompt, optional, expected)
+    if '(hidden)' not in prompt:
         prompt += ' (hidden): '
     old = termios.tcgetattr(tty.fileno())
     new = old.copy()
@@ -713,18 +724,77 @@ def typed(tty, prompt, optional=False):
             termios.tcsetattr(tty.fileno(), termios.TCSANOW, old)
             tty.write('\n')
             tty.flush()
-        if shown:
-            if not (optional and answer == '') and not safe_words(answer):
-                raise InputRefused('The shown input is empty or may contain a secret. Use the requested identifier or plain words.')
-            tty.write(answer + '\n')
-            tty.flush()
-            return answer
         if answer:
             suffix = answer[-4:] if len(answer) > 4 and all(c.isprintable() for c in answer) else '<withheld>'
             tty.write('Length: ' + str(len(answer)) + '; last four: ' + suffix + '\n')
             tty.flush()
             return answer
     raise InputRefused('A required hidden value was empty after two prompts. No input was accepted.')
+
+
+def shown_input(tty, prompt, optional=False, expected=None):
+    """Echo shown input as it is typed, without displaying secret-shaped text."""
+    # Read without terminal echo, one burst at a time, and display a burst only
+    # once the whole answer so far still passes the secret checks. A paste
+    # arrives as one burst, so a pasted secret is refused before it is shown.
+    # Typed characters that make the answer unsafe erase what was displayed.
+    # With known text, only characters that continue that text are accepted.
+    old = termios.tcgetattr(tty.fileno())
+    new = old.copy()
+    new[3] &= ~(termios.ECHO | termios.ICANON)
+    new[6] = old[6].copy()
+    new[6][termios.VMIN] = 1
+    new[6][termios.VTIME] = 0
+    decoder = codecs.getincrementaldecoder('utf-8')()
+    answer = ''
+    try:
+        termios.tcsetattr(tty.fileno(), termios.TCSANOW, new)
+        termios.tcflush(tty.fileno(), termios.TCIFLUSH)
+        tty.write(prompt)
+        tty.flush()
+        finished = False
+        while not finished:
+            data = os.read(tty.fileno(), 1024)
+            if not data:
+                break
+            try:
+                text = decoder.decode(data)
+            except UnicodeDecodeError:
+                text = '\x00'
+            candidate = answer
+            for char in text:
+                if char in ('\r', '\n'):
+                    finished = True
+                    break
+                if char in ('\x7f', '\b'):
+                    candidate = candidate[:-1]
+                elif ord(char) < 32:
+                    candidate = None
+                    break
+                else:
+                    candidate += char
+            if candidate is not None and expected is not None and not expected.startswith(candidate):
+                raise InputRefused('The typed text does not match the requested confirmation. Nothing was accepted.')
+            if candidate is None or len(candidate) > 500 or not (candidate.strip() == '' or safe_words(candidate)):
+                tty.write('\b \b' * len(answer))
+                tty.flush()
+                raise InputRefused('The shown input may contain a secret, so it was not displayed or accepted. Use the requested identifier or plain words.')
+            common = 0
+            while common < min(len(answer), len(candidate)) and answer[common] == candidate[common]:
+                common += 1
+            tty.write('\b \b' * (len(answer) - common) + candidate[common:])
+            tty.flush()
+            answer = candidate
+    finally:
+        termios.tcflush(tty.fileno(), termios.TCIFLUSH)
+        termios.tcsetattr(tty.fileno(), termios.TCSANOW, old)
+        tty.write('\n')
+        tty.flush()
+    if optional and answer == '':
+        return answer
+    if not safe_words(answer):
+        raise InputRefused('The shown input is empty or may contain a secret. Use the requested identifier or plain words.')
+    return answer
 
 
 def checksum_input(tty):
@@ -914,6 +984,8 @@ def main():
         return 1
     except ValueError as exc:
         print('Refused: ' + str(exc), file=sys.stderr)
+        for line in getattr(exc, 'details', ()):
+            print(line, file=sys.stderr)
         return 1
 
 

@@ -1,9 +1,11 @@
 """Read a place from this computer. Never refresh state or call a write tool."""
 import argparse
+import http.client
 import importlib.util
 import json
 from pathlib import Path
 import socket
+import ssl
 import sys
 import subprocess
 import urllib.request
@@ -34,6 +36,35 @@ def outside_probe(host, port):
             return True
     except (ConnectionRefusedError, socket.timeout):
         return False
+
+
+def public_response(host, port):
+    """Return the HTTP status an approved public port answers with. Never read a body."""
+    # A bare address has no certificate to verify against, and no credential
+    # or cookie is sent. The status is reported as information, not a pass.
+    if port == 443:
+        context = ssl.create_default_context()
+        context.check_hostname = False
+        context.verify_mode = ssl.CERT_NONE
+        connection = http.client.HTTPSConnection(host, port, timeout=5, context=context)
+    else:
+        connection = http.client.HTTPConnection(host, port, timeout=5)
+    try:
+        connection.request('HEAD', '/')
+        return int(connection.getresponse().status)
+    finally:
+        connection.close()
+
+
+def report_public_responses(record):
+    for port in sorted({p for rule in record['firewall']['rules'] for p in rule['ports']}):
+        try:
+            status = public_response(record['infrastructure']['public_ipv4'], port)
+        except (OSError, http.client.HTTPException, ValueError):
+            print('Public TCP ' + str(port) + ': no HTTP response could be read.')
+            continue
+        note = " Coolify's proxy answers 503 until a tool is routed." if status == 503 else ''
+        print('Public TCP ' + str(port) + ' answers HTTP ' + str(status) + '.' + note + ' The response body was not read.')
 
 
 def main():
@@ -78,6 +109,7 @@ def main():
             print('Tailnet node read: ' + ssh_reason(error), file=sys.stderr)
         for name, status in rows:
             print(name + ': ' + status)
+        report_public_responses(record)
         return 0 if all(status == 'passed' for _, status in rows) else 1
     except (OSError, ValueError, KeyError, TypeError) as error:
         from api import report_refusal

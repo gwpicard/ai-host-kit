@@ -130,7 +130,7 @@ def recovery_cli(work, checks):
         applied=[]
         gate=SimpleNamespace(configure_secrets=lambda *a:None,InputRefused=checks.load().InputRefused,require_encryption=lambda:None,check_version=lambda:None,saved_plan=saved,
             planned_identity=lambda *a:None,tofu=lambda *a:subprocess.CompletedProcess(a,0,json.dumps(plan).encode(),b''),
-            apply=lambda *a:applied.append(a),terminal=terminal,typed=lambda *a:record['place']['name'])
+            apply=lambda *a:applied.append(a),terminal=terminal,typed=lambda *a,**k:record['place']['name'])
         api=StandIn();api.owned_resources=lambda partial:dict(firewall=owned['firewall'])
         args=['retire','--partial-progress',str(progress),'--plan','synthetic-plan','--approval','synthetic-approval']
         with patch.object(sys,'argv',args),patch.object(cli,'API',return_value=api),patch.object(cli,'approval_gate',return_value=gate),patch.object(cli,'hidden_value',return_value='synthetic-only'):

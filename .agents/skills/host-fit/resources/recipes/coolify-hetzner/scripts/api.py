@@ -22,7 +22,7 @@ def hidden_value(gate, label):
     if 'type claimed' in label:
         with gate.terminal() as tty:
             if getattr(gate,'CONSOLE_GUIDANCE',None): gate.CONSOLE_GUIDANCE('CLAIM')
-            return gate.typed(tty,label+' (shown): ')
+            return gate.typed(tty,label+' (shown): ',expected=label.rsplit('type ',1)[1])
     if label == 'State passphrase': key='STATE_PASSPHRASE'
     elif label == 'Hetzner project token': key='HETZNER_PROJECT_TOKEN'
     elif label.startswith('Single-use'): key='TAILSCALE_AUTH_KEY'
@@ -172,6 +172,9 @@ def report_refusal(error, gate=None):
     from place import Refused
     if isinstance(error, Refused) or (gate is not None and isinstance(error, (gate.InputRefused, getattr(gate, 'GateRefused', gate.InputRefused)))):
         print(str(error), file=sys.stderr)
+        # Details name inputs or local paths the kit chose, never a value.
+        for line in getattr(error, 'details', ()):
+            print(line, file=sys.stderr)
         return True
     if isinstance(error, urllib.error.HTTPError):
         host=urlsplit(error.url).hostname

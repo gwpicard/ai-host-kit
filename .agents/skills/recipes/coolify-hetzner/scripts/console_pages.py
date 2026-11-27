@@ -37,7 +37,7 @@ def open_url(url):
         print('The system opener is unavailable. Use the printed URL.')
 
 
-def show(key, context=None, launch=False):
+def show(key, context=None, launch=False, required=None):
     provider, name = key.split('.')
     source = json.loads(MAP.read_text())['providers'][provider]
     item = source['entries'][name]
@@ -49,8 +49,10 @@ def show(key, context=None, launch=False):
     for field, label in [('menu_path','Menu'), ('button','Button'), ('field','Field'), ('note','Guidance')]:
         print(label+': '+item[field].format_map(context), flush=True)
     print('Value shown only once: '+('yes' if item['shown_once'] else 'no')+'.', flush=True)
-    for lines in item.get('required_lines',{}).values():
-        print('Policy lines to merge after approval: '+json.dumps(lines),flush=True)
+    # Callers that know which prerequisites failed name them; others get all.
+    for name, lines in item.get('required_lines',{}).items():
+        if required is None or name in required:
+            print('Policy lines to merge after approval: '+json.dumps(lines),flush=True)
     if launch:
         if '<tailnet-ip>' in url: print('Supply the checked tailnet address to open this page.')
         else: open_url(url)

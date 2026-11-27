@@ -112,7 +112,7 @@ def retirement(ops,work):
     def terminal():yield None
     destroyed=[]
     gate=SimpleNamespace(configure_secrets=lambda *a:None,InputRefused=type('FixtureInputRefused',(ValueError,),{}),require_encryption=lambda:None,check_version=lambda:None,saved_plan=saved,planned_identity=lambda *a:None,
-        tofu=lambda *a:subprocess.CompletedProcess(a,0,json.dumps(plan).encode(),b''),apply=lambda *a:destroyed.append(True),terminal=terminal,typed=lambda *a:record['place']['name'])
+        tofu=lambda *a:subprocess.CompletedProcess(a,0,json.dumps(plan).encode(),b''),apply=lambda *a:destroyed.append(True),terminal=terminal,typed=lambda *a,**k:record['place']['name'])
     api=StandIn();api.owned_resources=lambda:owned
     visited=[]
     def inventory(kind):

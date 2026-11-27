@@ -127,13 +127,100 @@ def key(work):
     state['config']['backend']=json.loads((RECIPE/'tofu/backend.example.json').read_text())
     progress.write_text(json.dumps(state))
     labels=[]
-    def prompt(g,label):labels.append(label);return 'synthetic-only'
+    key='tskey-auth-kFixture7CNTRL-synthetic0private0part'
+    def prompt(g,label):labels.append(label);return key if label.startswith('Single-use') else 'synthetic-only'
+    @contextmanager
+    def terminal():yield None
     from prerequisite_standins import ready
-    with ready(flow),patch.object(flow,'approval_gate',return_value=gate),patch.object(flow,'prompt',side_effect=prompt),patch.object(gate,'plan'),patch.object(flow,'bind_provider'):
+    # The prompt stand-in types the values, so a terminal stand-in is present.
+    with ready(flow),patch.object(flow,'approval_gate',return_value=gate),patch.object(gate,'terminal',terminal), \
+         patch.object(flow,'prompt',side_effect=prompt),patch.object(gate,'plan'),patch.object(flow,'bind_provider'):
         status,text=invoke(flow,'plan','--progress',progress,'--plan',work/'saved.plan')
     assert status==0,text
     assert any('shortest available' in label and 'one day' in label for label in labels)
     assert all('one hour' not in label for label in labels)
+    # The key is the last value asked for, after preflight, with its reason.
+    assert labels[-1].startswith('Single-use'),labels
+    assert text.index('Preflight passed')<text.index('its day starts when it is created'),text
+    # Only the public key ID is shown, for comparison with the console.
+    assert 'Auth key ID: kFixture7CNTRL.' in text and 'newest key' in text,text
+    assert 'synthetic0private0part' not in text
+    # With neither the key in the file nor a terminal, plan stops after
+    # preflight and before any other prompt or plan, naming why and where.
+    labels.clear()
+    with ready(flow),patch.object(flow,'approval_gate',return_value=gate),patch.object(sys,'stdin',io.StringIO()), \
+         patch.object(flow,'prompt',side_effect=prompt),patch.object(gate,'plan',side_effect=AssertionError('planned without a key')):
+        status,text=invoke(flow,'plan','--progress',progress,'--plan',work/'refused.plan')
+    assert status!=0 and not labels,text
+    assert 'Plan needs the one-day Tailscale auth key' in text and 'its day starts when it is created' in text,text
+    assert 'https://login.tailscale.com/admin/settings/keys' in text and 'change the default 90 to 1' in text,text
+    assert 'Before apply' not in text and 'plan-destroy' not in text,text
+
+
+def plans_folder(work):
+    # An existing plans folder with default permissions is named with its fix.
+    gate=fixtures.load()
+    home=work.resolve()/'home';kit=home/'.local/share/ai-host-kit/plans';kit.mkdir(parents=True);kit.chmod(0o755)
+    progress=work/'progress.json'
+    progress.write_text(json.dumps(dict(root=str(work),config=dict(place=dict(name='fixture-place'),secrets=str(work/'absent.env')),done=[],uncertain=None)))
+    with patch.object(flow.Path,'home',return_value=home),patch.object(flow,'approval_gate',return_value=gate), \
+         patch.object(flow.preflight,'run',side_effect=AssertionError('preflight ran before the folder check')):
+        status,text=invoke(flow,'plan','--progress',progress)
+    lines=text.splitlines()
+    assert status!=0 and lines[0].startswith('The kit plans folder and place folder must belong to you with mode 700.'),text
+    assert 'Saved-plan folder: '+str(kit)+';' in text and 'mode: 755.' in text,text
+    assert 'Fix it with: chmod 700 '+str(kit) in text,text
+    assert 'spent auth keys' in text
+    # No apply has been attempted, so no apply or retirement guidance appears.
+    assert not any(value in text for value in ('Before apply','partial retirement','plan-destroy','uncertain write')),text
+    assert kit.stat().st_mode & 0o777 == 0o755 and not (kit/'fixture-place').exists(),'The kit changed or used the unsafe folder'
+
+
+def missing_value(work):
+    # A read-only command names the missing value instead of asking for approval.
+    record=json.loads((ROOT/'.agents/tests/fixtures/place/place-record.json').read_text())
+    place=work/'place.json';place.write_text(json.dumps(record))
+    package=work/'package.json';package.write_text(json.dumps(dict(name='@masonator/coolify-mcp',version='3.10.1')))
+    with patch.object(sys,'stdin',io.StringIO()):
+        status,text=invoke(check,'--record',place,'--mcp-package',package,'--secrets',work/'absent.env')
+    assert status!=0 and 'Missing value: COOLIFY_TEAM_TOKEN is not in the protected secrets file' in text,text
+    assert 'Approval needs' not in text and 'Run approve' not in text,text
+
+
+def proxy(work):
+    # The public lane names the proxy that answers, and check reports its status.
+    record=json.loads((ROOT/'.agents/tests/fixtures/place/place-record.json').read_text())
+    import place
+    assert "Coolify's proxy" in place.lane_effect(record,'public',[80,443])['effect']
+    assert 'HTTP 503' in place.lane_effect(record,'public',[443])['effect']
+    assert "proxy" not in place.lane_effect(record,'internal',[])['effect']
+    record['firewall']['rules']=[dict(protocol='tcp',ports=[80,443],sources=['0.0.0.0/0'],purpose='Approved public web access')]
+    path=work/'place.json';path.write_text(json.dumps(record))
+    package=work/'package.json';package.write_text(json.dumps(dict(name='@masonator/coolify-mcp',version='3.10.1')))
+    requests=[]
+    class Connection:
+        def __init__(self,host,port,timeout,context=None):
+            self.port=port;requests.append((type(self).__name__,host,port,context is not None))
+        def request(self,method,path,*args,**kwargs):
+            assert method=='HEAD' and path=='/' and not args and not kwargs.get('headers')
+        def getresponse(self):
+            if self.port==443:raise TimeoutError('synthetic-private-marker')
+            return SimpleNamespace(status=503,read=lambda *a:(_ for _ in ()).throw(AssertionError('body read')))
+        def close(self):pass
+    # Inherit the real classes' attributes, which urllib reads when it builds an
+    # opener on newer Python, while the fake methods replace every network call.
+    import http.client
+    class HTTPConnection(Connection,http.client.HTTPConnection):pass
+    class HTTPSConnection(Connection,http.client.HTTPSConnection):pass
+    with patch.object(api,'hidden_value',return_value='fixture'),patch.object(check,'outside_probe',side_effect=lambda host,port:port in (80,443)), \
+         patch.object(check,'check_place',side_effect=lambda r,probe,read,mcp:[('outside TCP 80','passed')]), \
+         patch('node.read_node',return_value={}),patch('node.node_rows',return_value=[]), \
+         patch.object(check.http.client,'HTTPConnection',HTTPConnection),patch.object(check.http.client,'HTTPSConnection',HTTPSConnection):
+        status,text=invoke(check,'--record',path,'--mcp-package',package,'--secrets',work/'absent.env')
+    assert status==0,text
+    assert "Public TCP 80 answers HTTP 503. Coolify's proxy answers 503 until a tool is routed." in text,text
+    assert 'Public TCP 443: no HTTP response could be read.' in text,text
+    assert [(kind,port,tls) for kind,host,port,tls in requests]==[('HTTPConnection',80,False),('HTTPSConnection',443,True)]
 
 
 def reasons(work):
@@ -208,7 +295,7 @@ def fixed(work):
 
 
 def main():
-    cases=dict(summary=summary,commands=commands,key=key,reasons=reasons,fixed=fixed)
+    cases=dict(summary=summary,commands=commands,key=key,plans_folder=plans_folder,missing_value=missing_value,proxy=proxy,reasons=reasons,fixed=fixed)
     parser=argparse.ArgumentParser();parser.add_argument('--case',choices=['all',*cases],default='all');args=parser.parse_args()
     # Only the summary case decrypts a real saved plan; the others still run without OpenTofu.
     missing=[] if shutil.which('tofu') else ['summary']

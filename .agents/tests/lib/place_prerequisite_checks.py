@@ -54,6 +54,7 @@ class Reads:
     def __init__(self):
         self.policy=copy.deepcopy(POLICY); self.dns=True; self.https=True
         self.calls=[]; self.bad=None; self.token_bad=False
+        self.bucket_error=None; self.token_status=None
     def open(self,request,**kwargs):
         method=request.get_method();url=request.full_url;self.calls.append((method,url))
         assert kwargs['timeout']==20
@@ -64,6 +65,7 @@ class Reads:
             scopes=body['scope'][0].split()
             assert scopes in (tailscale_reads.PREFLIGHT_SCOPES,tailscale_reads.SERVICE_SCOPES)
             assert all(s.endswith(':read') for s in scopes)
+            if self.token_status:raise urllib.error.HTTPError(url,self.token_status,'synthetic-read-secret',{},None)
             result=dict(access_token='synthetic-bearer',token_type='Bearer',expires_in=3600)
             if self.token_bad:result['expires_in']=0
             return Reply(json.dumps(result).encode())
@@ -84,6 +86,7 @@ class Reads:
             signature=hmac.new(key,message.encode(),hashlib.sha256).hexdigest()
             assert request.get_header('Authorization')=='AWS4-HMAC-SHA256 Credential=synthetic-access-id/'+scope+', SignedHeaders='+signed+', Signature='+signature
             if self.bad=='bucket':raise urllib.error.HTTPError(url,403,'private',{},None)
+            if self.bucket_error:raise self.bucket_error
             return Reply()
         assert method=='GET' and request.data is None
         assert request.get_header('Authorization')=='Bearer synthetic-bearer'
@@ -200,6 +203,79 @@ def prerequisites(work):
         except ValueError:pass
         else:raise AssertionError('Bad token accepted')
     print('Passed: real preflight and plan refusal paths, signed bucket reads and exact OAuth read scopes')
+
+
+def diagnosis(work):
+    """Preflight names the actual cause: missing, rejected, unreachable or refused."""
+    gate=plans.load(SOURCE/'.agents/skills/setup-hosting')
+    config=json.loads((ROOT/'.agents/skills/recipes/coolify-hetzner/setup.example.json').read_text())
+    config['backend']['bucket']='fixture-state'
+    secrets=work/'fixture.env';config['secrets']=str(secrets)
+    full='TAILSCALE_READ_CLIENT_ID=synthetic-read-id\nTAILSCALE_READ_CLIENT_SECRET=synthetic-read-secret\nSTORAGE_ACCESS_KEY=synthetic-access-id\nSTORAGE_SECRET_KEY=synthetic-storage-private\n'
+    secrets.write_text(full);secrets.chmod(0o600)
+    progress=work/'progress.json';progress.write_text(json.dumps(dict(root=str(work),config=config,done=[],uncertain=None)))
+    base=['--progress',progress]
+    reads=Reads()
+    tailnet=lambda:[url for method,url in reads.calls if 'api.tailscale.com' in url]
+    def run():
+        reads.calls.clear()
+        # No terminal: a missing value can never become a hidden prompt here.
+        with patch.object(toolchain,'verify_tools'),patch.object(preflight.urllib.request,'build_opener',return_value=reads), \
+             patch.object(tailscale_reads.urllib.request,'build_opener',return_value=reads),patch.object(sys,'stdin',io.StringIO()):
+            status,text=command(gate,'preflight',*base)
+        assert status!=0 and 'Preflight refused planning' in text,text
+        assert 'Policy lines to merge' not in text and 'DNS > MagicDNS' not in text,text
+        return text
+    # 1. No read credential and no fallback token: nothing is sent to Tailscale.
+    secrets.write_text('STORAGE_ACCESS_KEY=synthetic-access-id\nSTORAGE_SECRET_KEY=synthetic-storage-private\nTAILSCALE_READ_CLIENT_ID=\nTAILSCALE_READ_CLIENT_SECRET=\nTAILSCALE_API_TOKEN=\n')
+    text=run()
+    assert 'No Tailscale read credential is in the protected secrets file' in text and 'TAILSCALE_READ_CLIENT_ID' in text,text
+    assert 'No Tailscale read was sent' in text and 'required read scopes' not in text,text
+    assert text.count('Settings > Trust credentials > + Credential > OAuth')==1,text
+    assert not tailnet(),reads.calls
+    # 2. The token endpoint rejects the pair: say so, without values or scopes blame.
+    secrets.write_text(full);reads.token_status=401
+    text=run()
+    assert 'rejected the read credential pair' in text and 'HTTP 401' in text,text
+    assert tailnet()==['https://api.tailscale.com/api/v2/oauth/token'],reads.calls
+    reads.token_status=None
+    # 3. A read refused for scope names the status and the scopes.
+    reads.bad='acl'
+    text=run()
+    assert 'Tailscale answered HTTP 403 to a prerequisite read' in text and 'read scope' in text,text
+    reads.bad=None
+    # 4. Storage: a timeout or outage is not a key problem; 403 and 404 are.
+    storage_pages=('Generate credentials','Create bucket')
+    for error,expected,pages in [
+            (TimeoutError('synthetic-storage-private'),'did not answer within 20 seconds',()),
+            (urllib.error.URLError(TimeoutError()),'did not answer within 20 seconds',()),
+            (urllib.error.HTTPError('https://fsn1.your-objectstorage.com/fixture-state',503,'private',{},None),'answered HTTP 503',()),
+            (urllib.error.HTTPError('https://fsn1.your-objectstorage.com/fixture-state',403,'private',{},None),'refused the signed read (HTTP 403)',('Generate credentials',)),
+            (urllib.error.HTTPError('https://fsn1.your-objectstorage.com/fixture-state',404,'private',{},None),'was not found (HTTP 404)',('Create bucket',))]:
+        reads.bucket_error=error
+        reads.calls.clear()
+        with patch.object(toolchain,'verify_tools'),patch.object(preflight.urllib.request,'build_opener',return_value=reads), \
+             patch.object(tailscale_reads.urllib.request,'build_opener',return_value=reads),patch.object(sys,'stdin',io.StringIO()):
+            status,text=command(gate,'preflight',*base)
+        assert status!=0 and expected in text,(expected,text)
+        assert all((page in text)==(page in pages) for page in storage_pages),(expected,text)
+        if not pages:assert 'status.hetzner.com' in text and 'Check the selected bucket, region and storage pair' not in text,text
+    reads.bucket_error=None
+    # 5. An allow-all grant with every prerequisite present prints guidance, not merge lines.
+    reads.policy['grants']=[dict(src=['*'],dst=['*'],ip=['*'])]
+    with patch.object(toolchain,'verify_tools'),patch.object(preflight.urllib.request,'build_opener',return_value=reads), \
+         patch.object(tailscale_reads.urllib.request,'build_opener',return_value=reads),patch.object(sys,'stdin',io.StringIO()):
+        status,text=command(gate,'preflight',*base)
+    assert status==0 and 'not a failed prerequisite' in text and 'narrowing access' in text,text
+    assert 'Policy lines to merge' not in text and 'Preflight failed' not in text,text
+    # 6. A missing section prints only its own merge lines.
+    reads.policy.pop('ssh')
+    with patch.object(toolchain,'verify_tools'),patch.object(preflight.urllib.request,'build_opener',return_value=reads), \
+         patch.object(tailscale_reads.urllib.request,'build_opener',return_value=reads),patch.object(sys,'stdin',io.StringIO()):
+        status,text=command(gate,'preflight',*base)
+    merge=[line for line in text.splitlines() if line.startswith('Policy lines to merge')]
+    assert status!=0 and len(merge)==1 and '"ssh"' in merge[0],text
+    print('Passed: preflight separates missing, rejected and unscoped Tailscale reads, storage outages and policy guidance')
 
 
 def oauth_stage(work):
@@ -436,7 +512,7 @@ def retirement_pages(work):
     applied=[]
     gate=SimpleNamespace(require_encryption=lambda:None,check_version=lambda:None,saved_plan=saved,
         planned_identity=lambda *args:None,tofu=lambda *args:subprocess.CompletedProcess(args,0,json.dumps(shown).encode(),b''),
-        terminal=terminal,typed=lambda *args:record['place']['name'],apply=lambda *args:applied.append(args))
+        terminal=terminal,typed=lambda *args,**kwargs:record['place']['name'],apply=lambda *args:applied.append(args))
     cloud=SimpleNamespace(owned_resources=lambda **kwargs:owned,inventory=lambda kind:[])
     out=io.StringIO()
     with patch.object(retire,'API',return_value=cloud),patch.object(sys,'argv',['retire','--record',str(path),'--plan','fixture-plan','--approval','fixture-approval']),redirect_stdout(out),redirect_stderr(out):
@@ -456,7 +532,7 @@ def retirement_pages(work):
     print('Passed: real retire command lists service, machine, OAuth credentials and API token with pages and buttons')
 
 
-CASES = ('prerequisites','oauth_stage','update_effects','installer','pages','retirement_pages')
+CASES = ('prerequisites','diagnosis','oauth_stage','update_effects','installer','pages','retirement_pages')
 
 
 def main():

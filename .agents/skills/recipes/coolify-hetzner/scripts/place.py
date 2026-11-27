@@ -156,12 +156,18 @@ def lane_rules(lane, ports):
             for port in sorted(ports)]
 
 
+# Coolify's proxy publishes host ports 80 and 443 even with no tool deployed,
+# so opening either port makes it answer from the internet.
+PROXY_NOTE = (" Coolify's proxy (coolify-proxy, Traefik) already listens on host ports 80 and 443,"
+              " so it will answer from the internet on these ports. With no tool routed it answers HTTP 503.")
+
+
 def lane_effect(record, lane, ports):
     return dict(action="set-lane", place_sha256=fingerprint(record),
                 firewall_id=record["infrastructure"]["firewall_id"],
                 lane=lane, rules=lane_rules(lane, ports),
                 effect="Replace inbound rules for " + record["place"]["name"] + "; public TCP ports: " + (", ".join(map(str, sorted(ports))) or "none")
-                + ". SSH and Coolify administration stay on the tailnet.")
+                + ". SSH and Coolify administration stay on the tailnet." + (PROXY_NOTE if ports else ""))
 
 
 @locked

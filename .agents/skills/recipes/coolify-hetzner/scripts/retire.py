@@ -46,7 +46,7 @@ def main(gate=None, token=None, console_context=None, retired=None):
         api=API(record,token)
         def confirm(name):
             with gate.terminal() as tty:
-                return gate.typed(tty,'This destroys the place and its disk. Type '+name+' (shown): ')
+                return gate.typed(tty,'This destroys the place and its disk. Type '+name+' (shown): ',expected=name)
         def apply(plan,approval):
             # Re-read and match owned deletions immediately before gated apply.
             with gate.saved_plan(plan) as (snapshot,sha):

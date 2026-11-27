@@ -120,7 +120,11 @@ def planned(place):
     """Run create planning with stand-ins after preflight; report whether a plan was saved."""
     from prerequisite_standins import ready
     calls=[]
-    with ready(flow),patch.object(place.gate,'plan',side_effect=lambda *a,**k:calls.append(a)),patch.object(flow,'bind_provider'):
+    # The prompt stand-in types every value, so a terminal stand-in is present.
+    @contextmanager
+    def terminal():yield None
+    with ready(flow),patch.object(place.gate,'plan',side_effect=lambda *a,**k:calls.append(a)),patch.object(flow,'bind_provider'), \
+         patch.object(place.gate,'terminal',terminal):
         status,out,err=place.command('plan','--plan',place.work/'create-2.plan')
     return status,out+err,calls
 
