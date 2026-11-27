@@ -9,6 +9,7 @@ import importlib.util
 import os
 import re
 from pathlib import Path
+import shlex
 import shutil
 import stat
 import subprocess
@@ -454,6 +455,14 @@ def progress_lock(progress):
     finally: os.close(descriptor)
 
 
+def owner_name(uid):
+    try:
+        import pwd
+        return pwd.getpwuid(uid).pw_name
+    except (ImportError, KeyError):
+        return 'user '+str(uid)
+
+
 @contextmanager
 def plan_folder(gate, name):
     """Serialise numbered paths in an owner-only folder outside repositories."""
@@ -463,11 +472,18 @@ def plan_folder(gate, name):
     for part in reversed([folder,*folder.parents]):
         read_require(not part.is_symlink(), 'The saved-plan folder must not use symlinks.')
     folder.parent.mkdir(parents=True,exist_ok=True,mode=0o700)
-    folder.mkdir(exist_ok=True,mode=0o700)
-    for part in (folder,folder.parent):
+    for part in (folder.parent,folder):
+        # Check the kit folder before creating the place folder inside it.
+        part.mkdir(exist_ok=True,mode=0o700)
         info=part.stat()
-        read_require(info.st_uid==os.getuid() and stat.S_IMODE(info.st_mode)==0o700,
-                'The kit plans folder and place folder must belong to you with mode 700.')
+        if info.st_uid!=os.getuid() or stat.S_IMODE(info.st_mode)!=0o700:
+            # Name the folder and the fix; never change a mode automatically.
+            error=OperationRefused('The kit plans folder and place folder must belong to you with mode 700. Nothing was read or sent.')
+            error.details=('Saved-plan folder: '+str(part)+'; owner: '+owner_name(info.st_uid)+'; mode: '+format(stat.S_IMODE(info.st_mode),'o')+'.',
+                ('Fix it with: chmod 700 '+shlex.quote(str(part))) if info.st_uid==os.getuid() else
+                'It belongs to another user, so chmod alone cannot fix it. Check its contents, move it aside, then plan again.',
+                'An older plans folder can hold saved plans with spent auth keys. Review them before you keep or delete them.')
+            raise error
     descriptor=os.open(folder,os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     reason='Keep the kit plans folder outside every Git repository.'
     try:
@@ -482,6 +498,32 @@ def plan_folder(gate, name):
             yield folder
         finally: os.close(lock)
     finally: os.close(descriptor)
+
+
+AUTH_KEY_ORDER=('The one-day Tailscale auth key is the last value, asked for after preflight has passed and just before planning. '
+                'Create it only now: its day starts when it is created, it works once, and the saved plan embeds it.')
+
+
+def auth_key_ready(gate, context):
+    """Refuse before any prompt or plan when the auth key cannot be supplied."""
+    print(AUTH_KEY_ORDER)
+    if getattr(gate,'SECRET_VALUES',{}).get('TAILSCALE_AUTH_KEY'): return
+    try:
+        with gate.terminal(): pass
+    except gate.InputRefused:
+        console_page('tailscale.auth-key',context)
+        raise OperationRefused('Plan needs the one-day Tailscale auth key, and it is not in the protected secrets file. Create it now and save it as TAILSCALE_AUTH_KEY, or run plan yourself in your terminal to type it. Nothing was planned.') from None
+
+
+def auth_key_identity(key):
+    """Print only the public key ID, so a stale key can be caught before apply."""
+    # Tailscale auth keys read tskey-auth-<ID>-<secret>. The ID is listed in
+    # the console and is not secret; the rest is never printed.
+    match=re.fullmatch(r'tskey-auth-([A-Za-z0-9]{4,40})-[A-Za-z0-9]{8,}',key)
+    if match:
+        print('Auth key ID: '+match[1]+'. Compare it with the newest key under Settings > Keys in the Tailscale console. A different ID means an older key is in use; replace it before approval.')
+    else:
+        print('The auth key does not have the usual tskey-auth-<ID>-<secret> form, so its ID cannot be shown. Check that TAILSCALE_AUTH_KEY holds the new one-day key before approval.')
 
 
 def numbered_path(folder, stem, suffix):
@@ -514,7 +556,7 @@ def prune_plans(gate, folder, current):
     with gate.terminal() as tty:
         tty.write('Superseded plans for this place and operation:\n'+''.join(str(path)+'\n' for path in paths))
         tty.write('A plan can hold a spent key. Deleting these plans and their identity sidecars cannot be undone. Approval records and receipts are kept.\n')
-        answer=gate.typed(tty,'Type delete to remove these plans, or Enter to keep them (shown): ',optional=True)
+        answer=gate.typed(tty,'Type delete to remove these plans, or Enter to keep them (shown): ',optional=True,expected='delete')
         read_require(answer in ('','delete'), 'Use delete or Enter. No plans were removed.')
         if not answer:
             print('Kept the superseded plans.'); return
@@ -583,6 +625,7 @@ def main():
         if args.command in ('preflight','plan'):
             preflight.run(state['config'],gate,args.mcp_package)
             if args.command=='preflight': return 0
+            auth_key_ready(gate,console_context)
         if planning and not args.plan:
             args.plan=numbered_path(folder,'destroy' if args.command=='plan-destroy' else 'create','.plan')
         if plan_command and not args.plan:
@@ -682,6 +725,7 @@ def main():
                 require(args.plan, 'Supply a new saved-plan path.')
                 os.environ['TF_VAR_hcloud_token']=prompt(gate,'Hetzner project token')
                 os.environ['TF_VAR_tailnet_auth_key']=prompt(gate,'Single-use pre-approved non-ephemeral tag:server Tailscale key, shortest available expiry (one day, Tailscale\'s shortest option)')
+                auth_key_identity(os.environ['TF_VAR_tailnet_auth_key'])
                 gate.plan(args.plan)
                 bind_provider(state,args.plan,os.environ['TF_VAR_hcloud_token'],gate,remember=True)
                 state['saved_plan']=args.plan; state['saved_plan_kind']='create'; state.pop('saved_approval',None); save(progress,state)
@@ -877,6 +921,10 @@ def main():
                 print('Uncertain result: '+uncertain+'. Its change may exist. Inspect it before any retry.',file=sys.stderr)
             if any(step in done for step in ('project','docktail','register')) or uncertain in ('project','docktail','register','start-register'):
                 print('Coolify plumbing may exist on the server. Retirement removes its disk and containers; a Tailscale service definition can remain for separate review.',file=sys.stderr)
+        attempted=not isinstance(state,dict) or any(state.get(key) for key in ('applied','outputs','record','retirement_incomplete')) or state.get('uncertain')=='apply'
+        if not attempted:
+            print('Stopped: setup inputs, approval or transport failed; values withheld. Progress shows no applied or attempted create for this place, so no provider resources are expected from it. Fix the reason above, then run the command again.',file=sys.stderr)
+            return 1
         print('Stopped: setup inputs, approval or transport failed; values withheld. Before apply, no provider resources are expected. After an attempted apply, the server, firewall and SSH key may exist. Keep the progress file and encrypted state. Export a candidate record if bootstrap passed, then use retire.py with an approved destroy plan. For a partial apply, use plan-destroy --partial and retire --partial with a fresh saved-plan approval. Do not retry an uncertain write or remove console leftovers without separate approval.',file=sys.stderr)
         return 1
     finally:

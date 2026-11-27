@@ -55,20 +55,26 @@ marker. A write or failed read-back after an attempt still needs inspection.
 With all required values in the file, `init`, `plan`, `plan-destroy`, `summary`,
 `bootstrap`, `discover` and `check.py` can run from the coding agent's shell.
 Approvals and typed claim and retirement confirmations still require the
-person's foreground terminal. See the [approval limits](https://github.com/gwpicard/ai-host-kit/blob/main/docs/PROMISES.md#protected-place-secrets)
+person's foreground terminal. When a value is missing and no terminal can ask
+for it, the command names the missing value and stops; it does not ask for
+approval. See the [approval limits](https://github.com/gwpicard/ai-host-kit/blob/main/docs/PROMISES.md#protected-place-secrets)
 for the Claude Code deny rule and the limits of that boundary.
 
 ### Prompt visibility
 
-This table owns prompt visibility for the Place flow. Shown input is checked
-for secret-shaped text before being displayed. This can reject harmless text
-and cannot detect every secret. Each prompt names its visibility.
+This table owns prompt visibility for the Place flow. Shown input appears as
+it is typed, and backspace corrects it. Each burst of input, such as a paste,
+is checked for secret-shaped text before it is displayed; text that fails is
+refused, and anything already displayed is erased. Confirmations with known
+text, such as the place name and `claimed <place-name>`, accept only the
+characters of that text. The check can reject harmless text and cannot detect
+every secret. Each prompt names its visibility.
 
 | Input | Visibility |
 |---|---|
 | State passphrase, Hetzner project token, storage secret key, one-off Tailscale auth key, Coolify team token, Tailscale API token, read and docktail OAuth secrets | Hidden; length and last four characters only after entry |
 | Storage access key, read and docktail OAuth client IDs | Shown identifiers |
-| Place name at retirement, approval checksum and words, `claimed <place-name>` | Shown; foreground terminal required |
+| Place name at retirement, approval checksum and words, `claimed <place-name>` | Shown as typed; foreground terminal required |
 
 After approval for local downloads and installation, run
 `python3 "$RECIPE/scripts/setup.py" install-tools`. It installs OpenTofu
@@ -102,8 +108,13 @@ name that traffic before approval. No model or agent is installed on the server.
 Set these non-secret paths in the person's shell. The kit chooses new numbered
 plan and approval files under `~/.local/share/ai-host-kit/plans/<place>/`,
 outside every repository. It records the current paths in the progress file;
-shell variables do not select them. Keep encrypted state in the selected
-bucket, with its passphrase elsewhere.
+shell variables do not select them. Both `plans/` and the place folder must
+belong to you with mode 700. The kit creates them that way, but a folder made
+by hand or by an earlier kit version may have mode 755. Planning then refuses,
+names the folder, its owner and mode, and prints the `chmod 700` command; it
+never changes a mode itself. Such a folder can hold older saved plans with
+spent auth keys. Keep encrypted state in the selected bucket, with its
+passphrase elsewhere.
 `MCP_PACKAGE` is the installed package's `package.json`, not a command.
 
 ```sh
@@ -140,11 +151,24 @@ created place, not invented in advance.
    or saving any plan. Preflight checks pinned tools, the signed bucket HEAD
    read, tag ownership, service auto-approval, administrator root SSH,
    MagicDNS and HTTPS certificates. Missing prerequisites refuse planning and
-   name the map entry and policy lines. An allow-all grant is reported with a
-   narrower canary proposal; it is not edited. Adding a narrow grant does not
-   cancel an existing broad grant. The person reviews and approves each policy
-   change in the console. Bucket reachability does not prove versioning,
-   retention, object-write permissions or lock behaviour.
+   name the map entry and only the missing policy lines. An allow-all grant is
+   reported as a notice with a narrower canary proposal, as guidance for
+   narrowing access rather than a failed prerequisite; it is not edited.
+   Preflight tells apart a storage timeout or provider error, which needs a
+   retry, from a refused key pair or a missing bucket. It also tells apart a
+   Tailscale read credential that was never supplied, one the token endpoint
+   rejected, and a read that failed for lack of scope. Adding a narrow grant
+   does not cancel an existing broad grant. The person reviews and approves
+   each policy change in the console. Bucket reachability does not prove
+   versioning, retention, object-write permissions or lock behaviour.
+   The one-day Tailscale auth key is the last value. Create it after preflight
+   passes, just before `plan`: its day starts at creation, it works once and
+   the saved plan embeds it. When the key is neither in the file nor typed at
+   a terminal, `plan` refuses after preflight with that reason and the console
+   entry, before any other prompt or plan. Before saving the plan, `plan`
+   prints the key's public ID, the `<ID>` in `tskey-auth-<ID>-...`. Compare it
+   with the newest key in the Tailscale console; a different ID means an older
+   key is in the file.
    The plan command reads the passphrase, project token, one-off tailnet
    key and storage pair from the protected file. Summary and approval need the
    passphrase and same storage pair. Missing values use prompts. The one-off key is in Hetzner user data and encrypted plans
@@ -312,9 +336,12 @@ created place, not invented in advance.
    effect at a new path and obtain fresh approval before applying again.
 
    This example opens TCP 80 and 443 to the internet, with no tool deployed.
-   Approve that reachability explicitly. Other ports are refused. The command
-   reads the project token and Coolify read token from the file, prompting for
-   missing values, and saves a new record.
+   Coolify's proxy (`coolify-proxy`, Traefik) already listens on host ports 80
+   and 443, so it answers from the internet once they open: HTTP 503 until a
+   tool is routed. The lane effect names this. Approve that reachability
+   explicitly. Other ports are refused. The command reads the project token
+   and Coolify read token from the file, prompting for missing values, and
+   saves a new record.
    The person reviews and adopts that local record before checking again.
 
    ```sh
@@ -325,10 +352,10 @@ created place, not invented in advance.
    python3 "$RECIPE/scripts/check.py" --record "$PLACE/hosting/place-record.json" --mcp-package "$MCP_PACKAGE"
    ```
 
-   No listener is installed by this empty-place test. Open firewall rules do
-   not make an absent listener answer. Record whether the outside probes
-   actually match; do not turn a mismatch into a pass or tick the real-run
-   outcome without the required evidence.
+   `check.py` expects each approved port to connect and reports the HTTP
+   status that answers there, without reading the body. Record whether the
+   outside probes actually match; do not turn a mismatch into a pass or tick
+   the real-run outcome without the required evidence.
 
 ## Second real run: retire
 

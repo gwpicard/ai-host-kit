@@ -312,7 +312,7 @@ def adapter_checks():
             applied=[]
             retired=SimpleNamespace(configure_secrets=lambda *a:None,InputRefused=checks.load().InputRefused,require_encryption=lambda:None,check_version=lambda:None,saved_plan=saved,
                  planned_identity=lambda *a:None,tofu=lambda *a:subprocess.CompletedProcess(a,0,json.dumps(destroy).encode(),b''),
-                 apply=lambda *a:applied.append(a),terminal=terminal,typed=lambda *a:record['place']['name'])
+                 apply=lambda *a:applied.append(a),terminal=terminal,typed=lambda *a,**k:record['place']['name'])
             command=['retire','--record',str(FIXTURE/'place-record.json'),'--plan','synthetic-plan','--approval',str(approval)]
             with patch.object(sys,'argv',command),patch.object(retire_cli,'API',return_value=fake),patch.object(retire_cli,'approval_gate',return_value=retired),patch.object(retire_cli,'hidden_value',return_value='synthetic-only'):
                 assert retire_cli.main()==0 and len(applied)==1

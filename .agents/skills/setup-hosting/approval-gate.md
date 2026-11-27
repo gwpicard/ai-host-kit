@@ -95,7 +95,8 @@ sh <skill-folder>/scripts/approve.sh <planfile> <new-approval-record.json>
 The summary ends with 12 hexadecimal digits, grouped in fours. Approval
 shows that summary and asks for the checksum alone, displayed as typed.
 Enter alone cancels without creating a record. The person's own words are
-optional and are displayed after checks for secret-shaped text. Both answers
+optional and are displayed as typed, each burst of input only after checks
+for secret-shaped text. Both answers
 come from the controlling terminal. Only checksum characters are displayed
 during confirmation; arbitrary pasted text is refused. The [Place setup guide](../host-fit/resources/recipes/coolify-hetzner/setup.md#prompt-visibility)
 owns prompt visibility. Pipes,

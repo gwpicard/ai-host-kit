@@ -112,7 +112,10 @@ HTTP 429, are not proof of a claim. This combines the person's confirmation
 with a read-back; it cannot authenticate who answered the local prompt.
 The public lane permits only separately approved TCP 80 and/or 443. It checks
 ownership, closed registration, the team read, effect approval and firewall
-read-back. The internal lane has no public inbound rules.
+read-back. Coolify's proxy already listens on host ports 80 and 443, so an
+opened port answers from the internet, with HTTP 503 until a tool is routed;
+the lane effect names this before approval. The internal lane has no public
+inbound rules.
 
 The installed, unmodified Coolify MCP 3.10.1 runs over stdio with an explicit
 tailnet URL and a prompted token. Every Coolify write uses it. Project creation,
@@ -156,7 +159,9 @@ cloud-init and a healthy Coolify container. Bootstrap waits up to twenty minutes
 for running cloud-init, with progress. Failed rows name a fixed reason; cloud-init
 failures include recognised module names without raw logs. Missing reads are
 reported separately. Nothing refreshes state, installs a package, calls a write tool or changes a host. A timeout on a TCP connection
-is treated as unreachable; a passing tailnet read is also required. This is a
+is treated as unreachable; a passing tailnet read is also required. For each
+approved public port it also reports the HTTP status that answers, without
+reading the body; that status is information, not a pass condition. This is a
 finite port sample, not a scan of every port or a tailnet policy audit.
 How it is checked: Stand-ins cover matching, unexpected open ports, wrong
 versions, node facts and missing reads. Protection removals detect a missing

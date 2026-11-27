@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "checked_at": "2026-11-18",
+  "checked_at": "2026-11-19",
   "providers": {
     "hetzner": {
       "version": "console checked 2026-11-17",
@@ -40,15 +40,15 @@
       }
     },
     "tailscale": {
-      "version": "console checked 2026-11-17; API scopes checked 2026-11-18",
+      "version": "console checked 2026-11-17, auth key dialog 2026-11-19; API scopes checked 2026-11-18",
       "entries": {
         "auth-key": {
           "url": "https://login.tailscale.com/admin/settings/keys",
           "menu_path": "Settings > Keys",
           "button": "Generate auth key...",
-          "field": "Expiry: one day; Reusable: off; Ephemeral: off; Pre-approved: on; Tags: tag:server; Key",
+          "field": "Description; Reusable: off; Expiration in days: change the default 90 to 1; Ephemeral: off; Tags: tag:server; Pre-approved: on, when shown; Key",
           "shown_once": true,
-          "note": "Save TAILSCALE_AUTH_KEY. Single use, persistent node. Never reuse this key."
+          "note": "Create this key last, after preflight passes and just before plan: its one day starts at creation. Save TAILSCALE_AUTH_KEY. Single use, persistent node. Never reuse this key. The Pre-approved toggle appears only when device approval is on for the tailnet; without device approval the key is effectively pre-approved."
         },
         "read-credential": {
           "url": "https://login.tailscale.com/admin/settings/trust-credentials",

@@ -105,6 +105,59 @@ def terminal_pastes():
     finally: os.close(fd)
 
 
+def shown_echo():
+    """Shown prompts display input as typed, never a secret-shaped burst."""
+    # Each step waits for the previous output, including echoed characters,
+    # so the parent proves the text appeared before Enter was sent.
+    sys.stdout.flush();sys.stderr.flush()
+    pid,fd=pty.fork()
+    if pid==0:
+        try:
+            gate=approval.load()
+            results=[]
+            with gate.terminal() as tty:
+                results.append(gate.typed(tty,'Live (shown): '))
+                results.append(gate.typed(tty,'Type test-place (shown): ',expected='test-place'))
+                for prompt in ('Again test-place (shown): ','Words (shown): '):
+                    try:
+                        gate.typed(tty,prompt,expected='test-place' if prompt.startswith('Again') else None)
+                    except gate.InputRefused:results.append('refused')
+                    else:results.append('accepted')
+                results.append(gate.typed(tty,'Optional (shown): ',optional=True))
+            assert results==['abcd','test-place','refused','refused',''],results
+            print('Echo checks passed.',flush=True)
+            os._exit(0)
+        except BaseException:
+            import traceback
+            traceback.print_exc();sys.stderr.flush();os._exit(1)
+    steps=[(b'Live (shown): ',b'abc'),(b'Live (shown): abc',b'X'),(b'abcX',b'\x7fd\n'),
+           (b'Type test-place (shown): ',b'test-pl'),(b'(shown): test-pl',b'ace\r\n'),
+           (b'Again test-place (shown): ',b'test-plx\n'),
+           (b'Words (shown): ',b'note '),(b'(shown): note ',b'token=synthetic-private-do-not-show\n'),
+           (b'Optional (shown): ',b'\n')]
+    output=b'';step=0;deadline=time.monotonic()+15
+    try:
+        while time.monotonic()<deadline:
+            if select.select([fd],[],[],0.05)[0]:
+                try:output+=os.read(fd,65536)
+                except OSError:pass
+            if step<len(steps) and steps[step][0] in output:
+                os.write(fd,steps[step][1]);step+=1
+            done,status=os.waitpid(pid,os.WNOHANG)
+            if done:
+                assert os.waitstatus_to_exitcode(status)==0 and step==len(steps),'Shown echo command failed: '+repr(output)
+                # Typed characters appeared before Enter; backspace erased one.
+                assert b'Live (shown): abcX\x08 \x08d' in output,output
+                # Known text: a wrong character is refused before display.
+                assert b'test-plx' not in output
+                # A secret-shaped burst is refused, and the shown words are erased.
+                assert b'synthetic-private-do-not-show' not in output and b'note \x08 \x08\x08 \x08' in output,output
+                return
+        os.kill(pid,9);os.waitpid(pid,0)
+        raise AssertionError('Shown echo fixture timed out at step '+str(step)+': '+repr(output))
+    finally:os.close(fd)
+
+
 def stage_input_boundaries(work):
     """The same failed input must leave each real command's approval unused."""
     gate=approval.load()
@@ -344,3 +397,5 @@ if __name__=='__main__':
             stage_input_boundaries(Path(tmp))
     terminal_pastes()
     print('Safe terminal paste and empty-value retry passed.')
+    shown_echo()
+    print('Shown prompts echo as typed and refuse secret-shaped or unmatched text before display.')
